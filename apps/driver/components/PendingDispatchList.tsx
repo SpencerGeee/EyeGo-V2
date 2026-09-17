@@ -1,8 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
-import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import Svg, { Circle, Path } from 'react-native-svg';
 import Animated, {
@@ -15,22 +13,13 @@ import Animated, {
 } from 'react-native-reanimated';
 import { formatGhs } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, GlassSurface, GradientGlowBorder, ShinyText, Skeleton, MorphSource, useMorph, getTierTheme, goDeeper } from '@eyego/ui';
-import {
-  MapView,
-  Camera,
-  MarkerView,
-  boundsFor,
-  isUsableCoord,
-  type Coord,
-  type CameraRef,
-} from '@eyego/maps';
-import { eyegoDriverDarkStyle } from '@eyego/map-styles';
+import { Text, GlassSurface, GradientGlowBorder, ShinyText, Skeleton, getTierTheme } from '@eyego/ui';
 import type { PendingDispatch } from '@eyego/api';
 
 import { useColors, type DriverColors } from '../utils/useColors';
 import { useDriverTripStore } from '../stores/trip.store';
-import { beatPresenceNow, lastKnownReportedFix } from '../hooks/useDriverLocation';
+import { useDriverSurface } from './surface/driverStage';
+import { beatPresenceNow } from '../hooks/useDriverLocation';
 
 /**
  * WHAT IS ACTUALLY LOOKING FOR A DRIVER RIGHT NOW.
@@ -59,48 +48,27 @@ import { beatPresenceNow, lastKnownReportedFix } from '../hooks/useDriverLocatio
  * offer). The only inert row is one genuinely being decided by another driver,
  * and that one says so.
  *
- * ── WHY THERE IS A MAP, AND WHY THERE IS EXACTLY ONE ────────────────────────
- * The thing a list of addresses cannot answer is the only question a driver
- * actually has — WHERE. So the board opens with one live map showing every
- * pending pickup relative to where this driver is parked.
- *
- * One. A MapView is a native GL surface; one per row would put four or five on
- * a scrolling screen, which is the same mistake as the stacked shader canvases
- * that cooked the phone. The rows get a cheap drawn glyph instead, and the map
- * is shared. Selecting a row re-frames the shared map rather than mounting
- * another.
+ * ── NO MAP ON THE BOARD ─────────────────────────────────────────────────────
+ * "The live map card that appears isn't needed." It was a second GL surface
+ * on a screen that already IS a map, and its legend/pins duplicated what the
+ * offer sheet's own mini map shows the moment a row is opened. Rows only:
+ * each one says, prominently, that a new request exists, what it pays, where
+ * it starts and which way it goes.
  */
-/**
- * The morph id linking a board row to the offer screen it opens.
- *
- * Exported so the offer screen cannot spell it differently — a MorphTarget whose
- * id does not match its source simply never receives the clone, and the failure
- * is silent: the screen just appears without animating.
- */
-export const morphIdFor = (tripId: string) => `dispatch-offer-${tripId}`;
 
 export interface PendingDispatchListProps {
   compact?: boolean;
-  /**
-   * Open the offer WITHOUT navigating, because the caller already owns a map
-   * and a sheet to stage it onto. Only home supplies this; see the note in
-   * `open` for why the pushed screen survives for every other caller.
-   */
-  onOpenInPlace?: (tripId: string) => void;
 }
 
-export function PendingDispatchList({ compact = false, onOpenInPlace }: PendingDispatchListProps) {
+export function PendingDispatchList({ compact = false }: PendingDispatchListProps) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const router = useRouter();
   const requests = useDriverTripStore((s) => s.pendingRequests);
   const hydrated = useDriverTripStore((s) => s.requestsHydrated);
   const resync = useDriverTripStore((s) => s.resync);
-  const { morphTo } = useMorph();
   const clockSkewMs = useDriverTripStore((s) => s.clockSkewMs);
   const [refreshing, setRefreshing] = useState(false);
   const [, forceTick] = useState(0);
-  const [focused, setFocused] = useState<string | null>(null);
 
   // One timer for the whole list, not one per row: countdowns are cosmetic and
   // a second's granularity is plenty, but N intervals on a list is not.
@@ -109,11 +77,6 @@ export function PendingDispatchList({ compact = false, onOpenInPlace }: PendingD
     const t = setInterval(() => forceTick((n) => n + 1), 1000);
     return () => clearInterval(t);
   }, [requests]);
-
-  // A row that vanishes (taken, expired) must not leave the map framed on it.
-  useEffect(() => {
-    if (focused && !requests.some((r) => r.tripId === focused)) setFocused(null);
-  }, [requests, focused]);
 
   const refresh = useCallback(async () => {
     if (refreshing) return;
@@ -127,67 +90,23 @@ export function PendingDispatchList({ compact = false, onOpenInPlace }: PendingD
     }
   }, [refreshing, resync]);
 
-  const open = useCallback(
-    (r: PendingDispatch) => {
-      if (r.heldByAnother) {
-        /**
-         * The ONE case that is genuinely not takeable this second: another
-         * driver is inside their exclusive window. Framing the map on it is the
-         * honest answer to "where is that one" — and the row's own tag already
-         * says why it cannot be opened.
-         */
-        void Haptics.selectionAsync().catch(() => {});
-        setFocused((cur) => (cur === r.tripId ? null : r.tripId));
-        return;
-      }
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-      /**
-       * THE CARD BECOMES THE PAGE.
-       *
-       * BUGFIX (item 14: "when you tap on the live dispatch card on the
-       * homepage of the driver app, it should morph into the newly designed
-       * dispatch page like the way the live trip card does on the rider
-       * homepage").
-       *
-       * The rider app has done this since the morph primitive was built; the
-       * driver app mounted MorphProvider in its root layout and then never used
-       * it, so every dispatch tap was a plain push — the card vanished and an
-       * unrelated screen slid in over it. morphTo flies a clone of THIS row into
-       * the MorphTarget on the offer screen, so the thing the driver tapped is
-       * the thing that grows.
-       *
-       * Keyed on the trip id, not on a fixed string: several rows can be on the
-       * board at once and each has to land on its own offer.
-       */
-      /**
-       * ── ON HOME, THIS DOES NOT NAVIGATE AT ALL ──────────────────────────
-       *
-       * BUGFIX ("tapping the live dispatch card, the morphing effect is super
-       * laggy. This is the 7th time I'm talking about this meaning you need to
-       * take a new approach on this").
-       *
-       * The morph above was rewritten four times and never fixed, because the
-       * animation was never the cost — the DESTINATION was. `(trip)/dispatch/
-       * [id]` mounts a native MapView, two road-leg fetches and a Skia canvas,
-       * and no transform holds 60fps while the JS thread builds that.
-       *
-       * So on home the offer is now a STAGE on the surface the driver is
-       * already looking at: the map stays mounted and re-frames, the sheet
-       * crossfades its body. Nothing mounts, so nothing can stutter. The morph
-       * is not "made faster" here, it is made unnecessary.
-       *
-       * `onOpenInPlace` is supplied by home. Everywhere else — the Alerts board,
-       * a cold start — there is no surface to stage onto, so those callers omit
-       * it and keep the pushed screen, with the morph still covering the flight.
-       */
-      if (onOpenInPlace) {
-        onOpenInPlace(r.tripId);
-        return;
-      }
-      morphTo(morphIdFor(r.tripId), () => goDeeper(`/(trip)/dispatch/${r.tripId}` as any));
-    },
-    [router, morphTo, onOpenInPlace],
-  );
+  /**
+   * ONE WAY TO OPEN A RIDE. The row focuses itself on the surface store and the
+   * root-mounted `DispatchOfferSheet` raises the card — countdown, road, swipe —
+   * over whatever screen this board is on. Nothing navigates and nothing
+   * mounts a screen, so nothing can lag (see driverStage.ts), and the Alerts
+   * board gets exactly the card home gets instead of the old pushed page.
+   */
+  const open = useCallback((r: PendingDispatch) => {
+    if (r.heldByAnother) {
+      // Genuinely not takeable this second: another driver is inside their
+      // exclusive window. The row's own tag says so.
+      void Haptics.selectionAsync().catch(() => {});
+      return;
+    }
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    useDriverSurface.getState().openOffer(r.tripId);
+  }, []);
 
   /**
    * ── AN OPEN REQUEST AGES OUT TOO ──────────────────────────────────────────
@@ -328,43 +247,12 @@ export function PendingDispatchList({ compact = false, onOpenInPlace }: PendingD
         </View>
       ) : (
         <>
-          <DispatchBoardMap
-            requests={requests}
-            focusedTripId={focused}
-            /**
-             * THE MAP IS A DOOR, NOT A PICTURE.
-             *
-             * BUGFIX ("on the live map that shows on the driver homepage when
-             * there's a request, tapping it does nothing. You need to make sure
-             * it morphs into the page it should be for it to work").
-             *
-             * Every gesture on this map was off — deliberately, so a drag on the
-             * home panel could not fight it — and nothing was put in place of
-             * them. So the one surface on the home screen that says WHERE the
-             * work is was inert: a driver tapped the pin they were looking at
-             * and the app did nothing at all.
-             *
-             * It routes through the SAME `open()` the rows use, so the tap
-             * inherits the morph, the held-by-another rule and the haptics
-             * rather than growing a second, divergent path to the same screen.
-             * Tapping a pin opens that ride; tapping the map body opens the one
-             * the board is already about — the focused row, else the offer
-             * that is exclusively this driver's, else the first claimable.
-             */
-            onOpen={(tripId) => {
-              const r = requests.find((x) => x.tripId === tripId);
-              if (r) open(r);
-            }}
-            primaryTripId={focused ?? mine[0]?.tripId ?? open_[0]?.tripId ?? null}
-          />
-
           <View style={{ gap: spacing.md }}>
             {requests.map((r) => (
               <DispatchRow
                 key={r.tripId}
                 request={r}
                 clockSkewMs={clockSkewMs}
-                focused={focused === r.tripId}
                 testID="driver-request-row"
                 onPress={() => open(r)}
               />
@@ -415,217 +303,16 @@ const pulseStyles = StyleSheet.create({
   dot: { width: 8, height: 8, borderRadius: 4 },
 });
 
-/* ── The shared board map ─────────────────────────────────────────────────── */
-
-function DispatchBoardMap({
-  requests,
-  focusedTripId,
-  onOpen,
-  primaryTripId,
-}: {
-  requests: PendingDispatch[];
-  focusedTripId: string | null;
-  /** Opens the ride. Wired to the list's own `open()` — see the note there. */
-  onOpen?: (tripId: string) => void;
-  /** What a tap on the map body (rather than on a pin) opens. */
-  primaryTripId?: string | null;
-}) {
-  const colors = useColors();
-  const cameraRef = useRef<CameraRef | null>(null);
-
-  const fix = lastKnownReportedFix();
-  const me = useMemo<Coord | null>(
-    () => (fix && Number.isFinite(fix.lng) && Number.isFinite(fix.lat) ? [fix.lng, fix.lat] : null),
-    [fix?.lng, fix?.lat],
-  );
-
-  const pins = useMemo(
-    () =>
-      requests
-        .map((r) => ({
-          tripId: r.tripId,
-          coord: coordOf(r.pickupLng, r.pickupLat),
-          mine: r.offeredToMe,
-        }))
-        .filter((p): p is { tripId: string; coord: Coord; mine: boolean } => p.coord != null),
-    [requests],
-  );
-
-  const focusedPin = pins.find((p) => p.tripId === focusedTripId) ?? null;
-
-  const frameKey =
-    (focusedPin ? `f:${focusedPin.coord.join(',')}` : pins.map((p) => p.coord.join(',')).join('|')) +
-    (me ? `|me:${me.join(',')}` : '');
-
-  useEffect(() => {
-    const cam = cameraRef.current;
-    if (!cam) return;
-    const t = setTimeout(() => {
-      // A focused row zooms to it and its relationship to the driver, because
-      // "where is that one" is the question the tap asked.
-      const targets = focusedPin
-        ? [focusedPin.coord, ...(me ? [me] : [])]
-        : [...pins.map((p) => p.coord), ...(me ? [me] : [])];
-      if (targets.length === 0) return;
-      if (targets.length === 1) {
-        cam.setCamera({ centerCoordinate: targets[0], zoomLevel: 13.5, animationDuration: 500 });
-        return;
-      }
-      // `boundsFor` enforces a minimum span. A degenerate box is the MLRNCamera
-      // SIGABRT, and two pickups on the same street corner produce one.
-      const box = boundsFor(targets);
-      if (!box) {
-        cam.setCamera({ centerCoordinate: targets[0], zoomLevel: 12.5, animationDuration: 500 });
-        return;
-      }
-      cam.fitBounds([box.ne, box.sw], { top: 46, bottom: 46, left: 42, right: 42 }, true);
-    }, 140);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [frameKey]);
-
-  if (pins.length === 0 && !me) return null;
-
-  return (
-    // The board's frame is a live ring rather than a hairline: this is the one
-    // element on the home screen that means "work is available", and it now has
-    // to hold that on a screen it shares with the map and the earnings strip.
-    <GradientGlowBorder
-      palette="driver"
-      fillColor={colors.surfaceInput}
-      borderRadius={radii['2xl']}
-      thickness="thin"
-      glow
-      glowIntensity={0.8}
-      maxGlowRadius={18}
-      style={boardStyles.ring}
-    >
-      <View style={boardStyles.wrap}>
-        <MapView
-          style={StyleSheet.absoluteFill}
-          styleURL={eyegoDriverDarkStyle}
-          logoEnabled={false}
-          attributionEnabled={false}
-          compassEnabled={false}
-          scaleBarEnabled={false}
-          rotateEnabled={false}
-          pitchEnabled={false}
-          zoomEnabled={false}
-          scrollEnabled={false}
-        >
-          <Camera ref={cameraRef} animationMode="easeTo" animationDuration={520} />
-
-          {me ? (
-            <MarkerView coordinate={me} anchor="center">
-              <View style={[boardStyles.me, { borderColor: colors.background }]}>
-                <View style={[boardStyles.meCore, { backgroundColor: colors.onSurface }]} />
-              </View>
-            </MarkerView>
-          ) : null}
-
-          {pins.map((p) => (
-            <MarkerView key={p.tripId} coordinate={p.coord} anchor="center">
-              {/* A pin is a 16 pt dot; the Pressable around it is 56 × 56, so
-                  the target is the one a thumb can actually hit. */}
-              <Pressable
-                onPress={() => onOpen?.(p.tripId)}
-                disabled={!onOpen}
-                hitSlop={8}
-                accessibilityRole="button"
-                accessibilityLabel="Open this ride"
-                style={boardStyles.pinWrap}
-              >
-                <View
-                  style={[
-                    boardStyles.halo,
-                    {
-                      backgroundColor: (p.mine ? colors.accent : colors.onSurfaceVariant) + '2A',
-                      opacity: focusedTripId && focusedTripId !== p.tripId ? 0.35 : 1,
-                    },
-                  ]}
-                />
-                <View
-                  style={[
-                    boardStyles.pin,
-                    {
-                      backgroundColor: p.mine ? colors.accent : colors.surfaceContainerHighest,
-                      borderColor: colors.background,
-                      opacity: focusedTripId && focusedTripId !== p.tripId ? 0.45 : 1,
-                      transform: [{ scale: focusedTripId === p.tripId ? 1.25 : 1 }],
-                    },
-                  ]}
-                />
-              </Pressable>
-            </MarkerView>
-          ))}
-        </MapView>
-
-        <LinearGradient
-          pointerEvents="none"
-          colors={['rgba(3,12,24,0.5)', 'rgba(3,12,24,0)', 'rgba(3,12,24,0.7)']}
-          locations={[0, 0.45, 1]}
-          style={StyleSheet.absoluteFill}
-        />
-
-        {/*
-          The map body, as one target. Sits ABOVE the gradient so the whole
-          surface is tappable, and below nothing — the pins are inside the
-          MapView beneath it, so a pin tap and a body tap can pick different
-          rides only where the pin's own 56 pt target wins. In practice both
-          land on something sensible, which is the point: nowhere on this
-          surface is dead.
-        */}
-        {onOpen && primaryTripId ? (
-          <Pressable
-            onPress={() => onOpen(primaryTripId)}
-            accessibilityRole="button"
-            accessibilityLabel="Open the live request"
-            style={StyleSheet.absoluteFill}
-          />
-        ) : null}
-
-        <View style={boardStyles.legend} pointerEvents="none">
-          <View style={[boardStyles.legendChip, { backgroundColor: colors.background + 'CC' }]}>
-            <View style={[boardStyles.legendDot, { backgroundColor: colors.accent }]} />
-            <Text style={[boardStyles.legendText, { color: colors.onSurface }]}>Yours</Text>
-          </View>
-          <View style={[boardStyles.legendChip, { backgroundColor: colors.background + 'CC' }]}>
-            <View style={[boardStyles.legendDot, { backgroundColor: colors.surfaceContainerHighest }]} />
-            <Text style={[boardStyles.legendText, { color: colors.onSurfaceVariant }]}>Open</Text>
-          </View>
-        </View>
-
-        {/*
-          THE AFFORDANCE.
-
-          A map with no controls on it reads as an illustration. One chip in the
-          corner is what says "this is a door" — and it names the destination
-          rather than the gesture, because "Open the ride" is information and
-          "Tap here" is instruction.
-        */}
-        {onOpen && primaryTripId ? (
-          <View style={boardStyles.openChip} pointerEvents="none">
-            <Ionicons name="expand-outline" size={12} color={colors.accent} />
-            <Text style={[boardStyles.openChipText, { color: colors.onSurface }]}>Open the ride</Text>
-          </View>
-        ) : null}
-      </View>
-    </GradientGlowBorder>
-  );
-}
-
 /* ── One row ──────────────────────────────────────────────────────────────── */
 
 function DispatchRow({
   request: r,
   clockSkewMs,
-  focused,
   onPress,
   testID,
 }: {
   request: PendingDispatch;
   clockSkewMs: number;
-  focused: boolean;
   onPress: () => void;
   /** Stable handle for E2E flows — copy changes must not break a test. */
   testID?: string;
@@ -675,14 +362,14 @@ function DispatchRow({
     <Pressable
       testID={testID}
       onPress={onPress}
-      style={[styles.row, focused && { borderColor: accent }]}
+      style={styles.row}
       accessibilityRole="button"
       accessibilityLabel={
         mine
           ? `Offer to ${r.dropoffAddress ?? 'destination'}, tap to review and accept`
           : claimable
             ? `Open request to ${r.dropoffAddress ?? 'destination'}, tap to claim it`
-            : `Request to ${r.dropoffAddress ?? 'destination'}, being decided by another driver. Tap to see it on the map.`
+            : `Request to ${r.dropoffAddress ?? 'destination'}, being decided by another driver.`
       }
     >
       <GlassSurface
@@ -698,9 +385,19 @@ function DispatchRow({
       <RouteGlyph accent={accent} dim={colors.outline} muted={!mine && !claimable} />
 
       <View style={styles.body}>
+        {/*
+          THE ROW SAYS WHAT IT IS BEFORE IT SAYS WHERE.
+
+          "It should prominently say new request." The headline used to be the
+          destination — which the server withholds until the ride starts, so
+          most rows led with the placeholder "Destination on the map" and read
+          as a broken address rather than as work. The event is the headline
+          now, the money beside it; the pickup and the ride's shape (which way,
+          roughly how far — `directionHint`) are the detail underneath.
+        */}
         <View style={styles.topRow}>
-          <Text style={styles.dest} numberOfLines={1}>
-            {r.dropoffAddress ?? 'Destination on the map'}
+          <Text style={[styles.dest, mine && { color: accent }]} numberOfLines={1}>
+            {mine ? 'Offered to you' : r.status === 'REASSIGNING' ? 'Ride up for grabs' : 'New request'}
           </Text>
           {r.driverEarningsPesewas != null ? (
             <Text style={[styles.money, { color: mine || claimable ? accent : colors.onSurface }]}>
@@ -711,6 +408,13 @@ function DispatchRow({
 
         <Text variant="caption" color={colors.onSurfaceVariant} numberOfLines={1}>
           From {r.pickupAddress ?? 'a pickup point nearby'}
+        </Text>
+        <Text variant="caption" color={colors.onSurfaceVariant} numberOfLines={1}>
+          {r.dropoffAddress
+            ? `To ${r.dropoffAddress}`
+            : r.dropoffBearing
+              ? `Heading ${r.dropoffBearing}${r.dropoffDistanceKm ? ` · about ${r.dropoffDistanceKm} km` : ''}`
+              : 'Destination shared when you start the ride'}
         </Text>
 
         <View style={styles.tagRow}>
@@ -760,7 +464,7 @@ function DispatchRow({
       </View>
 
       <Ionicons
-        name={mine || claimable ? 'chevron-forward' : focused ? 'close' : 'map-outline'}
+        name={mine || claimable ? 'chevron-forward' : 'time-outline'}
         size={16}
         color={mine || claimable ? accent : colors.onSurfaceVariant}
       />
@@ -772,31 +476,9 @@ function DispatchRow({
    * is at full strength only for the one being held for them. A ring on every
    * row is four shadow-casting layers apiece and no hierarchy at all.
    */
-  /**
-   * The row is the morph's departure point — see `morphIdFor`. Wrapping the
-   * FINISHED element (ring included) rather than the bare Pressable is what
-   * makes the clone look like what the driver actually tapped: a source that
-   * excluded the glow would fly a flat card out of a lit one.
-   *
-   * A row that is not takeable is not a morph source, because tapping it does
-   * not navigate — it re-frames the shared map instead.
-   */
-  const withMorph = (node: React.ReactNode) =>
-    mine || claimable ? (
-      <MorphSource
-        id={morphIdFor(r.tripId)}
-        borderRadius={radii.xl}
-        backgroundColor={colors.surfaceCard}
-      >
-        {node}
-      </MorphSource>
-    ) : (
-      node
-    );
-
   if (!mine && !claimable) return body;
 
-  return withMorph(
+  return (
     /**
      * THE RING IS THE RIDE TYPE.
      *
@@ -825,7 +507,7 @@ function DispatchRow({
       maxGlowRadius={mine ? 20 : 12}
     >
       {body}
-    </GradientGlowBorder>,
+    </GradientGlowBorder>
   );
 }
 
@@ -860,63 +542,6 @@ function RouteGlyph({ accent, dim, muted }: { accent: string; dim: string; muted
   );
 }
 
-function coordOf(lng: unknown, lat: unknown): Coord | null {
-  if (typeof lng !== 'number' || typeof lat !== 'number') return null;
-  if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null;
-  const c: Coord = [lng, lat];
-  return isUsableCoord(c) ? c : null;
-}
-
-const boardStyles = StyleSheet.create({
-  ring: { marginBottom: spacing.sm },
-  wrap: {
-    height: 168,
-    borderRadius: radii['2xl'],
-    overflow: 'hidden',
-  },
-  me: {
-    width: 16, height: 16, borderRadius: 8, borderWidth: 3,
-    alignItems: 'center', justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.22)',
-  },
-  meCore: { width: 7, height: 7, borderRadius: 4 },
-  pinWrap: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center' },
-  halo: { position: 'absolute', width: 32, height: 32, borderRadius: 16 },
-  pin: { width: 13, height: 13, borderRadius: 7, borderWidth: 2.5 },
-  legend: {
-    position: 'absolute',
-    left: spacing.md,
-    bottom: spacing.md,
-    flexDirection: 'row',
-    gap: spacing.xs,
-  },
-  legendChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 3,
-    borderRadius: radii.full,
-  },
-  legendDot: { width: 6, height: 6, borderRadius: 3 },
-  legendText: { fontFamily: fonts.bold, fontSize: 9, letterSpacing: 0.6 },
-  /** "Open the ride" — the chip that says the map is a door. */
-  openChip: {
-    position: 'absolute',
-    right: spacing.md,
-    bottom: spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 7,
-    borderRadius: radii.full,
-    backgroundColor: 'rgba(3,12,24,0.82)',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.14)',
-  },
-  openChipText: { fontFamily: fonts.semiBold, fontSize: 11, letterSpacing: 0.1 },
-});
 
 const makeStyles = (colors: DriverColors) =>
   StyleSheet.create({

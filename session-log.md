@@ -441,3 +441,14 @@ Rejected:
 - Hooking trip.tsx to useMorph() context for the hide flag — re-renders the heaviest screen every phase change.
 - KeyboardAwareScrollView inside native page-sheet Modals — separate window; RN KeyboardAvoidingView there.
 Open: device-test all 8; run `scripts/e2e/conditional-hooks.mjs` before every push (it caught the hooks crash).
+
+## 2026-09-17 13:40 [saved]
+Goal: 15-item device report — morph, dispatch offer, driver trip surface, seat drop-off, trip-end stack, biometrics.
+Decisions:
+- One offer renderer: root DispatchOfferSheet shows held offer OR tapped row; every entry path hydrates + openOffer; pushed routes are shims.
+- Driver trip = stages on home (deriveDriverStage(status) was never passed the status); manage page has no map; accept goes home.
+- Driver map follows with MapLibre NATIVE trackUserLocation='course' + native puck + contentInset — JS per-frame setCamera cannot be smooth.
+- Morph clone must match its source on frame one: CloneSizeContext for rings, overlay overflow visible, source hidden only while a clone flies.
+- Seat pricing has one path (priceSeat) with a preview endpoint; free drop-off pin measured ALONG the polyline (≤150 m), new Booking columns + migration.
+Rejected: tuning useMapCamera's frame loop again for the driver; a fourth offer surface; per-caller show()-on-focus hacks for hidden morph sources.
+Open: yarn install timed out — regenerate both locks; apply migration + new native build before device test.

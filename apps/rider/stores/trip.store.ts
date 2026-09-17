@@ -234,7 +234,18 @@ export const useTripStore = create<TripStoreState>((set, get) => ({
     // A new trip must not inherit the previous one's line, countdown, a
     // connectivity warning raised against a different driver, or a pin ask the
     // rider dismissed on a ride that is already over.
+    //
+    // NOR ITS SNAPSHOT. Until the channel's first `onState`, `snapshot` still
+    // described the LAST trip — and if that one had ended, every projection
+    // (RequestStage's status, trip.tsx's terminal hand-off) read a terminal
+    // status against a ride that had just been created. "It timed out" for a
+    // request that was two seconds old. A different trip's snapshot is not a
+    // stale copy of this one; it is the wrong document.
+    const prevSnap = get().snapshot;
     set({
+      snapshot: prevSnap && prevSnap.tripId !== tripId ? null : prevSnap,
+      lastSeq: prevSnap && prevSnap.tripId !== tripId ? 0 : get().lastSeq,
+      dispatch: prevSnap && prevSnap.tripId !== tripId ? null : get().dispatch,
       eta: null,
       path: null,
       driverLinkLostSinceMs: null,

@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, StyleSheet, Pressable } from 'react-native';
-import { useRouter, type Href } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import Animated, {
@@ -18,204 +17,249 @@ import type { Coord } from '@eyego/maps';
 import { useColors, type DriverColors } from '../utils/useColors';
 import { useDriverStore } from '../stores/driver.store';
 import { useDriverTripStore } from '../stores/trip.store';
+import { useDriverSurface } from './surface/driverStage';
 import { lastKnownReportedFix } from '../hooks/useDriverLocation';
 import { startDispatchAlert, stopDispatchAlert } from '../utils/dispatchAlert';
+import { fetchRoute } from '../utils/routing';
 import { DispatchOfferCard, type DispatchOfferView } from './dispatch/DispatchOfferCard';
-import { goDeeper } from '@eyego/ui';
+import { goOut } from '@eyego/ui';
 
 /**
- * THE OFFER TAKEOVER — a ride is being held for THIS driver, right now.
+ * THE OFFER — the ONE place a ride is put in front of a driver.
  *
- * `trip.store.listenForOffers()` has always parked the incoming offer in the
- * store; this is what renders it. Mounted once at the root so it can appear
- * over any screen — a driver should never have to be on a particular tab to be
- * offered work.
+ * ── WHY THERE IS ONLY ONE ───────────────────────────────────────────────────
+ * BUGFIX ("nothing shows how long the offer is gonna last, I can stay stuck on
+ * this page"; "the dispatch page I've been seeing all along, the one that's
+ * dead with no countdown and no animation"). There were THREE renderers of an
+ * offer: this takeover (sound, countdown, mini map — the one the driver said
+ * looks right), a home-sheet stage for a tapped board row, and a pushed
+ * `(trip)/dispatch/[id]` screen for the Alerts board, push taps and the legacy
+ * `trip:assigned` frame. The last two showed a row that carried no exclusive
+ * deadline as a card with no clock and nothing to end it. Same ride, three
+ * looks, one of them dead.
+ *
+ * Now every path lands HERE. A ride is either HELD for this driver (the
+ * cascade's exclusive window, with its server deadline and the alert tone) or
+ * it is a row the driver TAPPED on the board (claimable, first-accept-wins,
+ * counted against the search's own deadline — the row now carries one, see
+ * `searchExpiresAtServerMs`). Both render the same card, the same countdown,
+ * the same draining frame; the pushed route survives only as a shim that
+ * hydrates, focuses the row and comes back to home.
  *
  * ── WHY IT IS A FULL TAKEOVER AND NOT A CARD ON A SCRIM ─────────────────────
  * It used to be a small card floating on a dimmed screen, dismissable by
- * tapping the scrim — which meant the single most consequential twenty seconds
- * in the driver's day could be thrown away by a stray thumb on the way to
- * anything else, and "decline" was the action that stray thumb performed. The
- * sheet now covers the screen, the scrim is inert, and passing takes a
- * deliberate double tap inside the card.
- *
- * Everything below the chrome is `DispatchOfferCard`, which is also what the
- * Dispatch list's screen renders. The two surfaces used to disagree about the
- * countdown, the copy, the accept endpoint and what an offer even contains.
+ * tapping the scrim — which meant the single most consequential seconds in the
+ * driver's day could be thrown away by a stray thumb on the way to anything
+ * else. The sheet covers the screen, the scrim is inert, and passing takes a
+ * deliberate double tap inside the card. A tapped row can additionally be put
+ * away with the close chip: the driver opened it, they may shut it.
  */
+
+/** The search window the server defaults to — the fallback ring for a row read before `searchExpiresAtServerMs` landed. */
+const SEARCH_WINDOW_FALLBACK_MS = 300_000;
+/** The exclusive-hold window — matches DISPATCH_OFFER_TTL_SECONDS. */
+const HOLD_WINDOW_FALLBACK_MS = 45_000;
+
 export default function DispatchOfferSheet() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const router = useRouter();
   const setActiveTripId = useDriverStore((s) => s.setActiveTripId);
   /** Driver-controlled — see Settings, and utils/dispatchAlert.ts. */
   const alertsEnabled = useDriverStore((s) => s.offerAlertsEnabled);
 
-  const offer = useDriverTripStore((s) => s.offer);
+  const held = useDriverTripStore((s) => s.offer);
+  const pendingRequests = useDriverTripStore((s) => s.pendingRequests);
   const clearOffer = useDriverTripStore((s) => s.clearOffer);
-  const offerSecondsLeft = useDriverTripStore((s) => s.offerSecondsLeft);
   const serverNow = useDriverTripStore((s) => s.now);
+  const focusedTripId = useDriverSurface((s) => s.focusedTripId);
+  const closeFocused = useDriverSurface((s) => s.closeOffer);
+
+  /**
+   * The subject. A held offer outranks a tapped row: it is the one with a
+   * private clock running against this driver. When it resolves, a row the
+   * driver had opened is still focused and shows again on its own.
+   */
+  const row = useMemo(
+    () => (!held && focusedTripId ? pendingRequests.find((r) => r.tripId === focusedTripId) ?? null : null),
+    [held, focusedTripId, pendingRequests],
+  );
+  const tripId = held?.tripId ?? row?.tripId ?? null;
+  const isHeld = !!held;
+
+  /**
+   * The deadline this card counts down to. Never null while a card is up:
+   *   held  → the exclusive window's server deadline
+   *   row   → the driver's own window if the cascade is asking them right now,
+   *           else the SEARCH's deadline — the moment the ride stops existing
+   *           for everybody. A lapsed personal window falls through to it too.
+   */
+  const deadlineMs: number | null = held
+    ? held.expiresAtServerMs
+    : row
+      ? (row.offeredToMe && !row.offerExpiredForMe && row.expiresAtServerMs) ||
+        row.searchExpiresAtServerMs ||
+        null
+      : null;
+  const searchClock = !isHeld && !!row && !(row.offeredToMe && !row.offerExpiredForMe && row.expiresAtServerMs);
+
+  /**
+   * The window the ring and the frame start full at. Keyed by trip AND by
+   * deadline so a re-publish of the same offer (a reconnect, the geometry
+   * follow-up) does not restart the drain, while a genuinely new window does.
+   */
+  const windowRef = useRef<{ key: string; ms: number } | null>(null);
+  const windowKey = `${tripId ?? ''}:${deadlineMs ?? ''}`;
+  if (tripId && deadlineMs && windowRef.current?.key !== windowKey) {
+    const fallback = searchClock ? SEARCH_WINDOW_FALLBACK_MS : HOLD_WINDOW_FALLBACK_MS;
+    const fromStart = searchClock && row?.requestedAtMs ? deadlineMs - row.requestedAtMs : null;
+    windowRef.current = {
+      key: windowKey,
+      ms: Math.max(1000, fromStart ?? Math.min(fallback, deadlineMs - serverNow())),
+    };
+  }
+  const windowMs = windowRef.current?.ms ?? HOLD_WINDOW_FALLBACK_MS;
 
   const [secondsLeft, setSecondsLeft] = useState(0);
   const [busy, setBusy] = useState<'accept' | 'decline' | null>(null);
   const [accepted, setAccepted] = useState(false);
-  const announced = useRef<string | null>(null);
-  /** The window this particular offer opened with, so the ring starts full. */
-  /**
-   * The ring's starting fraction when the payload carries no deadline.
-   *
-   * Was 20 s, matching the server's old `DISPATCH_OFFER_TTL_SECONDS`. That knob
-   * is 45 now ("the dispatch timer to lose on the driver app is very fast and
-   * short"), and a client that assumes a shorter window than the server holds
-   * draws a ring that empties while the offer is still claimable. Kept in step
-   * with `DEFAULT_WINDOW_S` on the dispatch screen.
-   */
-  const windowMsRef = useRef(45_000);
 
-  // One interval, alive only while an offer is on screen. Reading the deadline
-  // from the store each tick (rather than counting down local state) means a
-  // re-offer of the same trip cannot leave a stale timer running.
-  /**
-   * The deadline this offer is actually counting down to.
-   *
-   * `offerSecondsLeft()` answers null when the payload carries no
-   * `expiresAtServerMs`, which happens on a board row for a driver who is not
-   * the one currently being asked. Null must not mean "no limit" — that is the
-   * reported bug, an offer that sits on screen forever — so the first time an
-   * offer is seen without a deadline it gets a local one, the same 45s window
-   * the server would have issued.
-   *
-   * Keyed by trip id so a re-publish of the SAME offer (a socket reconnect,
-   * or the geometry follow-up publish) does not restart the clock, while a
-   * genuinely new offer gets a fresh one.
-   */
-  const localDeadline = useRef<{ tripId: string; at: number } | null>(null);
-
+  // One interval, alive only while a card is on screen, against SERVER time.
   useEffect(() => {
-    if (!offer) {
+    if (!tripId || !deadlineMs) {
       setSecondsLeft(0);
       setBusy(null);
       setAccepted(false);
-      localDeadline.current = null;
       return;
     }
-
-    if (localDeadline.current?.tripId !== offer.tripId) {
-      localDeadline.current = { tripId: offer.tripId, at: serverNow() + windowMsRef.current };
-    }
-
-    const read = () => {
-      const fromServer = offerSecondsLeft();
-      if (fromServer != null) return fromServer;
-      const at = localDeadline.current?.at ?? serverNow();
-      return Math.max(0, Math.round((at - serverNow()) / 1000));
-    };
-
+    const read = () => Math.max(0, Math.ceil((deadlineMs - serverNow()) / 1000));
     setSecondsLeft(read());
     const t = setInterval(() => setSecondsLeft(read()), 500);
     return () => clearInterval(t);
-  }, [offer, offerSecondsLeft, serverNow]);
+  }, [tripId, deadlineMs, serverNow]);
 
-  // Announce once per trip, not once per render — an offer re-published after a
-  // socket reconnect must not buzz the phone a second time.
+  // Announce once per trip — a re-publish after a socket reconnect must not buzz twice.
+  const announced = useRef<string | null>(null);
   useEffect(() => {
-    if (!offer || announced.current === offer.tripId) return;
-    announced.current = offer.tripId;
-    // Guarded: a board row can carry no deadline at all, and `NaN` here used to
-    // propagate into the ring's starting fraction. 45s is the server's own TTL.
-    windowMsRef.current = Number.isFinite(offer.expiresAtServerMs)
-      ? Math.max(1000, offer.expiresAtServerMs - serverNow())
-      : 45_000;
+    if (!tripId || announced.current === tripId) return;
+    announced.current = tripId;
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-  }, [offer, serverNow]);
+  }, [tripId]);
 
   /**
-   * ── AND KEEP ANNOUNCING IT ────────────────────────────────────────────────
-   *
-   * FEATURE ("it needs to pop up so if the driver isn't looking, he sees it…
-   * add a sound implementation for new rides so the driver is instantly
-   * notified").
-   *
-   * The single haptic above fires at the instant the offer lands, which is
-   * precisely the instant a driver at a junction is not holding the phone. The
-   * alert repeats for as long as the offer is claimable and stops the moment it
-   * is answered, expires, or the sheet goes away — see utils/dispatchAlert.ts.
-   *
-   * Keyed on `tripId` so a re-publish of the SAME offer does not restart the
-   * alert from zero, and cleaned up in the effect's teardown so no path out of
-   * this screen can leave a phone buzzing at a driver who already accepted.
+   * The repeating alert is for a ride being HELD for this driver — the one
+   * case where they may not be looking at the phone. A row they tapped open
+   * themselves needs no siren; they are already here.
    */
   useEffect(() => {
-    if (!offer || accepted || busy) {
+    if (!held || accepted || busy) {
       stopDispatchAlert();
       return;
     }
-    startDispatchAlert(offer.tripId, { enabled: alertsEnabled });
+    startDispatchAlert(held.tripId, { enabled: alertsEnabled });
     return () => stopDispatchAlert();
-  }, [offer, accepted, busy, alertsEnabled]);
+  }, [held, accepted, busy, alertsEnabled]);
 
-  // Expired. The server has already moved on to the next candidate; holding a
-  // dead card on screen only invites a tap that 409s.
+  /**
+   * The clock ran out. For a hold the server has moved on; for a search the
+   * ride is over. Either way a dead card invites a tap that 409s.
+   */
   useEffect(() => {
-    if (offer && secondsLeft <= 0 && !busy && !accepted) clearOffer();
-  }, [offer, secondsLeft, busy, accepted, clearOffer]);
+    if (!tripId || !deadlineMs || secondsLeft > 0 || busy || accepted) return;
+    if (held) clearOffer();
+    if (focusedTripId) closeFocused();
+    void useDriverTripStore.getState().hydrate();
+  }, [tripId, deadlineMs, secondsLeft, busy, accepted, held, focusedTripId, clearOffer, closeFocused]);
+
+  /**
+   * THE ROAD TO THE PICKUP, for a row that arrived without one.
+   *
+   * A held offer carries the leg the cascade fetched (`DispatchOffer.geometry`).
+   * A board row does not — the server never routed it for this driver — so the
+   * card asks for it once, from the driver's last fix to the pickup, through
+   * the same `/geo/route` the trip screens use. Keyed on the trip so a second
+   * open is free, and never blocking: the arc draws until the road lands.
+   */
+  const fix = lastKnownReportedFix();
+  const driverAt = fix ? coordOf(fix.lng, fix.lat) : null;
+  const pickup = coordOf(held?.pickupLng ?? row?.pickupLng, held?.pickupLat ?? row?.pickupLat);
+  const [road, setRoad] = useState<{ tripId: string; coords: Coord[] } | null>(null);
+  useEffect(() => {
+    if (!tripId || held?.geometry || !driverAt || !pickup) return;
+    if (road?.tripId === tripId) return;
+    let cancelled = false;
+    void fetchRoute(driverAt, pickup).then((r) => {
+      if (cancelled || !r || r.coordinates.length < 2) return;
+      setRoad({ tripId, coords: r.coordinates });
+    });
+    return () => {
+      cancelled = true;
+    };
+    // The driver's fix moves every few seconds; the leg is asked for once per
+    // trip, from wherever they were when the card opened.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tripId, held?.geometry, !!driverAt, !!pickup]);
 
   // ── Entrance: the sheet rises, it does not blink into existence ──────────
   const rise = useSharedValue(0);
   useEffect(() => {
-    if (!offer) {
+    if (!tripId) {
       rise.value = 0;
       return;
     }
     rise.value = withDelay(20, withSpring(1, springs.emphasized));
-  }, [offer, rise]);
-
+  }, [tripId, rise]);
   const riseStyle = useAnimatedStyle(() => ({
     opacity: rise.value,
     transform: [{ translateY: (1 - rise.value) * 28 }, { scale: 0.97 + rise.value * 0.03 }],
   }));
-
   const scrim = useSharedValue(0);
   useEffect(() => {
-    scrim.value = withTiming(offer ? 1 : 0, { duration: 220, easing: Easing.out(Easing.quad) });
-  }, [offer, scrim]);
+    scrim.value = withTiming(tripId ? 1 : 0, { duration: 220, easing: Easing.out(Easing.quad) });
+  }, [tripId, scrim]);
   const scrimStyle = useAnimatedStyle(() => ({ opacity: scrim.value }));
 
+  const dismiss = () => {
+    if (held) clearOffer();
+    if (focusedTripId) closeFocused();
+  };
+
   const handleAccept = async () => {
-    if (!offer || busy) return;
+    if (!tripId || busy) return;
     setBusy('accept');
-    const tripId = offer.tripId;
     try {
+      // The server routes the verb by the trip's own status (claimTrip), so a
+      // held offer and a first-claim row are one call here.
       await ridesApi.accept(tripId);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       setAccepted(true);
       setActiveTripId(tripId);
-      // Rehydrate before navigating so the trip screen opens onto a real
-      // snapshot rather than a spinner waiting for its first socket frame.
+      // Rehydrate before leaving so home opens onto a real trip snapshot and
+      // its driving stage, rather than a spinner waiting for the first frame.
       await useDriverTripStore.getState().hydrate();
       setTimeout(() => {
-        clearOffer();
-        goDeeper({ pathname: '/(trip)/active/[id]', params: { id: tripId } } as Href);
+        dismiss();
+        // Home IS the trip surface now — see driverStage.ts.
+        goOut('/(tabs)/home');
       }, 420);
     } catch (err: any) {
       const status = err?.response?.status;
       setBusy(null);
-      clearOffer();
+      dismiss();
       // 409/410 is the normal race, not a failure worth an alert box: someone
       // else took it, or it expired while the tap was in flight.
       if (status !== 409 && status !== 410) {
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
       }
+      void useDriverTripStore.getState().hydrate();
     }
   };
 
   const handleDecline = async () => {
-    if (!offer || busy) return;
+    if (!tripId || busy) return;
     setBusy('decline');
-    const tripId = offer.tripId;
     // Clear first: the driver has decided, and the card should not linger while
     // the request flies. The cascade moves to the next candidate regardless.
-    clearOffer();
+    dismiss();
     try {
       await ridesApi.decline(tripId);
     } catch {
@@ -225,50 +269,52 @@ export default function DispatchOfferSheet() {
     }
   };
 
-  if (!offer) return null;
+  if (!tripId) return null;
 
-  const view: DispatchOfferView = {
-    tripId: offer.tripId,
-    pickupAddress: offer.pickupAddress,
-    dropoffAddress: offer.dropoffAddress,
-    pickup: coordOf(offer.pickupLng, offer.pickupLat),
-    dropoff: coordOf(offer.dropoffLng, offer.dropoffLat),
-    driverEarningsPesewas: offer.driverEarningsPesewas,
-    farePesewas: offer.farePesewas,
-    walletRequiredPesewas: offer.walletRequiredPesewas ?? null,
-    tier: offer.tier,
-    etaSeconds: offer.etaSeconds,
-    expiresAtServerMs: offer.expiresAtServerMs,
-    attempt: offer.attempt,
-    totalCandidates: offer.totalCandidates,
-    kind: 'DISPATCH',
-  };
-
-  const fix = lastKnownReportedFix();
-  const driverAt = fix ? coordOf(fix.lng, fix.lat) : null;
+  const view: DispatchOfferView = held
+    ? {
+        tripId: held.tripId,
+        pickupAddress: held.pickupAddress,
+        dropoffAddress: held.dropoffAddress,
+        dropoffBearing: held.dropoffBearing,
+        dropoffDistanceKm: held.dropoffDistanceKm,
+        pickup,
+        dropoff: coordOf(held.dropoffLng, held.dropoffLat),
+        geometry: held.geometry ?? (road?.tripId === held.tripId ? road.coords : null),
+        driverEarningsPesewas: held.driverEarningsPesewas,
+        farePesewas: held.farePesewas,
+        walletRequiredPesewas: held.walletRequiredPesewas ?? null,
+        tier: held.tier,
+        etaSeconds: held.etaSeconds,
+        expiresAtServerMs: deadlineMs,
+        attempt: held.attempt,
+        totalCandidates: held.totalCandidates,
+        kind: held.kind === 'REASSIGNMENT' ? 'REASSIGNMENT' : 'DISPATCH',
+      }
+    : {
+        tripId: row!.tripId,
+        pickupAddress: row!.pickupAddress,
+        dropoffAddress: row!.dropoffAddress,
+        dropoffBearing: row!.dropoffBearing ?? null,
+        dropoffDistanceKm: row!.dropoffDistanceKm ?? null,
+        pickup,
+        dropoff: coordOf(row!.dropoffLng, row!.dropoffLat),
+        geometry: road?.tripId === row!.tripId ? road.coords : null,
+        driverEarningsPesewas: row!.driverEarningsPesewas,
+        farePesewas: row!.farePesewas,
+        walletRequiredPesewas: row!.walletRequiredPesewas ?? null,
+        tier: row!.tier,
+        expiresAtServerMs: deadlineMs,
+        kind: row!.status === 'REASSIGNING' ? 'REASSIGNMENT' : 'REQUEST',
+      };
 
   /**
    * ── NO `<Modal>`: THIS IS ALREADY THE TOP LAYER ─────────────────────────
-   *
-   * BUGFIX ("when im on the driver app and i background the app to go to
-   * another app and i come back, nothing shows i got a dispatch offer").
-   *
-   * Mounted at the root inside `OverlayPortal`, which on iOS is a
-   * `FullWindowOverlay` — a sibling UIWindow above the application window and
-   * every presented view controller. Asking UIKit to present a modal from
-   * inside that window is asking for a presentation from something that is not
-   * a view controller context: it does not reliably complete, and when it does
-   * not, this renders nothing at all while still believing it is up.
-   *
-   * That is why the offer could be live, the sound playing and the countdown
-   * running, with no card on screen — and why coming back from another app was
-   * the reliable way to see it happen, since a re-presentation on foreground is
-   * exactly when UIKit is least willing.
-   *
-   * The takeover behaviour the offer needs — above the tabs, above every
-   * screen, back and swipe doing nothing — is what the portal already provides.
-   * `styles.root` fills it and accepts touches, so nothing behind the card can
-   * be reached: a Modal was never what made this uninterruptible.
+   * Mounted at the root inside `OverlayPortal` (a `FullWindowOverlay` on iOS).
+   * Presenting a UIKit modal from inside that window does not reliably
+   * complete — the offer could be live, the sound playing and the countdown
+   * running, with no card on screen. The portal already provides the takeover;
+   * `styles.root` fills it and accepts touches, so nothing behind can be reached.
    */
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
@@ -290,11 +336,28 @@ export default function DispatchOfferSheet() {
         />
 
         <Animated.View style={[styles.sheet, riseStyle]} pointerEvents="box-none">
+          {/* A row the driver opened may be put away without passing on it. A
+              held offer may not: the only ways out of a hold are the two the
+              card offers, because closing it is indistinguishable from missing it. */}
+          {!isHeld ? (
+            <Pressable
+              onPress={() => {
+                void Haptics.selectionAsync().catch(() => {});
+                closeFocused();
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Put this request away"
+              hitSlop={10}
+              style={[styles.closeChip, { backgroundColor: colors.surfaceContainerHigh, borderColor: colors.outline }]}
+            >
+              <Animated.Text style={[styles.closeText, { color: colors.onSurfaceVariant }]}>Back to board</Animated.Text>
+            </Pressable>
+          ) : null}
           <DispatchOfferCard
             offer={view}
             driverAt={driverAt}
             nowMs={serverNow()}
-            windowMs={windowMsRef.current}
+            windowMs={windowMs}
             secondsLeft={secondsLeft}
             onAccept={handleAccept}
             onDecline={handleDecline}
@@ -318,5 +381,15 @@ function coordOf(lng: unknown, lat: unknown): Coord | null {
 const makeStyles = (_colors: DriverColors) =>
   StyleSheet.create({
     root: { flex: 1, justifyContent: 'center', padding: spacing.lg },
-    sheet: { width: '100%' },
+    sheet: { width: '100%', gap: spacing.md },
+    closeChip: {
+      alignSelf: 'center',
+      minHeight: 40,
+      paddingHorizontal: spacing.lg,
+      borderRadius: 999,
+      borderWidth: StyleSheet.hairlineWidth,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    closeText: { fontSize: 13, fontWeight: '600', letterSpacing: 0.2 },
   });

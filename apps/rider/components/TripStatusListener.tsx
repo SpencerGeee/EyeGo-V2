@@ -207,6 +207,34 @@ export function TripStatusListener() {
       const segs = segmentsRef.current;
 
       /**
+       * ONLY MY TRIP MAY END MY TRIP.
+       *
+       * BUGFIX ("the request timed out, I went home, and the finding-your-driver
+       * card came back — and the driver got the offer"). Every branch below
+       * used to fire for ANY status frame this socket received, and a rider can
+       * be in more than one trip room at once (the previous request's room is
+       * only left when `computedTripId` changes, a group trip they browsed, a
+       * replayed frame on reconnect). A terminal frame for a ride that is not
+       * the one being watched then tore the live one down on this phone —
+       * `clearRideState`, the cached `['rides','active']` nulled, the sheet
+       * raised — while the server went on dispatching it. The next poll brought
+       * the card back, which is exactly the ghost that was reported.
+       *
+       * Filtered only when we KNOW which trip is ours; a frame with no tripId,
+       * or a phone that has not yet learned its trip, is treated as before.
+       */
+      const frameTripId = (data as any)?.tripId as string | undefined;
+      const mine = new Set(
+        [
+          // Refs, not the closure: this effect is keyed on login, not on the trip.
+          safeRead(activeBookingRef.current, 'tripId', safeRead(selectedTripRef.current, 'id')),
+          useTripStore.getState().snapshot?.tripId,
+          useRideStore.getState().pendingTripRequestId,
+        ].filter(Boolean) as string[],
+      );
+      if (frameTripId && mine.size > 0 && !mine.has(frameTripId)) return;
+
+      /**
        * ── MY OWN SEAT DIED, EVEN THOUGH THE TRIP DID NOT ───────────────────
        *
        * A driver can mark ONE passenger as a no-show. The bus then drives on

@@ -191,7 +191,13 @@
       "expo-secure-store",
       "expo-web-browser",
       "expo-apple-authentication",
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "EyeGo uses Face ID to unlock your wallet before showing your balance."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

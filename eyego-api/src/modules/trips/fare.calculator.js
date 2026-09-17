@@ -581,13 +581,23 @@ function calculateSegmentFare({
   alightLng,
   totalRouteKm,
 }) {
-  assertPesewas(fullFarePerSeatPesewas, 'fullFarePerSeatPesewas');
   const riddenKm = haversineKm(boardLat, boardLng, alightLat, alightLng);
   const ratio = totalRouteKm > 0 ? Math.min(riddenKm / totalRouteKm, 1.0) : 1.0;
+  return calculateSegmentFareByRatio({ fullFarePerSeatPesewas, ratio });
+}
+
+/**
+ * The same floor and rounding for a segment whose share of the route is already
+ * known — a drop-off pin measured ALONG the road polyline (see `resolveDropoff`
+ * in bookings.service), where a straight line between two stops would lie.
+ */
+function calculateSegmentFareByRatio({ fullFarePerSeatPesewas, ratio }) {
+  assertPesewas(fullFarePerSeatPesewas, 'fullFarePerSeatPesewas');
+  const r = Number.isFinite(ratio) ? Math.max(0, Math.min(ratio, 1.0)) : 1.0;
   const floorPesewas = cfg('MIN_FARE_PER_SEAT_PESEWAS');
   return {
     farePerSeatPesewas: Math.max(
-      Math.round(fullFarePerSeatPesewas * ratio),
+      Math.round(fullFarePerSeatPesewas * r),
       // Never floor ABOVE the full fare: on a very short trip the whole ride can
       // already cost less than the floor, and a partial segment of it must not
       // end up dearer than riding the lot.
@@ -595,7 +605,7 @@ function calculateSegmentFare({
     ),
     // The ratio is stored alongside the fare so a receipt can explain the
     // discount; it is a proportion, not money, so it keeps its decimals.
-    ratio: Math.round(ratio * 10000) / 10000,
+    ratio: Math.round(r * 10000) / 10000,
   };
 }
 
@@ -679,6 +689,7 @@ function pinnedRatesFor(trip) {
 }
 
 module.exports = {
+  calculateSegmentFareByRatio,
   pinnedRatesFor,
   calculateFare,
   calculateRideFare,

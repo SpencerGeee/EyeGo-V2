@@ -88,6 +88,11 @@ export interface CreateBookingRequest {
   pickupLat?: number;
   pickupLng?: number;
   pickupAddress?: string;
+  /** The rider's own drop-off pin, snapped to the route — see bookings.service `resolveDropoff`. */
+  dropoffStopId?: string;
+  dropoffLat?: number;
+  dropoffLng?: number;
+  dropoffAddress?: string;
 }
 
 export interface RatingRequest {

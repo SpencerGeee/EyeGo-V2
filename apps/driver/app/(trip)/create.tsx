@@ -17,7 +17,7 @@ import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 // that shadowed the shared one — harmless while money was cedis, a 100x
 // misquote to the driver the moment it became pesewas.
 import { formatGhs } from '@eyego/utils';
-import { Text, Button, Entrance, GlassSurface, GradientGlowBorder, AppBackground, getTierTheme, goDeeper, goBack, notify } from '@eyego/ui';
+import { Text, Button, Entrance, GlassSurface, GradientGlowBorder, AppBackground, getTierTheme, goDeeper, goBack, notify , goOut } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
@@ -290,7 +290,8 @@ export default function CreateTripScreen() {
       // there right after — the new trip wouldn't appear under Upcoming/Active.
       queryClient.invalidateQueries({ queryKey: ['driver', 'trips', 'all'] });
       queryClient.invalidateQueries({ queryKey: ['driver', 'activeTrip'] });
-      router.replace(`/(trip)/active/${tripId}`);
+      // The new trip is the home surface's driving stage now.
+      goOut('/(tabs)/home');
     },
     onError: (err) => {
       const axiosErr = err as { response?: { data?: { code?: string; message?: string } } };

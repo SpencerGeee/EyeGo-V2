@@ -25,6 +25,7 @@ import { Text, Pressable, Skeleton, Avatar, GlowSearchPressable, MorphSource, ty
 import * as Haptics from 'expo-haptics';
 import { TAB_BAR_BASE_HEIGHT } from './_layout';
 import MapboxGL from '../../utils/mapbox';
+import { TRIP_SEARCH_LANDING } from '../../utils/morphKeys';
 import { eyegoDarkStyle, eyegoLightStyle } from '@eyego/map-styles';
 import { useThemeStore } from '../../stores/theme.store';
 import { useRideStore } from '../../stores/ride.store';
@@ -1000,7 +1001,9 @@ export default function HomeScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     // Container-transform: the pill flies into the trip surface's search card
     // (route uses animation 'none' + transparentModal, see root _layout).
-    morphTo('where-to-pill', () => goDeeper('/trip?stage=search' as any));
+    morphTo('where-to-pill', () => goDeeper('/trip?stage=search' as any), {
+      landingKey: TRIP_SEARCH_LANDING,
+    });
   };
 
   const handleQuickAction = (id: string) => {

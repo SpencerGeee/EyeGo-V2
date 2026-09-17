@@ -150,6 +150,15 @@ export interface PendingDispatch {
   expiresAtServerMs: number | null;
   heldByAnother: boolean;
   /**
+   * When the SEARCH itself ends, server time — the deadline a row carries even
+   * when nobody holds an exclusive window on it. A ride on the board without
+   * any clock is what "I can stay stuck on this page and nothing happens" was.
+   */
+  searchExpiresAtServerMs?: number | null;
+  /** Coarse shape of the ride while the drop-off is withheld. */
+  dropoffBearing?: string | null;
+  dropoffDistanceKm?: number | null;
+  /**
    * This driver's exclusive window on this ride already ran out.
    *
    * CLIENT-ONLY — the server never sends it. Set locally when an

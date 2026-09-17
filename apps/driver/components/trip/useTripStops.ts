@@ -169,6 +169,10 @@ export function useTripStops(trip: any): UseTripStopsResult {
      * driver about a rounding error rather than about their route.
      */
     const byDrop = new Map<string, StopPassenger[]>();
+    // Where each group actually alights: a rider's own pin on the route, a
+    // named stop, or the trip's end. Kept beside the label so the stop the
+    // driver navigates to is the kerb the rider chose, not the terminus.
+    const dropAt = new Map<string, { lat: number | null; lng: number | null }>();
     for (const b of live) {
       const label =
         shortAddress(b?.dropoffAddress) ??
@@ -179,6 +183,12 @@ export function useTripStops(trip: any): UseTripStopsResult {
       const list = byDrop.get(label) ?? [];
       list.push(passengerFrom(b));
       byDrop.set(label, list);
+      if (!dropAt.has(label)) {
+        dropAt.set(label, {
+          lat: num(b?.dropoffLat) ?? num(b?.dropoffStop?.lat) ?? null,
+          lng: num(b?.dropoffLng) ?? num(b?.dropoffStop?.lng) ?? null,
+        });
+      }
     }
     if (byDrop.size === 0) {
       byDrop.set(
@@ -192,8 +202,8 @@ export function useTripStops(trip: any): UseTripStopsResult {
         kind: 'DROP',
         title: label,
         address: null,
-        lat: num(trip?.dropoffLat) ?? num(trip?.route?.destinationLat),
-        lng: num(trip?.dropoffLng) ?? num(trip?.route?.destinationLng),
+        lat: dropAt.get(label)?.lat ?? num(trip?.dropoffLat) ?? num(trip?.route?.destLat) ?? num(trip?.route?.destinationLat),
+        lng: dropAt.get(label)?.lng ?? num(trip?.dropoffLng) ?? num(trip?.route?.destLng) ?? num(trip?.route?.destinationLng),
         state: 'UPCOMING',
         passengers: group.sort((a, b) => (a.seatNumber ?? 99) - (b.seatNumber ?? 99)),
       });

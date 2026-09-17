@@ -74,6 +74,43 @@ function pointToSegmentMeters(p, a, b) {
  * never told a number the road cannot produce. Tunable, because the right value
  * for Accra at 5pm is not the right value for a quiet regional town.
  */
+/**
+ * Where on the line a point lands, and how far along the line that is.
+ *
+ * The seat page lets a rider drop a pin ANYWHERE on the route; the fare for
+ * that seat is the fraction of the road actually ridden, and "fraction" needs
+ * the distance ALONG the polyline to the nearest point, not just the distance
+ * TO it. Returns metres off the line (`distanceM`), metres along it from its
+ * start (`alongM`), the line's total length, and the snapped point.
+ *
+ * `[lng, lat]` pairs, the GeoJSON order every route in this codebase uses.
+ */
+function projectOntoPolyline(lat, lng, polyline) {
+  if (!polyline || polyline.length < 2) return null;
+  const p = { lat, lng };
+  let best = null;
+  let cursor = 0;
+  let total = 0;
+  for (let i = 0; i < polyline.length - 1; i++) {
+    const a = { lat: polyline[i][1], lng: polyline[i][0] };
+    const b = { lat: polyline[i + 1][1], lng: polyline[i + 1][0] };
+    const segLen = haversineMeters(a.lat, a.lng, b.lat, b.lng);
+    const dx = b.lng - a.lng;
+    const dy = b.lat - a.lat;
+    const lenSq = dx * dx + dy * dy;
+    let t = 0;
+    if (lenSq > 0) t = Math.max(0, Math.min(1, ((p.lng - a.lng) * dx + (p.lat - a.lat) * dy) / lenSq));
+    const proj = { lat: a.lat + t * dy, lng: a.lng + t * dx };
+    const d = haversineMeters(p.lat, p.lng, proj.lat, proj.lng);
+    if (!best || d < best.distanceM) {
+      best = { distanceM: d, alongM: cursor + segLen * t, point: proj, index: i };
+    }
+    cursor += segLen;
+    total = cursor;
+  }
+  return best ? { ...best, totalM: total } : null;
+}
+
 const MAX_PROMISED_AVG_KMH = Number(process.env.ETA_MAX_AVG_KMH) || 32;
 
 /**
@@ -97,6 +134,7 @@ function realisticDurationMin(durationMin, distanceKm) {
 }
 
 module.exports = {
+  projectOntoPolyline,
   haversineMeters,
   distanceToPolyline,
   realisticDurationMin,

@@ -299,11 +299,21 @@ function buildTripSnapshot(trip, viewer = {}) {
     // nothing to put a destination pin on — the route line simply stopped in
     // mid-air. `legEndpoints` in route-geometry.service.js has always consulted
     // both; this is the same rule, applied to the snapshot.
-    dropoff: {
-      lat: trip.dropoffLat ?? trip.route?.destLat ?? null,
-      lng: trip.dropoffLng ?? trip.route?.destLng ?? null,
-      address: trip.dropoffAddress ?? trip.route?.destinationName ?? null,
-    },
+    // A rider who marked their own drop-off on the route is shown THAT — the
+    // same rule the pickup follows. The trip's own end remains the answer for
+    // the driver and for a rider riding to the terminus.
+    dropoff:
+      myBooking && myBooking.dropoffLat != null && myBooking.dropoffLng != null
+        ? {
+            lat: myBooking.dropoffLat,
+            lng: myBooking.dropoffLng,
+            address: myBooking.dropoffAddress ?? trip.dropoffAddress ?? trip.route?.destinationName ?? null,
+          }
+        : {
+            lat: trip.dropoffLat ?? trip.route?.destLat ?? null,
+            lng: trip.dropoffLng ?? trip.route?.destLng ?? null,
+            address: trip.dropoffAddress ?? trip.route?.destinationName ?? null,
+          },
 
     driver: trip.driver
       ? {

@@ -737,6 +737,13 @@ model Booking {
   pickupLat           Float?
   pickupLng           Float?
   pickupAddress       String?
+  // The rider's OWN drop-off on a group/bus trip, chosen on the route's map
+  // (seat page). Null means "ride to the trip's own destination". Validated
+  // server-side to lie on the road the trip drives (see bookings.service
+  // `resolveDropoff`); the fare is pro-rated to the part of the route ridden.
+  dropoffLat          Float?
+  dropoffLng          Float?
+  dropoffAddress      String?
   // Extra fare from the driver detouring to this passenger's own pickup
   // point, computed once at booking time — see fare.calculator.js
   // calculateDeviationSurcharge(). Zero for anyone boarding at the trip's

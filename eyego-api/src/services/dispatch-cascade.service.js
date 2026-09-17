@@ -1279,6 +1279,13 @@ async function listSearchesForDriver(driverId, { limit = 10 } = {}) {
         /** True when THIS driver is the one the cascade is currently asking. */
         offeredToMe: mine,
         expiresAtServerMs: holder === driverId ? state.expiresAtMs ?? null : null,
+        /**
+         * When the whole SEARCH gives up — the clock a row carries even when no
+         * driver holds it. The offer card used to show no countdown at all for
+         * a board row ("nothing shows how long the offer is gonna last"); this
+         * is the honest deadline: `RIDE_REQUEST_EXPIRY` fails the trip at it.
+         */
+        searchExpiresAtServerMs: (state.startedAtMs ?? trip.createdAt.getTime()) + searchWindowMs,
         /** Somebody else is holding the exclusive offer this instant. */
         heldByAnother: !!holder && holder !== driverId,
       });

@@ -10,13 +10,14 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
-import { tripsApi, socketEvents, connectSocket } from '@eyego/api';
+import { tripsApi, bookingsApi, socketEvents, connectSocket } from '@eyego/api';
 import { useShallow } from 'zustand/react/shallow';
 import { formatGhs } from '@eyego/utils';
 import { useRideStore } from '../../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
 import { VehicleCabin, layoutFor, type CabinSeat } from '../../../components/seat/VehicleCabin';
+import { RouteDropoffMap, type RouteDropoff } from '../../../components/seat/RouteDropoffMap';
 import { useThemeStore } from '../../../stores/theme.store';
 import {
   Text,
@@ -143,7 +144,6 @@ export default function SeatPickerScreen() {
   const selectedSeat = seats.find((s) => s.id === selectedId);
   const freeCount = seats.filter((s) => s.status === 'AVAILABLE').length;
   const heldCount = seats.filter((s) => (s.status as string) === 'PENDING').length;
-  const farePesewas = (selectedTrip as any)?.farePerSeatPesewas ?? null;
   const tierLabel: string =
     (selectedTrip as any)?.tier?.name ?? (selectedTrip as any)?.tierName ?? 'Standard';
   // "Accra Express • Sprinter 15-Seater": the route and the body, as the
@@ -177,7 +177,52 @@ export default function SeatPickerScreen() {
   const stops =
     (selectedTrip as { route?: { virtualStops?: { id: string; name: string }[] } })?.route
       ?.virtualStops ?? [];
+  const routeOrigin: [number, number] | null = (() => {
+    const r: any = (selectedTrip as any)?.route;
+    return Number.isFinite(r?.originLng) && Number.isFinite(r?.originLat) ? [r.originLng, r.originLat] : null;
+  })();
+  const routeDestination: [number, number] | null = (() => {
+    const r: any = (selectedTrip as any)?.route;
+    return Number.isFinite(r?.destLng) && Number.isFinite(r?.destLat) ? [r.destLng, r.destLat] : null;
+  })();
   const [dropoffStopId, setDropoffStopId] = useState<string | null>(null);
+  /** A free pin on the route — see RouteDropoffMap. Exclusive with a named stop. */
+  const [dropoff, setDropoff] = useState<RouteDropoff | null>(null);
+  const chooseStop = (stopId: string | null) => {
+    setDropoffStopId(stopId);
+    if (stopId) setDropoff(null);
+  };
+  const chooseDropoff = (next: RouteDropoff | null) => {
+    setDropoff(next);
+    if (next) setDropoffStopId(null);
+  };
+
+  /**
+   * THE PRICE ON THIS PAGE IS THE PRICE THAT WILL BE CHARGED.
+   *
+   * BUGFIX ("it was showing I was going to pay 11 cedis and when I confirmed
+   * the payment as cash the price dropped to 3.61"). The tag above the seat
+   * showed the trip's full-route list price; the segment discount for getting
+   * off early was only ever applied by the server at confirm. Same function
+   * both sides now (`priceSeat`): this asks for the number the booking will be
+   * written with, whenever the rider's choices change.
+   */
+  const routeLine: [number, number][] | null =
+    (selectedTrip as any)?.path?.geometry?.coordinates ?? null;
+  const { data: farePreview } = useQuery({
+    queryKey: ['seat-fare-preview', id, pickupStopId ?? null, dropoffStopId, dropoff?.latitude ?? null, dropoff?.longitude ?? null],
+    queryFn: () =>
+      bookingsApi.previewFare({
+        tripId: id ?? '',
+        pickupStopId: pickupStopId ?? null,
+        dropoffStopId,
+        ...(dropoff ? { dropoffLat: dropoff.latitude, dropoffLng: dropoff.longitude, dropoffAddress: dropoff.address } : {}),
+      }),
+    enabled: !!id,
+    staleTime: 30_000,
+  });
+  const farePesewas = farePreview?.farePerSeatPesewas ?? (selectedTrip as any)?.farePerSeatPesewas ?? null;
+
 
   const handleConfirm = () => {
     if (!selectedSeat) return;
@@ -193,6 +238,8 @@ export default function SeatPickerScreen() {
     const query = [
       pickupStopId ? `pickupStopId=${pickupStopId}` : '',
       dropoffStopId ? `dropoffStopId=${dropoffStopId}` : '',
+      dropoff ? `dropoffLat=${dropoff.latitude}&dropoffLng=${dropoff.longitude}` : '',
+      dropoff?.address ? `dropoffAddress=${encodeURIComponent(dropoff.address)}` : '',
     ]
       .filter(Boolean)
       .join('&');
@@ -259,6 +306,34 @@ export default function SeatPickerScreen() {
           tierLabel={tierLabel}
         />
 
+        {/*
+          WHERE YOU GET OFF, ON THE ROAD. The whole route, a pin that snaps to
+          it, and the price above the seat re-asked for every move. Hidden only
+          when the server has no road for this trip yet.
+        */}
+        {routeLine && routeLine.length >= 2 ? (
+          <View style={styles.alight}>
+            <Text variant="caption" color={colors.onSurfaceVariant}>
+              WHERE DO YOU GET OFF?
+            </Text>
+            <RouteDropoffMap
+              route={routeLine}
+              origin={routeOrigin}
+              destination={routeDestination}
+              value={dropoff}
+              onChange={chooseDropoff}
+              isDark={isDark}
+              accent={colors.primary}
+              colors={colors as unknown as Record<string, string>}
+            />
+            <Text variant="caption" color={colors.onSurfaceVariant}>
+              {dropoff
+                ? `Dropping you at ${dropoff.address ?? 'your pin on the route'} — you pay for the part of the route you ride.`
+                : 'Ride to the end, or put the pin on the route where you want to get off. Getting off early costs less.'}
+            </Text>
+          </View>
+        ) : null}
+
         {/* Only offered when the route actually has stops on it. A section
             headed "where do you get off?" with one option is a worse answer
             than no section at all. */}
@@ -271,8 +346,11 @@ export default function SeatPickerScreen() {
               <AlightChip
                 colors={colors}
                 label="Ride to the end"
-                selected={dropoffStopId == null}
-                onPress={() => setDropoffStopId(null)}
+                selected={dropoffStopId == null && dropoff == null}
+                onPress={() => {
+                  chooseStop(null);
+                  setDropoff(null);
+                }}
               />
               {stops.map((stop) => (
                 <AlightChip
@@ -280,7 +358,7 @@ export default function SeatPickerScreen() {
                   colors={colors}
                   label={stop.name}
                   selected={dropoffStopId === stop.id}
-                  onPress={() => setDropoffStopId(stop.id)}
+                  onPress={() => chooseStop(stop.id)}
                 />
               ))}
             </View>

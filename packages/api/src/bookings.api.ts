@@ -64,6 +64,31 @@ export const bookingsApi = {
   getById: (id: string) =>
     apiClient.get<ApiResponse<Booking>>(`/bookings/${id}`),
 
+  /**
+   * What a seat on this trip costs with these choices — priced by the exact
+   * function `create` writes with, so the seat and payment pages can show the
+   * charged number before the row exists. See bookings.service `priceSeat`.
+   */
+  previewFare: (params: {
+    tripId: string;
+    pickupStopId?: string | null;
+    dropoffStopId?: string | null;
+    pickupLat?: number;
+    pickupLng?: number;
+    dropoffLat?: number;
+    dropoffLng?: number;
+    dropoffAddress?: string | null;
+  }) =>
+    apiClient
+      .post<ApiResponse<{
+        farePerSeatPesewas: number;
+        fullFarePerSeatPesewas: number;
+        enRouteRatio: number | null;
+        deviationSurchargePesewas: number;
+        dropoff: { lat: number; lng: number; address: string | null } | null;
+      }>>('/bookings/preview', params)
+      .then((r) => r.data?.data ?? null),
+
   // Group-hub joiner setting/changing their own pickup point — only allowed
   // pre-payment (SEAT_HELD); recomputes fare with any deviation surcharge.
   updatePickup: (id: string, data: { lat: number; lng: number; address?: string }) =>

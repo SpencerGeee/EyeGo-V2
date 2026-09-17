@@ -2,7 +2,8 @@
 import { View, StyleSheet, Platform, Modal, TextInput } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';import { BlurView } from 'expo-blur';
+import { useRouter } from 'expo-router';
+import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { walletApi, bookingsApi, paymentsApi, queryKeys } from '@eyego/api';
@@ -11,7 +12,7 @@ import { useColors, Colors } from '../../utils/useColors';
 // `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
 // drops the `({ pressed }) => style` function form on RN's Pressable, which
 // silently deletes the whole style. See components/trip/stages/SearchStage.tsx.
-import { Text, Button, Pressable, Skeleton, GlassSurface, GradientGlowBorder, PREMIUM_RING_LOCATIONS, goDeeper, goBack, notify } from '@eyego/ui';
+import { Text, Button, Pressable, Skeleton, GlassSurface, GradientGlowBorder, PREMIUM_RING_LOCATIONS, goDeeper, goBack, notify , useBiometricGate, BiometricLock } from '@eyego/ui';
 import { formatGhs, pesewasFromCedis, pesewasToDecimalString } from "@eyego/utils";
 
 // Green-accent variant of the premium ring sweep — two narrow emerald arcs
@@ -23,6 +24,7 @@ const GREEN_RING_COLORS = [
 ] as const;
 
 export default function WalletScreen() {
+  const gate = useBiometricGate({ reason: 'Unlock your wallet' });
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
@@ -121,6 +123,10 @@ export default function WalletScreen() {
         <View style={{ width: 44 }} />
       </View>
 
+      {/* The money is behind the face — see BiometricGate in @eyego/ui. */}
+      {gate.state !== 'unlocked' ? (
+        <BiometricLock state={gate.state} failed={gate.failed} onRetry={gate.retry} />
+      ) : (
       <KeyboardAwareScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" bottomOffset={24}>
         {/* Balance Card */}
         <View
@@ -245,6 +251,7 @@ export default function WalletScreen() {
           </GlassSurface>
         </View>
       </KeyboardAwareScrollView>
+      )}
 
       {/* Top Up Modal */}
       <Modal

@@ -10,7 +10,7 @@ import {
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { MotiView, goDeeper, goBack, notify } from '@eyego/ui';
+import { MotiView, goDeeper, goBack, goFresh, notify } from '@eyego/ui';
 import { WebView } from 'react-native-webview';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { queryKeys } from '@eyego/api';
@@ -31,7 +31,19 @@ type PaymentTab = 'momo' | 'card' | 'cash' | 'wallet';
 export default function PaymentScreen() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const { id, pickupStopId, dropoffStopId } = useLocalSearchParams<{ id: string; pickupStopId?: string; dropoffStopId?: string }>();
+  const { id, pickupStopId, dropoffStopId, dropoffLat, dropoffLng, dropoffAddress } = useLocalSearchParams<{
+    id: string;
+    pickupStopId?: string;
+    dropoffStopId?: string;
+    dropoffLat?: string;
+    dropoffLng?: string;
+    dropoffAddress?: string;
+  }>();
+  /** The rider's own drop-off pin from the seat page, snapped to the route there. */
+  const freeDropoff =
+    dropoffLat != null && dropoffLng != null && Number.isFinite(Number(dropoffLat)) && Number.isFinite(Number(dropoffLng))
+      ? { lat: Number(dropoffLat), lng: Number(dropoffLng), address: dropoffAddress ? decodeURIComponent(String(dropoffAddress)) : null }
+      : null;
   const router = useRouter();
   const { selectedTrip, selectedSeat, activeBooking, computedFare, setActiveBooking, setComputedFare, pendingPromoCode, setPendingPromoCode, guestInfo, setGuestInfo } = useRideStore(useShallow((s) => ({ selectedTrip: s.selectedTrip, selectedSeat: s.selectedSeat, activeBooking: s.activeBooking, computedFare: s.computedFare, setActiveBooking: s.setActiveBooking, setComputedFare: s.setComputedFare, pendingPromoCode: s.pendingPromoCode, setPendingPromoCode: s.setPendingPromoCode, guestInfo: s.guestInfo, setGuestInfo: s.setGuestInfo })));
   const queryClient = useQueryClient();
@@ -132,8 +144,27 @@ export default function PaymentScreen() {
     (activeBooking.guestName ?? null) === (guestInfo?.name ?? null) &&
     (activeBooking.status === 'SEAT_HELD' || activeBooking.status === 'PENDING');
 
+  /**
+   * BEFORE the row exists, the price is the server's PREVIEW for these exact
+   * choices — the same function `POST /bookings` writes with (`priceSeat`).
+   * `computedFare` and the trip's list price are the last resorts, and they
+   * are what showed "11" for a seat that was then charged 3.61.
+   */
+  const { data: farePreview } = useQuery({
+    queryKey: ['seat-fare-preview', id, pickupStopId ?? null, dropoffStopId ?? null, freeDropoff?.lat ?? null, freeDropoff?.lng ?? null],
+    queryFn: () =>
+      bookingsApi.previewFare({
+        tripId: id ?? '',
+        pickupStopId: pickupStopId ?? null,
+        dropoffStopId: dropoffStopId ?? null,
+        ...(freeDropoff ? { dropoffLat: freeDropoff.lat, dropoffLng: freeDropoff.lng, dropoffAddress: freeDropoff.address } : {}),
+      }),
+    enabled: !!id && !bookingIsForThisCheckout,
+    staleTime: 30_000,
+  });
   const serverPerSeat =
     (bookingIsForThisCheckout ? activeBooking?.fareAmountPesewas : null) ??
+    farePreview?.farePerSeatPesewas ??
     computedFare ??
     selectedTrip?.farePerSeatPesewas ??
     0;
@@ -277,6 +308,9 @@ export default function PaymentScreen() {
             // Where they get OFF, when that is not the end of the route. The
             // server prices the segment between the two — see calculateSegmentFare.
             ...(dropoffStopId ? { dropoffStopId } : {}),
+            ...(freeDropoff
+              ? { dropoffLat: freeDropoff.lat, dropoffLng: freeDropoff.lng, dropoffAddress: freeDropoff.address ?? undefined }
+              : {}),
             ...(guestInfo ? { guestName: guestInfo.name, guestPhone: guestInfo.phone } : {}),
           });
           // ROOT CAUSE of "pay in cash → validation failed / payment
@@ -397,7 +431,7 @@ export default function PaymentScreen() {
         queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });
         queryClient.invalidateQueries({ queryKey: queryKeys.bookings.active() });
         socketEvents.emitPaymentConfirmed(data.bookingId ?? activeBooking?.id ?? '', id ?? '');
-        const t = setTimeout(() => { if (isMountedRef.current) router.replace('/trip?stage=assigned' as any); }, 1500);
+        const t = setTimeout(() => { if (isMountedRef.current) goFresh('/trip?stage=assigned'); }, 1500);
         pendingTimeoutsRef.current.push(t);
         return;
       }
@@ -421,7 +455,7 @@ export default function PaymentScreen() {
         queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });
         queryClient.invalidateQueries({ queryKey: queryKeys.bookings.active() });
         socketEvents.emitPaymentConfirmed(data.bookingId ?? activeBooking?.id ?? '', id ?? '');
-        const t = setTimeout(() => { if (isMountedRef.current) router.replace('/trip?stage=assigned' as any); }, 1500);
+        const t = setTimeout(() => { if (isMountedRef.current) goFresh('/trip?stage=assigned'); }, 1500);
         pendingTimeoutsRef.current.push(t);
       } catch (err) {
         if (!isMountedRef.current) return;
@@ -460,7 +494,7 @@ export default function PaymentScreen() {
           "You're already on a ride",
           'You can only be on one ride at a time. Book this seat for someone else, or open the ride you are on.',
           [
-            { text: 'Open my ride', onPress: () => router.replace('/trip?stage=assigned' as any) },
+            { text: 'Open my ride', onPress: () => goFresh('/trip?stage=assigned') },
             {
               text: 'Book for someone else',
               onPress: () => goDeeper('/ride/guest-selection' as any),
@@ -508,7 +542,7 @@ export default function PaymentScreen() {
             queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });
             queryClient.invalidateQueries({ queryKey: queryKeys.bookings.active() });
             socketEvents.emitPaymentConfirmed(bookingId, id ?? '');
-            const t = setTimeout(() => { if (isMountedRef.current) router.replace('/trip?stage=assigned' as any); }, 1500);
+            const t = setTimeout(() => { if (isMountedRef.current) goFresh('/trip?stage=assigned'); }, 1500);
             pendingTimeoutsRef.current.push(t);
             return;
           }
@@ -550,7 +584,7 @@ export default function PaymentScreen() {
       queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });
       queryClient.invalidateQueries({ queryKey: queryKeys.bookings.active() });
       socketEvents.emitPaymentConfirmed(activeBooking?.id ?? '', id ?? '');
-      const t = setTimeout(() => { if (isMountedRef.current) router.replace('/trip?stage=assigned' as any); }, 1500);
+      const t = setTimeout(() => { if (isMountedRef.current) goFresh('/trip?stage=assigned'); }, 1500);
       pendingTimeoutsRef.current.push(t);
     } catch {
       if (!isMountedRef.current) return;

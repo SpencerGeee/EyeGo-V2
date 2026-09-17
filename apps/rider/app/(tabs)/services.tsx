@@ -26,6 +26,7 @@ import {
 } from '@eyego/ui';
 import * as Haptics from 'expo-haptics';
 import { goDeeper } from '@eyego/ui';
+import { TRIP_SEARCH_LANDING } from '../../utils/morphKeys';
 
 type TierKey = 'economy' | 'comfort' | 'premium';
 
@@ -115,8 +116,12 @@ function TierCard({ tier, colors, styles }: { tier: TierCard; colors: Colors; st
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     // Container-transform: the tier card grows into the trip surface's
     // search stage, which reads morphId to mount its MorphTarget.
-    morphTo(morphId, () =>
-      goDeeper(`/trip?stage=search&tier=${tier.tier}&morphId=${morphId}` as any)
+    // `landingKey`: every card here and the home pill land on the same search
+    // card, so they share one prediction memory — see MorphToOptions.
+    morphTo(
+      morphId,
+      () => goDeeper(`/trip?stage=search&tier=${tier.tier}&morphId=${morphId}` as any),
+      { landingKey: TRIP_SEARCH_LANDING },
     );
   };
 
@@ -196,8 +201,10 @@ function SpecialServiceCard({ service, colors, styles }: { service: SpecialServi
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (canMorph) {
       const sep = service.route.includes('?') ? '&' : '?';
-      morphTo(morphId, () =>
-        goDeeper(`${service.route}${sep}morphId=${morphId}` as any)
+      morphTo(
+        morphId,
+        () => goDeeper(`${service.route}${sep}morphId=${morphId}` as any),
+        { landingKey: TRIP_SEARCH_LANDING },
       );
     } else {
       goDeeper(service.route as any);

@@ -51,6 +51,51 @@ export interface DispatchOffer {
   etaSeconds: number | null;
   attempt: number;
   totalCandidates: number;
+  /**
+   * The ROAD from the driver to the pickup, `[lng, lat][]`.
+   *
+   * BUGFIX ("the route to the pickup point doesn't follow the road — it's a
+   * straight line"). The cascade has fetched and re-published this leg for a
+   * long time (`geometryFor` in dispatch-cascade.service); it arrives as a
+   * second OFFER frame a beat after the first. The handler below rebuilt the
+   * offer from a fixed list of fields and `geometry` was not on it, so the
+   * road was thrown away at the door every single time and the map fell back
+   * to its bowed placeholder.
+   */
+  geometry: [number, number][] | null;
+  /** Coarse shape of the ride while the drop-off is withheld — see `directionHint`. */
+  dropoffBearing: string | null;
+  dropoffDistanceKm: number | null;
+  kind: string | null;
+}
+
+/**
+ * ONE reading of an offer payload, for the socket frame and the REST state.
+ * Two hand-written copies of this list is exactly how `geometry` went missing.
+ */
+function offerFromPayload(p: any): DispatchOffer {
+  const coords = p?.geometry?.coordinates ?? (Array.isArray(p?.geometry) ? p.geometry : null);
+  return {
+    tripId: p.tripId,
+    pickupLat: p.pickupLat ?? null,
+    pickupLng: p.pickupLng ?? null,
+    pickupAddress: p.pickupAddress ?? null,
+    dropoffLat: p.dropoffLat ?? null,
+    dropoffLng: p.dropoffLng ?? null,
+    dropoffAddress: p.dropoffAddress ?? null,
+    farePesewas: p.farePesewas ?? null,
+    driverEarningsPesewas: p.driverEarningsPesewas ?? null,
+    walletRequiredPesewas: p.walletRequiredPesewas ?? null,
+    tier: p.tier ?? null,
+    expiresAtServerMs: p.expiresAtServerMs,
+    etaSeconds: p.etaSeconds ?? null,
+    attempt: p.attempt ?? 0,
+    totalCandidates: p.totalCandidates ?? 0,
+    geometry: Array.isArray(coords) && coords.length >= 2 ? coords : null,
+    dropoffBearing: p.dropoffBearing ?? null,
+    dropoffDistanceKm: p.dropoffDistanceKm ?? null,
+    kind: p.kind ?? null,
+  };
 }
 
 interface DriverTripState {
@@ -342,26 +387,12 @@ export const useDriverTripStore = create<DriverTripState>((set, get) => ({
         if (held != null && (held === heldBefore || expired)) set({ offer: null });
       } else {
         const held = get().offer;
-        if (held?.tripId !== liveOffer.tripId) {
-          set({
-            offer: {
-              tripId: liveOffer.tripId,
-              pickupLat: liveOffer.pickupLat ?? null,
-              pickupLng: liveOffer.pickupLng ?? null,
-              pickupAddress: liveOffer.pickupAddress ?? null,
-              dropoffLat: liveOffer.dropoffLat ?? null,
-              dropoffLng: liveOffer.dropoffLng ?? null,
-              dropoffAddress: liveOffer.dropoffAddress ?? null,
-              farePesewas: liveOffer.farePesewas ?? null,
-              driverEarningsPesewas: liveOffer.driverEarningsPesewas ?? null,
-              walletRequiredPesewas: liveOffer.walletRequiredPesewas ?? null,
-              tier: liveOffer.tier ?? null,
-              expiresAtServerMs: liveOffer.expiresAtServerMs,
-              etaSeconds: liveOffer.etaSeconds ?? null,
-              attempt: liveOffer.attempt ?? 0,
-              totalCandidates: liveOffer.totalCandidates ?? 0,
-            },
-          });
+        const next = offerFromPayload(liveOffer);
+        if (held?.tripId !== next.tripId) {
+          set({ offer: next });
+        } else if (held && !held.geometry && next.geometry) {
+          // Same offer, and the road has arrived since we last read it.
+          set({ offer: { ...held, geometry: next.geometry } });
         }
       }
       if (trip) get().watch(trip.tripId);
@@ -427,29 +458,27 @@ export const useDriverTripStore = create<DriverTripState>((set, get) => ({
               offeredToMe: true,
               expiresAtServerMs: p.expiresAtServerMs,
               heldByAnother: false,
+              dropoffBearing: p.dropoffBearing ?? null,
+              dropoffDistanceKm: p.dropoffDistanceKm ?? null,
+              // The frame carries no search deadline; keep the one the REST
+              // read already gave this row, if any.
+              searchExpiresAtServerMs:
+                s.pendingRequests.find((r) => r.tripId === p.tripId)?.searchExpiresAtServerMs ?? null,
             },
             ...s.pendingRequests.filter((r) => r.tripId !== p.tripId),
           ],
         }));
+        // The geometry follow-up is the SAME offer re-published with the road
+        // attached (see `geometryFor` in dispatch-cascade). Merging keeps the
+        // object identity of everything else stable for the sheet.
+        const next = offerFromPayload(p);
+        const held = get().offer;
         set({
           clockSkewMs: event.serverNowMs - Date.now(),
-          offer: {
-            tripId: p.tripId,
-            pickupLat: p.pickupLat ?? null,
-            pickupLng: p.pickupLng ?? null,
-            pickupAddress: p.pickupAddress ?? null,
-            dropoffLat: p.dropoffLat ?? null,
-            dropoffLng: p.dropoffLng ?? null,
-            dropoffAddress: p.dropoffAddress ?? null,
-            farePesewas: p.farePesewas ?? null,
-            driverEarningsPesewas: p.driverEarningsPesewas ?? null,
-            walletRequiredPesewas: p.walletRequiredPesewas ?? null,
-            tier: p.tier ?? null,
-            expiresAtServerMs: p.expiresAtServerMs,
-            etaSeconds: p.etaSeconds ?? null,
-            attempt: p.attempt ?? 0,
-            totalCandidates: p.totalCandidates ?? 0,
-          },
+          offer:
+            held && held.tripId === next.tripId && held.expiresAtServerMs === next.expiresAtServerMs
+              ? { ...held, geometry: next.geometry ?? held.geometry }
+              : next,
         });
       } else if (event.type === 'OFFER_REVOKED') {
         // The offer moved on — taken, cancelled or timed out. Told explicitly

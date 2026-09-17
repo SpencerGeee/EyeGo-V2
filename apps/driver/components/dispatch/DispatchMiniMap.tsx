@@ -52,6 +52,18 @@ export interface DispatchMiniMapProps {
   height?: number;
   /** Road geometry when the server has it; a straight line is drawn otherwise. */
   routeGeoJson?: GeoJSON.Feature | null;
+  /**
+   * The ROAD from the driver to the pickup, `[lng, lat][]`.
+   *
+   * BUGFIX ("the route to the pickup point doesn't follow the road — it's a
+   * straight line"). The approach used to be drawn as a bowed arc no matter
+   * what, because nothing ever handed this map the leg the cascade fetches for
+   * every offer (see `geometry` on DispatchOffer). With the road in hand the
+   * approach becomes the hero line — it is the only leg the driver is being
+   * asked to judge — and the arc survives only as the honest "no road data yet"
+   * placeholder.
+   */
+  approachGeometry?: Coord[] | null;
   /** Tints the route line and the pickup ring — the screen's urgency colour. */
   accent?: string;
 }
@@ -89,20 +101,30 @@ export function DispatchMiniMap({
   driver,
   height = 190,
   routeGeoJson,
+  approachGeometry,
   accent,
 }: DispatchMiniMapProps) {
   const colors = useColors();
   const cameraRef = useRef<CameraRef | null>(null);
   const line = accent ?? colors.accent;
 
+  const isRoad = Array.isArray(approachGeometry) && approachGeometry.length >= 2;
   const points = useMemo(
-    () => [pickup, dropoff, driver].filter((c): c is Coord => isUsableCoord(c)),
-    [pickup, dropoff, driver],
+    () =>
+      [pickup, dropoff, driver, ...(isRoad ? (approachGeometry as Coord[]) : [])].filter(
+        (c): c is Coord => isUsableCoord(c),
+      ),
+    [pickup, dropoff, driver, isRoad, approachGeometry],
   );
 
   const approach = useMemo(
-    () => (isUsableCoord(driver) && isUsableCoord(pickup) ? arcBetween(driver, pickup) : null),
-    [driver, pickup],
+    () =>
+      isRoad
+        ? (approachGeometry as Coord[])
+        : isUsableCoord(driver) && isUsableCoord(pickup)
+          ? arcBetween(driver, pickup)
+          : null,
+    [isRoad, approachGeometry, driver, pickup],
   );
 
   const ride = useMemo(() => {
@@ -155,15 +177,27 @@ export function DispatchMiniMap({
             id="dispatch-approach"
             shape={{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: approach } }}
           >
+            {/* A real road is the hero line — solid, cased, in the accent. The
+                arc placeholder stays dashed and dim so it never passes for one. */}
+            {isRoad ? (
+              <LineLayer
+                id="dispatch-approach-casing"
+                style={{ lineColor: '#04101F', lineWidth: 8, lineOpacity: 0.9, lineCap: 'round', lineJoin: 'round' }}
+              />
+            ) : null}
             <LineLayer
               id="dispatch-approach-line"
-              style={{
-                lineColor: colors.onSurfaceVariant,
-                lineWidth: 2,
-                lineOpacity: 0.55,
-                lineDasharray: [1.6, 2.2],
-                lineCap: 'round',
-              }}
+              style={
+                isRoad
+                  ? { lineColor: line, lineWidth: 4, lineOpacity: 1, lineCap: 'round', lineJoin: 'round' }
+                  : {
+                      lineColor: colors.onSurfaceVariant,
+                      lineWidth: 2,
+                      lineOpacity: 0.55,
+                      lineDasharray: [1.6, 2.2],
+                      lineCap: 'round',
+                    }
+              }
             />
           </ShapeSource>
         ) : null}

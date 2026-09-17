@@ -116,7 +116,13 @@
         }
       ],
       "expo-secure-store",
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "EyeGo uses Face ID to unlock your earnings before showing your balance."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

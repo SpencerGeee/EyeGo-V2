@@ -95,17 +95,37 @@ const updateHeavyCargo = async (req, res) => {
   ok(res, booking);
 };
 
+/**
+ * POST /v1/bookings/preview — what a seat on this trip costs with these
+ * choices, priced by the exact function `bookSeat` writes with. No row is
+ * created. See bookings.service `priceSeat`.
+ */
+const previewSeatFare = async (req, res) => {
+  const { tripId, pickupStopId, dropoffStopId, pickupLat, pickupLng, dropoffLat, dropoffLng, dropoffAddress } = req.body;
+  const joinerPickup = pickupLat != null && pickupLng != null ? { lat: Number(pickupLat), lng: Number(pickupLng) } : null;
+  const dropoff = dropoffLat != null && dropoffLng != null ? { lat: Number(dropoffLat), lng: Number(dropoffLng), address: dropoffAddress ?? null } : null;
+  const result = await bookingsService.previewSeatFare(tripId, {
+    pickupStopId: pickupStopId ?? null,
+    dropoffStopId: dropoffStopId ?? null,
+    dropoff,
+    joinerPickup,
+  });
+  ok(res, result);
+};
+
 const bookSeat = async (req, res) => {
   const tripId = req.params.tripId || req.params.id || req.body.tripId;
   let { seatNumber } = req.body;
   if (!seatNumber && req.body.seatId) {
     seatNumber = parseInt(req.body.seatId.toString().replace('seat-', ''), 10);
   }
-  const { pickupStopId, dropoffStopId, paymentMethod, guestName, guestPhone, pickupLat, pickupLng, pickupAddress } = req.body;
+  const { pickupStopId, dropoffStopId, paymentMethod, guestName, guestPhone, pickupLat, pickupLng, pickupAddress, dropoffLat, dropoffLng, dropoffAddress } = req.body;
   // A group-hub joiner's own pickup point (differs from the trip's main pickup) — null
   // when boarding at the trip's own pickup, the common case.
   const joinerPickup = pickupLat != null && pickupLng != null ? { lat: pickupLat, lng: pickupLng, address: pickupAddress ?? null } : null;
-  const result = await bookingsService.bookSeat(req.user.userId, tripId, seatNumber, pickupStopId ?? null, paymentMethod ?? null, guestName ?? null, guestPhone ?? null, joinerPickup, dropoffStopId ?? null);
+  // The rider's own drop-off pin on the route map — see bookings.service `resolveDropoff`.
+  const dropoff = dropoffLat != null && dropoffLng != null ? { lat: Number(dropoffLat), lng: Number(dropoffLng), address: dropoffAddress ?? null } : null;
+  const result = await bookingsService.bookSeat(req.user.userId, tripId, seatNumber, pickupStopId ?? null, paymentMethod ?? null, guestName ?? null, guestPhone ?? null, joinerPickup, dropoffStopId ?? null, dropoff);
 
   // Emit real-time seat update to passengers and driver
   try {
@@ -315,5 +335,6 @@ const joinGroup = async (req, res) => {
   ok(res, result);
 };
 
-module.exports = { bookSeat, createGroup, cancelBooking, getUserBookings, getBooking, rateBooking,
+module.exports = {
+  previewSeatFare, bookSeat, createGroup, cancelBooking, getUserBookings, getBooking, rateBooking,
   getMyRating, applyPromoCode, validatePromoCode, getActiveBooking, tipDriver, submitDispute, generateInvite, regenerateInvite, getGroup, joinGroup, updatePickup, updateHeavyCargo };

@@ -20,6 +20,14 @@ router.use(authenticate);
 // GET /v1/bookings/active   — current active booking (must be before /:bookingId)
 // GET /v1/bookings/:id      — single booking receipt
 router.get('/', controller.getUserBookings);
+router.post(
+  '/preview',
+  body('tripId').isString().notEmpty(),
+  body('dropoffLat').optional().isFloat({ min: -90, max: 90 }),
+  body('dropoffLng').optional().isFloat({ min: -180, max: 180 }),
+  validate,
+  controller.previewSeatFare,
+);
 router.post('/', requireBookingEnabled, bookingCreateLimiter, controller.bookSeat);
 // Fixed-segment routes MUST come before /:bookingId to avoid param capture
 router.get('/active', controller.getActiveBooking);

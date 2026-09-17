@@ -11,9 +11,10 @@ import {
 import { useDriverStore } from '../stores/driver.store';
 import { useNotificationsStore } from '../stores/notifications.store';
 import { useDriverTripStore } from '../stores/trip.store';
+import { useDriverSurface } from './surface/driverStage';
 import { useChatUnread } from '../stores/chatUnread.store';
 import { DriverToast, type ToastTone } from './DriverToast';
-import { goDeeper } from '@eyego/ui';
+import { goDeeper, goOut } from '@eyego/ui';
 
 // Hermes-safe property accessor — wraps reads in try-catch because Hermes
 // throws ReferenceError for properties that don't exist on objects deserialized
@@ -435,9 +436,11 @@ export function DriverTripStatusListener() {
         });
         return;
       }
-      goDeeper({ pathname: '/(trip)/dispatch/[id]', params: { id: dest.tripId, kind: dest.kind } } as Href);
+      // One renderer for an offer — the root sheet, raised by focusing the row.
+      useDriverSurface.getState().openOffer(dest.tripId);
     } else {
-      goDeeper({ pathname: '/(trip)/tracking/[id]', params: { id: dest.tripId } } as Href);
+      // The live trip is the home surface.
+      goOut('/(tabs)/home');
     }
   };
 

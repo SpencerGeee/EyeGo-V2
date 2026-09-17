@@ -127,6 +127,16 @@ export interface MapViewProps {
    * until the finger comes off. See useMapCamera's `release`.
    */
   onUserGesture?: () => void;
+  /**
+   * The edges of the map's LOGICAL viewport, in points from each frame edge.
+   *
+   * The native `contentInset`. A camera in `trackUserLocation` mode centres
+   * the puck inside this box, not the whole view — so a sheet covering the
+   * lower third asks for `bottom: <sheet height>` and the vehicle sits in the
+   * visible part of the map instead of under the panel. `fitBounds`/`setCamera`
+   * take their own padding per call; this is the standing inset.
+   */
+  contentInset?: { top?: number; right?: number; bottom?: number; left?: number };
   children?: React.ReactNode;
 }
 
@@ -187,8 +197,18 @@ export interface CameraProps {
   pitch?: number;
   animationMode?: 'flyTo' | 'linearTo' | 'easeTo' | 'none';
   animationDuration?: number;
-  /** v11 `trackUserLocation` passthrough — 'course' rotates to travel heading (nav-style). Prefer <NavCamera> for the active-trip camera instead of setting this directly. */
+  /**
+   * NATIVE following. 'default' centres the device, 'heading' also rotates to
+   * the compass, 'course' rotates to the direction of travel (the navigation
+   * view). The map engine animates the camera between fixes on its own
+   * thread, in step with its own puck (`UserLocation`) — which is the only
+   * way to get the Uber-grade smoothness a JS-driven per-frame `setCamera`
+   * never reaches. A user pan drops the mode to null natively; the change is
+   * reported through `onTrackUserLocationChange`.
+   */
   trackUserLocation?: 'default' | 'heading' | 'course';
+  /** Fires when the native side changes the tracking mode — null when a pan released it. */
+  onTrackUserLocationChange?: (mode: 'default' | 'heading' | 'course' | null) => void;
   /** `[west, south, east, north]`. Defaults to {@link GHANA_BOUNDS}; pass `null` to un-cap. */
   maxBounds?: [number, number, number, number] | null;
   /** Defaults to {@link GHANA_MIN_ZOOM}; pass `null` to un-cap. */
@@ -214,6 +234,7 @@ export const MapView = React.forwardRef<any, MapViewProps>(function MapView(
     onRegionDidChange,
     onUserPan,
     onUserGesture,
+    contentInset,
   },
   ref,
 ) {
@@ -290,6 +311,16 @@ export const MapView = React.forwardRef<any, MapViewProps>(function MapView(
         touchZoom={zoomEnabled ?? true}
         dragPan={scrollEnabled ?? true}
         scaleBar={scaleBarEnabled ?? false}
+        contentInset={
+          contentInset
+            ? {
+                top: contentInset.top ?? 0,
+                right: contentInset.right ?? 0,
+                bottom: contentInset.bottom ?? 0,
+                left: contentInset.left ?? 0,
+              }
+            : undefined
+        }
         // BUGFIX ("the map-picker Confirm button stays greyed out until you
         // type an address"): v11 replaced the old Mapbox-style GeoJSON region
         // payload — `{ geometry: { coordinates }, properties: { zoomLevel,
@@ -464,6 +495,7 @@ export const Camera = React.forwardRef<CameraRef, CameraProps>(function Camera(
     animationMode,
     animationDuration,
     trackUserLocation,
+    onTrackUserLocationChange,
     maxBounds = GHANA_BOUNDS,
     minZoom = GHANA_MIN_ZOOM,
   },
@@ -665,6 +697,10 @@ export const Camera = React.forwardRef<CameraRef, CameraProps>(function Camera(
       duration={animationDuration}
       easing={animationMode ? EASING_MAP[animationMode] : undefined}
       trackUserLocation={trackMode}
+      onTrackUserLocationChange={(e: any) => {
+        const m = e?.nativeEvent?.trackUserLocation ?? e?.trackUserLocation ?? null;
+        onTrackUserLocationChange?.(m ?? null);
+      }}
       // Country envelope — see GHANA_BOUNDS. `undefined` (not null) is what the
       // native side treats as "no cap".
       maxBounds={maxBounds ?? undefined}
@@ -1148,11 +1184,19 @@ export const CircleLayer = ({ id, style, source }: CircleLayerProps) => (
 
 export interface UserLocationProps {
   visible?: boolean;
+  /**
+   * The platform puck. 'course' is the navigation arrow (Android draws it from
+   * GPS course; iOS behaves like 'heading'), 'heading' a puck with a compass
+   * cone, 'default' the plain dot. Drawn and animated by the map engine, in
+   * step with a `trackUserLocation` camera.
+   */
+  mode?: 'default' | 'heading' | 'course';
+  /** @deprecated v11 has no such prop; kept so old call sites type-check. */
   showsUserHeadingIndicator?: boolean;
 }
 
-export const UserLocation = ({ visible = true, showsUserHeadingIndicator }: UserLocationProps) =>
-  visible ? <NativeUserLocation showsUserHeadingIndicator={showsUserHeadingIndicator} /> : null;
+export const UserLocation = ({ visible = true, mode = 'default' }: UserLocationProps) =>
+  visible ? <NativeUserLocation mode={mode} /> : null;
 
 // ── Last-resort fallback (native module failed to load) ─────────────────
 

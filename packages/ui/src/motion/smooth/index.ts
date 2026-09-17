@@ -28,7 +28,7 @@ export type { SmoothScreenProps, SmoothScreenState } from './SmoothScreen';
 export { SmoothIn, SmoothSection } from './SmoothIn';
 export type { SmoothInProps } from './SmoothIn';
 
-export { goDeeper, goLateral, goInstead, goBack, goOut } from './navigation';
+export { goDeeper, goLateral, goInstead, goBack, goOut, goFresh } from './navigation';
 
 export { enableSmoothNavigation } from './enableSmoothNavigation';
 export { SmoothNavigationProvider } from './SmoothNavigationProvider';

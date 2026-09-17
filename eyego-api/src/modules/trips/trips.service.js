@@ -486,6 +486,31 @@ async function getTrip(id, viewerUserId = null) {
     trip.driver.ratingCount = ratingCount;
   }
 
+  /**
+   * THE ROAD THE TRIP DRIVES, for the seat page's drop-off map.
+   *
+   * FEATURE ("highlight the whole trip route on the map and only let the user
+   * mark a drop-off on it"). A rider choosing where to get off needs the same
+   * polyline the server will measure their pin against (`resolveDropoff`), so
+   * it rides the trip payload. `ensureRouteForTrip` computes it once per trip
+   * pre-departure and serves the cache afterwards — the same one-call-per-trip
+   * rule the snapshot's preview uses. Best-effort: a trip page with no line is
+   * a worse page, never a failed request.
+   */
+  try {
+    const r = await routeGeometry.ensureRouteForTrip(trip);
+    if (r?.geometry) {
+      trip.path = {
+        leg: r.leg,
+        geometry: r.geometry,
+        distanceKm: r.distanceKm,
+        etaMinutes: r.durationMin != null ? Math.max(1, Math.round(r.durationMin)) : null,
+      };
+    }
+  } catch {
+    // see above
+  }
+
   return trip;
 }
 

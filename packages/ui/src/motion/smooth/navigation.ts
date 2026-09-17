@@ -50,6 +50,7 @@ type RouterLike = {
   back: () => void;
   canGoBack: () => boolean;
   dismissTo?: (href: unknown) => void;
+  dismissAll?: () => void;
 };
 
 let cachedRouter: RouterLike | null = null;
@@ -144,6 +145,30 @@ export function goOut(href: unknown): void {
   }
   router.replace(href as never);
 }
+/**
+ * FRESH. Land on `href` with nothing but the root beneath it.
+ *
+ * BUGFIX ("when the trip ended there were huge fades of the seat page and
+ * some other page before the 'your trip ended' page came; going home flashed
+ * another page"). The booking flow is a stack — ride → seat → payment — and
+ * payment used to `replace` ITSELF with the trip surface, so the live ride
+ * sat on top of the seat page for the whole trip. Every exit from the ride
+ * then unwound through screens the rider had finished with an hour ago, each
+ * one painting for a frame on its way out.
+ *
+ * A live ride is a new chapter, not the next page of the booking: dismiss the
+ * whole flow first, then push. The stack is [root, ride], the receipt replaces
+ * the ride, and home is one pop away.
+ */
+export function goFresh(href: unknown): void {
+  const router = getRouter();
+  if (!router) return;
+  clearPushGuard();
+  beginTransition();
+  if (typeof router.dismissAll === 'function' && router.canGoBack()) router.dismissAll();
+  router.push(href as never);
+}
+
 /**
  * BACK, with the clock started so the screen being returned TO knows not to
  * re-run its entrances. Falls back to a replace when there is nothing to pop —

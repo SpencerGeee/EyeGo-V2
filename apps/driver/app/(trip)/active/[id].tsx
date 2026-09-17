@@ -18,7 +18,7 @@ import * as Location from 'expo-location';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi, driverSocketEvents } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii, TRIP_STATUS_COPY, driverStatusLabel } from '@eyego/config';
-import { Text, Skeleton, Entrance, GlassSurface, GradientGlowBorder, InlayPanel, SwipeToConfirm, goLateral, SmoothScreen, goDeeper, goBack, notify, callNumber } from '@eyego/ui';
+import { Text, Skeleton, Entrance, GlassSurface, GradientGlowBorder, InlayPanel, SwipeToConfirm, goOut, SmoothScreen, goDeeper, goBack, notify, callNumber } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { usePlatformConfig } from '../../../hooks/usePlatformConfig';
@@ -40,7 +40,6 @@ import type { GeoPlace } from '@eyego/utils';
 // The ONE map in the driver trip flow. It owns the MapView, the map style, the
 // camera state machine and the server's route geometry, so nothing map-shaped is
 // imported here any more.
-import { DriverTripMap } from '../../../components/trip/DriverTripMap';
 import { TripStatusRail, type RailStep } from '../../../components/trip/TripStatusRail';
 import { VALID_ADVANCE_STATUSES, nextStatusAfter, advanceRequest } from '../../../components/surface/useTripAdvance';
 import type { TripBooking } from '@eyego/types';
@@ -416,6 +415,24 @@ export default function ActiveTripScreen() {
     },
     [],
   );
+  // The map used to feed this; the page has no map now, so it reads the same
+  // server frame the map read. Home's surface map keeps the room joined.
+  useEffect(() => {
+    if (!id) return undefined;
+    const off = driverSocketEvents.onTripEta?.((payload: any) => {
+      if (payload?.tripId && payload.tripId !== id) return;
+      if (!Number.isFinite(payload?.etaMinutes)) return;
+      handleEta({
+        leg: payload.leg ?? 'toPickup',
+        minutes: payload.etaMinutes,
+        distanceKm: Number.isFinite(payload?.distanceKm) ? payload.distanceKm : null,
+        rerouted: Boolean(payload?.rerouted),
+      });
+    });
+    return () => {
+      off?.();
+    };
+  }, [id, handleEta]);
 
   useEffect(() => {
     if (!trip) return;
@@ -611,8 +628,8 @@ export default function ActiveTripScreen() {
         addNotification({ type: 'DRIVER_EN_ROUTE', title: 'Trip started', body: 'You are now en route to the pickup stop.', tripId: id });
         qc.invalidateQueries({ queryKey: ['driver', 'trip', 'active', id] });
         qc.invalidateQueries({ queryKey: ['driver', 'activeTrip'] });
-        // Redirect driver to the live tracking screen
-        router.replace({ pathname: '/(trip)/tracking/[id]', params: { id } } as Href);
+        // The live map is the home surface now — see components/surface.
+        goOut('/(tabs)/home');
         return;
       }
       /**
@@ -666,10 +683,7 @@ export default function ActiveTripScreen() {
         addNotification({ type: 'IN_PROGRESS', title: 'Trip in progress', body: 'You have departed. Ride is underway.', tripId: id });
         qc.invalidateQueries({ queryKey: ['driver', 'trip', 'active', id] });
         qc.invalidateQueries({ queryKey: ['driver', 'activeTrip'] });
-        setTimeout(
-          () => router.replace({ pathname: '/(trip)/tracking/[id]', params: { id } } as Href),
-          520,
-        );
+        setTimeout(() => goOut('/(tabs)/home'), 520);
         return;
       }
 
@@ -1533,20 +1547,6 @@ export default function ActiveTripScreen() {
         onBack={() => goBack()}
         title={`${originLabel(trip) ?? 'Pickup'} → ${destinationLabel(trip) ?? 'Destination'}`}
         subtitle={statusCfg.label}
-        map={
-          <DriverTripMap
-            tripId={id!}
-            status={trip.status}
-            pickup={pickupCoord}
-            dropoff={destCoord}
-            location={location}
-            puckColor={statusCfg.color}
-            // The map owns its whole pane now — nothing is docked over it.
-            sheetFraction={0}
-            active={isActiveTrip}
-            onEta={handleEta}
-          />
-        }
         mapOverlay={
           /**
            * SOS is the only thing that has earned a place on the map.
@@ -1691,7 +1691,7 @@ export default function ActiveTripScreen() {
             icon="map"
             label="Tracking"
             color={colors.primary} colors={colors}
-            onPress={() => goLateral(`/(trip)/tracking/${id}`)}
+            onPress={() => goOut('/(tabs)/home')}
           />
           <QuickAction
             icon="qr-code"

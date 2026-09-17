@@ -39,6 +39,8 @@ import { fonts, fontSizes, spacing, radii } from '@eyego/config';
  */
 import { Text, GlassSurface, SwipeToConfirm, GradientGlowBorder, getTierTheme, Pressable } from '@eyego/ui';
 import type { Coord } from '@eyego/maps';
+import Svg, { Rect } from 'react-native-svg';
+import { useAnimatedProps } from 'react-native-reanimated';
 
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { DispatchMiniMap } from './DispatchMiniMap';
@@ -76,6 +78,8 @@ export interface DispatchOfferView {
   dropoffDistanceKm?: number | null;
   pickup?: Coord | null;
   dropoff?: Coord | null;
+  /** The road from the driver to the pickup — see `DispatchOffer.geometry`. */
+  geometry?: Coord[] | null;
   /** What the driver nets. The number the decision is actually made on. */
   driverEarningsPesewas?: number | null;
   farePesewas?: number | null;
@@ -152,6 +156,96 @@ function kmBetween(a?: Coord | null, b?: Coord | null): number | null {
   const l2 = (b[1] * Math.PI) / 180;
   const h = Math.sin(dLat / 2) ** 2 + Math.cos(l1) * Math.cos(l2) * Math.sin(dLng / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+const AnimatedRect = Animated.createAnimatedComponent(Rect);
+
+/**
+ * THE BORDER DRAINS WITH THE CLOCK.
+ *
+ * FEATURE ("if possible, the borders filling or dipping to show that the offer
+ * is about to expire"). Uber draws its offer countdown as a bar wrapping the
+ * accept button; Bolt fills the card's frame. This is the frame: one stroke
+ * around the card's own rounded rectangle, drawn as a dash exactly one
+ * perimeter long, whose offset grows linearly from "how much window was left
+ * when the card appeared" to "none" — the light retreats clockwise from the
+ * top-left corner as the seconds go. Time is linear, so the drain is a linear
+ * timing to zero and never an ease (an eased bar lies about what is left).
+ *
+ * One `withTiming` on the UI thread; nothing per-second on the JS side. The
+ * digits in the ring say HOW LONG; this says IT IS GOING, from across the car.
+ */
+function PerimeterDrain({
+  expiresAtMs,
+  windowMs,
+  nowMs,
+  color,
+  radius,
+  width: strokeWidth = 3,
+}: {
+  expiresAtMs: number;
+  windowMs: number;
+  nowMs: number;
+  color: string;
+  radius: number;
+  width?: number;
+}) {
+  const [box, setBox] = useState({ w: 0, h: 0 });
+  const remaining = Math.max(0, expiresAtMs - nowMs);
+  const inset = strokeWidth / 2;
+  const w = Math.max(0, box.w - strokeWidth);
+  const h = Math.max(0, box.h - strokeWidth);
+  const r = Math.max(0, Math.min(radius - inset, w / 2, h / 2));
+  const perimeter = 2 * (w + h) - 8 * r + 2 * Math.PI * r;
+
+  const offset = useSharedValue(0);
+  useEffect(() => {
+    if (perimeter <= 0) return;
+    cancelAnimation(offset);
+    if (remaining <= 0 || windowMs <= 0) {
+      offset.value = perimeter;
+      return;
+    }
+    const left = Math.min(1, remaining / windowMs);
+    offset.value = perimeter * (1 - left);
+    offset.value = withTiming(perimeter, { duration: remaining, easing: Easing.linear });
+    return () => cancelAnimation(offset);
+    // `nowMs` is the sheet's tick; re-arming on it would restart the drain
+    // every 500 ms. The deadline and the box are what change the animation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expiresAtMs, windowMs, perimeter]);
+
+  const animatedProps = useAnimatedProps(() => ({ strokeDashoffset: offset.value }));
+
+  return (
+    <View
+      style={StyleSheet.absoluteFill}
+      pointerEvents="none"
+      onLayout={(e) => {
+        const { width: lw, height: lh } = e.nativeEvent.layout;
+        if (lw !== box.w || lh !== box.h) setBox({ w: lw, h: lh });
+      }}
+    >
+      {box.w > 0 && box.h > 0 ? (
+        <Svg width={box.w} height={box.h}>
+          <AnimatedRect
+            x={inset}
+            y={inset}
+            width={w}
+            height={h}
+            rx={r}
+            ry={r}
+            fill="none"
+            stroke={color}
+            strokeWidth={strokeWidth}
+            strokeLinecap="round"
+            strokeDasharray={[perimeter, perimeter]}
+            animatedProps={animatedProps}
+          />
+        </Svg>
+      ) : null}
+    </View>
+  );
 }
 
 export function DispatchOfferCard({
@@ -373,9 +467,10 @@ export function DispatchOfferCard({
    */
   const inner = (
     <View style={isSheet ? styles.sheetCard : styles.card}>
-      {/* The window, draining. Sits above everything so it is never covered by
-          the map's own gradient. */}
-      {offer.expiresAtServerMs ? (
+      {/* The window, draining. In the card the whole FRAME drains (see
+          PerimeterDrain, mounted last so it sits above the map); the sheet has
+          no frame, so it keeps the top-edge rail. */}
+      {offer.expiresAtServerMs && isSheet ? (
         <View style={styles.railTrack} pointerEvents="none">
           <Animated.View style={[styles.rail, { backgroundColor: accent }, railStyle]} />
         </View>
@@ -395,6 +490,7 @@ export function DispatchOfferCard({
             pickup={offer.pickup}
             dropoff={offer.dropoff}
             driver={driverAt}
+            approachGeometry={offer.geometry ?? null}
             height={mapHeight}
             accent={accent}
           />
@@ -543,11 +639,15 @@ export function DispatchOfferCard({
               color={accent}
               trackColor={colors.outline}
             >
+              {/* A search deadline can be minutes away; an exclusive hold is
+                  seconds. Same ring, whichever clock this card is on. */}
               <Text style={[styles.timerDigits, { color: accent }]}>
-                {String(Math.max(0, secondsLeft)).padStart(2, '0')}
+                {secondsLeft >= 100
+                  ? `${Math.floor(secondsLeft / 60)}:${String(secondsLeft % 60).padStart(2, '0')}`
+                  : String(Math.max(0, secondsLeft)).padStart(2, '0')}
               </Text>
               <Text variant="caption" color={colors.onSurfaceVariant} style={{ marginTop: -2 }}>
-                sec
+                {secondsLeft >= 100 ? 'left' : 'sec'}
               </Text>
             </CountdownRing>
           ) : (
@@ -745,6 +845,18 @@ export function DispatchOfferCard({
           ) : null}
         </View>
       </View>
+
+      {/* Last, so it paints over the map and the panel alike. */}
+      {!isSheet && offer.expiresAtServerMs ? (
+        <PerimeterDrain
+          expiresAtMs={offer.expiresAtServerMs}
+          windowMs={windowMs}
+          nowMs={nowMs}
+          color={accent}
+          radius={radii['3xl'] - 2}
+          width={urgent ? 4 : 3}
+        />
+      ) : null}
     </View>
   );
 

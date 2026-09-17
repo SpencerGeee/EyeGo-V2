@@ -29,10 +29,8 @@ import { usePlatformConfig } from '../../hooks/usePlatformConfig';
 import { OnlineToggle } from '../../components/OnlineToggle';
 import { DestinationModeCard } from '../../components/DestinationModeCard';
 import { PendingDispatchList } from '../../components/PendingDispatchList';
-import { LiveTripCard } from '../../components/LiveTripCard';
 import DemandOverlay from '../../components/DemandOverlay';
 import { DriverSheetHost } from '../../components/surface/DriverSheetHost';
-import { DispatchOfferStage } from '../../components/surface/DispatchOfferStage';
 import { deriveDriverStage, useDriverSurface, type DriverStage } from '../../components/surface/driverStage';
 import { DriverSurfaceMap } from '../../components/surface/DriverSurfaceMap';
 import { TripStages } from '../../components/surface/TripStages';
@@ -136,54 +134,54 @@ export default function HomeScreen() {
    * body against the incoming one. A ref rather than state: writing it must not
    * itself cause a render, or the crossfade would re-trigger on its own output.
    */
-  const focusedTripId = useDriverSurface((s) => s.focusedTripId);
   const openOffer = useDriverSurface((s) => s.openOffer);
+  const focusedTripId = useDriverSurface((s) => s.focusedTripId);
   const closeOffer = useDriverSurface((s) => s.closeOffer);
-  const heldOffer = useDriverTripStore((s) => s.offer);
   const pendingRequests = useDriverTripStore((s) => s.pendingRequests);
 
   /**
-   * Is the focused ride still something to decide on?
+   * THE TRIP IN HAND, AND THE STAGE IT PUTS THIS SURFACE IN.
    *
-   * True while it is either the driver's own live exclusive offer, or a row
-   * still on the board. When it stops being both — taken, cancelled, passed —
-   * the stage falls back to idle on its own rather than stranding the driver on
-   * a panel about a ride that no longer exists.
+   * Polled while online as a safety net; the sequenced `trip:event` channel
+   * (subscribeDriverStatusToCaches) writes the same key the instant a status
+   * moves, so the stage below swaps on the frame the swipe lands.
    */
-  const focusedOfferable = useMemo(() => {
-    if (!focusedTripId) return false;
-    if (heldOffer?.tripId === focusedTripId) return true;
-    return pendingRequests.some((r) => r.tripId === focusedTripId);
-  }, [focusedTripId, heldOffer?.tripId, pendingRequests]);
-
-  const surfaceStage = deriveDriverStage(focusedTripId, focusedOfferable);
+  const { data: activeTripData } = useQuery({
+    queryKey: ['driver', 'activeTrip'],
+    queryFn: () => driverApi.getActiveTrip(),
+    select: (r) => r.data.data?.trip ?? null,
+    refetchInterval: isOnline ? 10000 : false,
+  });
+  const surfaceStage = deriveDriverStage(activeTripData?.status);
+  /** The live leg ETA the map computes; the sheet's headline reads it. */
+  const [legEta, setLegEta] = useState<{
+    leg: 'toPickup' | 'toDropoff';
+    minutes: number;
+    distanceKm: number | null;
+  } | null>(null);
+  useEffect(() => {
+    if (surfaceStage === 'idle') setLegEta(null);
+  }, [surfaceStage]);
   const stageRef = useRef<DriverStage>(surfaceStage);
   const previousStage = stageRef.current === surfaceStage ? null : stageRef.current;
   useEffect(() => {
     stageRef.current = surfaceStage;
   }, [surfaceStage]);
 
-  // A selection that outlived its ride is cleared, so the store cannot keep a
-  // dangling id alive across the next offer.
+  // A tapped row that has since left the board (taken, cancelled, expired)
+  // must not stay focused, or the next open of the sheet shows a ghost.
   useEffect(() => {
-    if (focusedTripId && !focusedOfferable) closeOffer();
-  }, [focusedTripId, focusedOfferable, closeOffer]);
+    if (focusedTripId && !pendingRequests.some((r) => r.tripId === focusedTripId)) closeOffer();
+  }, [focusedTripId, pendingRequests, closeOffer]);
 
   /**
    * ── ANDROID'S HARDWARE BACK, WHICH THE STAGES BROKE ────────────────────────
    *
-   * The offer and the driving stages are NOT routes — that is the whole point
-   * of the surface, and it is why nothing lags when one opens. But the system
-   * back button only knows about routes, so on Android it walked straight past
-   * an open offer to the navigator underneath: the driver pressed back and left
-   * the tab, or the app, with the stage still showing behind them. iOS has no
-   * hardware back, so this was invisible on the device most of this work was
-   * checked against. The rider app has handled its own stages this way for a
-   * long time (see trip.tsx, SearchStage, SelectStage); the driver never needed
-   * to until now.
+   * The driving stages are NOT routes — that is the whole point of the surface,
+   * and it is why nothing lags when one opens. But the system back button only
+   * knows about routes, so on Android it walked straight past the stage to the
+   * navigator underneath.
    *
-   *   offer    → back closes it and returns to the board, which is what a
-   *              driver means by "not this one".
    *   driving  → back is SWALLOWED. A trip in progress is not something to
    *              accidentally exit, and there is nowhere to go: the surface is
    *              home. Returning true stops the event without doing anything.
@@ -192,15 +190,9 @@ export default function HomeScreen() {
    */
   useEffect(() => {
     if (surfaceStage === 'idle') return undefined;
-    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (surfaceStage === 'offer') {
-        closeOffer();
-        return true;
-      }
-      return true;
-    });
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => true);
     return () => sub.remove();
-  }, [surfaceStage, closeOffer]);
+  }, [surfaceStage]);
 
   /**
    * IS THERE WORK ON THE BOARD RIGHT NOW?
@@ -322,13 +314,6 @@ export default function HomeScreen() {
     enabled: showHeatmap && !!location,
   });
 
-  const { data: activeTripData } = useQuery({
-    queryKey: ['driver', 'activeTrip'],
-    queryFn: () => driverApi.getActiveTrip(),
-    select: (r) => r.data.data?.trip ?? null,
-    refetchInterval: isOnline ? 10000 : false,
-  });
-
   useEffect(() => {
     if (activeTripData?.id) {
       setActiveTripId(activeTripData.id);
@@ -402,25 +387,16 @@ export default function HomeScreen() {
         body: data.routeDestination ? `To ${data.routeDestination}` : '',
         tripId: data.tripId,
       });
-      if (!isMountedRef.current) return; // home screen unmounted (e.g. driver switched tabs) — don't navigate
-      goDeeper({
-        pathname: '/(trip)/dispatch/[id]',
-        params: {
-          id: data.tripId,
-          kind: data.kind,
-          origin: data.routeOrigin,
-          destination: data.routeDestination,
-          departureTime: data.departureTime,
-          expiresAt: data.expiresAt,
-          // The server sends `estimatedEarningsPesewas` (admin.controller.js).
-          // This read `data.estimatedEarnings`, a field that has never been on
-          // the payload, so it was always undefined and the earnings card on
-          // the dispatch screen never rendered — a driver being offered a trip
-          // could not see what it paid, which is the one fact they decide on.
-          estimatedEarnings:
-            data.estimatedEarningsPesewas != null ? String(data.estimatedEarningsPesewas) : undefined,
-        },
-      } as any);
+      /**
+       * NO NAVIGATION. This used to push `(trip)/dispatch/[id]` — the
+       * countdown-less "dead" offer page. The offer has one renderer now, the
+       * root sheet: re-read the board so the row exists, then focus it. The
+       * sheet raises itself from any screen.
+       */
+      void useDriverTripStore
+        .getState()
+        .hydrate()
+        .then(() => useDriverSurface.getState().openOffer(data.tripId));
     });
     /**
      * RECONNECT FAST, AND KEEP TRYING.
@@ -750,52 +726,21 @@ export default function HomeScreen() {
    * camera to `free` when the driver pans — none of which the hand-written
    * pair did. This screen now only says WHAT to frame, never how.
    */
-  const focusedPickup = useMemo(() => {
-    if (surfaceStage !== 'offer' || !focusedTripId) return null;
-    if (heldOffer?.tripId === focusedTripId) {
-      const la = (heldOffer as any).pickupLat;
-      const ln = (heldOffer as any).pickupLng;
-      return Number.isFinite(la) && Number.isFinite(ln) ? { lat: la as number, lng: ln as number } : null;
-    }
-    const row = pendingRequests.find((r) => r.tripId === focusedTripId);
-    return row && Number.isFinite(row.pickupLat) && Number.isFinite(row.pickupLng)
-      ? { lat: row.pickupLat as number, lng: row.pickupLng as number }
-      : null;
-  }, [surfaceStage, focusedTripId, heldOffer, pendingRequests]);
-
   /**
-   * The pair the camera must hold while an offer is open: where the driver is,
-   * and where the pickup is. `useMapCamera` refuses a degenerate box on its own
-   * (a collapsed pair is the MLRNCamera crash, not NaN), so a driver standing
-   * on the pickup needs no special case here.
-   */
-  const approachFit = useMemo(() => {
-    if (surfaceStage !== 'offer' || !focusedPickup) return null;
-    const pickup: [number, number] = [focusedPickup.lng, focusedPickup.lat];
-    if (!location) return [pickup];
-    return [[location.longitude, location.latitude] as [number, number], pickup];
-  }, [surfaceStage, focusedPickup, location]);
-
-  /**
-   * The legs the map draws for the CURRENT stage.
-   *
-   * On `offer` the drop-off is deliberately null — the gate above. Once the
-   * trip is live the real coordinates come from the trip itself, and the map's
-   * own status logic picks which leg to frame.
+   * The legs the map draws for the CURRENT stage. The offer's approach is
+   * framed by the takeover's own mini map now (see DispatchOfferSheet); this
+   * surface only ever frames the trip in hand, and the map's own status logic
+   * picks which leg to follow.
    */
   const stagePickup = useMemo(() => {
-    if (surfaceStage === 'offer' && focusedPickup) {
-      return [focusedPickup.lng, focusedPickup.lat] as [number, number];
-    }
     const t: any = activeTripData;
     const la = t?.pickupLat ?? t?.route?.originLat;
     const ln = t?.pickupLng ?? t?.route?.originLng;
     return Number.isFinite(la) && Number.isFinite(ln) ? ([ln, la] as [number, number]) : null;
-  }, [surfaceStage, focusedPickup, activeTripData]);
+  }, [activeTripData]);
 
   const stageDropoff = useMemo(() => {
-    // Never during an offer. See the gate above.
-    if (surfaceStage === 'offer' || surfaceStage === 'idle') return null;
+    if (surfaceStage === 'idle') return null;
     const t: any = activeTripData;
     const la = t?.dropoffLat ?? t?.route?.destLat;
     const ln = t?.dropoffLng ?? t?.route?.destLng;
@@ -837,7 +782,7 @@ export default function HomeScreen() {
         dropoff={stageDropoff}
         location={location}
         puckColor={isOnline ? colors.online : colors.offline}
-        fitOverride={approachFit}
+        onEta={setLegEta}
         styleURL={mapStyle}
       >
         {location && (
@@ -1100,11 +1045,7 @@ export default function HomeScreen() {
           */}
           {hasPendingDispatch && (
             <Entrance animation="slideDown" delay={120}>
-              {/* `onOpenInPlace` is what turns a tap into a stage change
-                  instead of a push — see the note in PendingDispatchList.open.
-                  Home is the only caller that can supply it, because home is
-                  the only screen that already has the map and the sheet. */}
-              <PendingDispatchList compact onOpenInPlace={openOffer} />
+              <PendingDispatchList compact />
             </Entrance>
           )}
 
@@ -1147,35 +1088,26 @@ export default function HomeScreen() {
           {/**
             * ── THE HERO SLOT ────────────────────────────────────────────────
             *
-            * Two completely different states used to share one ring and one
-            * `Button`: "you are in the middle of a ride" and "you have nothing
-            * on". A live trip is not a call to action, it is a situation, and it
-            * now gets a surface that says what phase it is in, who is aboard and
-            * what it pays — see `LiveTripCard`. The empty state keeps the ringed
-            * button, which is the right shape for the one thing there is to do.
+            * Only the empty state lives here now. A live trip is no longer a
+            * card in the idle sheet that opens another screen: it is the
+            * surface's own driving stage (see `TripStages` below), which
+            * replaces this body the moment `activeTripData` has a live status.
             */}
           <Entrance animation="slideDown" delay={200} style={styles.ctaWrapper}>
-            {activeTripData ? (
-              <LiveTripCard
-                trip={activeTripData}
-                onPress={() => goDeeper(`/(trip)/active/${activeTripData.id}` as Href)}
-              />
-            ) : (
-              <GradientGlowBorder
-                palette="driver"
-                fillColor={colors.surfaceContainerHigh}
-                borderRadius={radii['2xl']}
-                glow
+            <GradientGlowBorder
+              palette="driver"
+              fillColor={colors.surfaceContainerHigh}
+              borderRadius={radii['2xl']}
+              glow
+              disabled={!isOnline}
+              style={styles.ctaGlow}
+            >
+              <Button
+                label="+ Create Trip"
+                onPress={() => goDeeper('/(trip)/create')}
                 disabled={!isOnline}
-                style={styles.ctaGlow}
-              >
-                <Button
-                  label="+ Create Trip"
-                  onPress={() => goDeeper('/(trip)/create')}
-                  disabled={!isOnline}
-                />
-              </GradientGlowBorder>
-            )}
+              />
+            </GradientGlowBorder>
             {!isOnline && !activeTripData && (
               <Text variant="caption" color={colors.onSurfaceVariant} style={styles.offlineHint}>
                 Go online to start accepting trips
@@ -1187,20 +1119,17 @@ export default function HomeScreen() {
 
       {/*
         The sheet itself — one instance, above every stage, never unmounted.
-        `idle` publishes into it above; `offer` publishes into it from
-        DispatchOfferStage. Swapping between them is a crossfade on a spring,
-        not a navigation, which is the whole point (see driverStage.ts).
+        `idle` publishes into it above; the driving stages below publish into
+        the same slot. Swapping between them is a crossfade on a spring, not a
+        navigation, which is the whole point (see driverStage.ts). The OFFER is
+        not a stage: it is the root-mounted DispatchOfferSheet.
       */}
-      {/* Publishes the `offer` body into the same slot. Renders nothing itself
-          and owns no map — home's map is the map. */}
-      <DispatchOfferStage />
-
-      {/* The driving stages — enroute / arrived / intrip — publish into the same
-          sheet. Like the offer, they own no map: the surface map above is the
-          map, and it is never rebuilt between them. */}
+      {/* The driving stages — enroute / arrived / intrip. They own no map: the
+          surface map above is the map, and it is never rebuilt between them. */}
       <TripStages
         stage={surfaceStage}
         trip={activeTripData}
+        eta={legEta}
         onManage={() =>
           activeTripData?.id
             ? goDeeper({ pathname: '/(trip)/active/[id]', params: { id: activeTripData.id } } as Href)

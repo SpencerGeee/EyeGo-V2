@@ -36,6 +36,7 @@ import { driverColors, driverLightColors } from '../utils/useColors';
 import { initSentry, captureException } from '../lib/sentry';
 import { DriverTripStatusListener } from '../components/DriverTripStatusListener';
 import DispatchOfferSheet from '../components/DispatchOfferSheet';
+import { useDriverSurface } from '../components/surface/driverStage';
 import { isLiveTripStatus } from '@eyego/utils';
 import { offlineQueue } from '../utils/offlineQueue';
 import { useOtaUpdates } from '../hooks/useOtaUpdates';
@@ -381,29 +382,18 @@ export default function RootLayout() {
       // screen for a trip the driver has not accepted yet — the same bug
       // TRIP_OFFER had. Both admin pushes land on the offer screen, which is
       // where the Accept button is.
-      } else if ((type === 'TRIP_ASSIGNED' || type === 'ADMIN_TRIP_ASSIGNED') && tripId) {
-        router.push({
-          pathname: '/(trip)/dispatch/[id]',
-          params: {
-            id: tripId,
-            origin: data.routeOrigin ?? '',
-            destination: data.routeDestination ?? '',
-            departureTime: data.departureTime ?? '',
-            expiresAt: data.expiresAt ?? '',
-          },
-        } as any);
-      } else if (type === 'TRIP_REQUEST_DISPATCH' && data.requestId) {
-        // On-demand rider request — first driver to accept wins, unlike TRIP_ASSIGNED
-        // which is already owned by another driver.
-        router.push({
-          pathname: '/(trip)/dispatch/[id]',
-          params: {
-            id: data.requestId,
-            kind: 'REQUEST',
-            destination: data.destination ?? '',
-            departureTime: data.scheduledAt ?? '',
-          },
-        } as any);
+      } else if (
+        ((type === 'TRIP_ASSIGNED' || type === 'ADMIN_TRIP_ASSIGNED') && tripId) ||
+        (type === 'TRIP_REQUEST_DISPATCH' && data.requestId)
+      ) {
+        // Every offer lands in the ONE renderer, the root DispatchOfferSheet —
+        // never the old pushed screen. Re-read the board so the row exists,
+        // then focus it; the sheet raises itself over whatever is on screen.
+        const focus = String(tripId ?? data.requestId);
+        void useDriverTripStore
+          .getState()
+          .hydrate()
+          .then(() => useDriverSurface.getState().openOffer(focus));
       } else if (type === 'DISPATCH_REQUEST') {
         // Informational only — this trip already has an owning driver, so there's
         // nothing here for another driver to accept. Just surface high-demand areas.

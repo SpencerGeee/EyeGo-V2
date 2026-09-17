@@ -2,7 +2,7 @@
 
 const prisma = require('../../config/database');
 const env = require('../../config/env');
-const { calculateFare, calculateSegmentFare, detourKm, calculateDeviationSurcharge, pinnedRatesFor } = require('../trips/fare.calculator');
+const { calculateFare, calculateSegmentFare, calculateSegmentFareByRatio, detourKm, calculateDeviationSurcharge, pinnedRatesFor } = require('../trips/fare.calculator');
 const { SeatTakenError, NotFoundError, AppError, ForbiddenError } = require('../../utils/errors');
 const tripState = require('../../services/trip-state.service');
 const { seatOccupyingWhere, SEAT_RELEASING_STATUSES } = require('../../utils/booking-status');
@@ -185,7 +185,199 @@ async function recomputeBookingAddons(bookingId, userId, { pickupLat, pickupLng,
   });
 }
 
-async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, paymentMethod = null, guestName = null, guestPhone = null, joinerPickup = null, dropoffStopId = null) {
+
+/** How far off the road a drop-off pin may land and still count as "on the route". */
+const DROPOFF_MAX_OFF_ROUTE_M = 150;
+
+/**
+ * The road a group/bus trip drives, origin → destination, as `[lng, lat][]`.
+ * Null when no geometry can be had (no token, no cache) — in which case a free
+ * drop-off is refused rather than measured against a straight line.
+ */
+async function routeLineForTrip(tripId) {
+  const trip = await prisma.trip.findUnique({
+    where: { id: tripId },
+    select: {
+      id: true, status: true, driverId: true,
+      pickupLat: true, pickupLng: true, dropoffLat: true, dropoffLng: true,
+      route: { select: { originLat: true, originLng: true, destLat: true, destLng: true } },
+    },
+  });
+  if (!trip) return null;
+  const r = await routeGeometry.ensureRouteForTrip(trip).catch(() => null);
+  const coords = r?.geometry?.coordinates;
+  return Array.isArray(coords) && coords.length >= 2 ? coords : null;
+}
+
+/**
+ * A rider's own drop-off, measured ALONG the road.
+ *
+ * FEATURE ("let the user mark a drop-off on the map — only on the route, or
+ * not far off it"). The pin is projected onto the trip's polyline; more than
+ * `DROPOFF_MAX_OFF_ROUTE_M` off it is refused with a code the app turns into
+ * "drag the pin onto the road". The share of the route ridden is the distance
+ * along the line from where the rider boards to where they alight, over the
+ * line's length — a straight line between the two would under-charge every
+ * ride that bends. The snapped point is what gets stored, so the driver is
+ * sent to the kerb on the route rather than the rider's rough thumb.
+ */
+function resolveDropoff(trip, routeLine, dropoff, board) {
+  const { projectOntoPolyline } = require('../../utils/geo');
+  if (!routeLine) {
+    throw new AppError('The route for this trip is not available yet — try again in a moment.', 503, 'ROUTE_UNAVAILABLE');
+  }
+  const proj = projectOntoPolyline(dropoff.lat, dropoff.lng, routeLine);
+  if (!proj || proj.distanceM > DROPOFF_MAX_OFF_ROUTE_M) {
+    throw new AppError('Your drop-off has to be on the route this trip drives.', 422, 'DROPOFF_OFF_ROUTE');
+  }
+  const boardProj = board ? projectOntoPolyline(board.lat, board.lng, routeLine) : null;
+  const alongBoard = boardProj?.alongM ?? 0;
+  const ridden = proj.alongM - alongBoard;
+  if (ridden <= 0) {
+    throw new AppError('Your drop-off must come after your pickup', 400, 'INVALID_STOP_ORDER');
+  }
+  const ratio = proj.totalM > 0 ? Math.min(1, ridden / proj.totalM) : 1;
+  return { lat: proj.point.lat, lng: proj.point.lng, address: dropoff.address ?? null, ratio };
+}
+
+/**
+ * ── ONE PRICE FOR ONE SEAT ──────────────────────────────────────────────────
+ *
+ * BUGFIX ("it was showing I was going to pay 11 cedis and when I confirmed
+ * the payment as cash the price dropped to 3.61"). Both numbers were right and
+ * neither screen knew about the other: the seat page priced the whole route
+ * off `trip.farePerSeatPesewas`, and only `bookSeat` — at confirm — applied
+ * the drop-off the rider had chosen. A price that changes at the moment money
+ * moves is indistinguishable from a bug, whichever way it moves.
+ *
+ * This is the pricing, extracted from the write path so the app can ask for
+ * the number BEFORE the row exists (`previewSeatFare`) and be shown exactly
+ * what `bookSeat` will write. Pure: no DB, no clock.
+ *
+ * @param trip  Trip row WITH `route` (incl. active `virtualStops`)
+ */
+function priceSeat(trip, { pickupStopId = null, dropoffStopId = null, dropoff = null, joinerPickup = null, routeLine = null } = {}) {
+  // Calculate fare using maxSeats as the denominator — this is the fixed
+  // capacity the driver set for the trip and matches the listing price exactly.
+  const fareData = calculateFare({
+    tier: trip.tier,
+    distanceKm: trip.route.distanceKm,
+    seatCount: trip.maxSeats,
+    doorstepPickup: trip.doorstepPickup,
+    heavyLoad: trip.heavyLoad,
+    surgeMultiplier: trip.surgeMultiplier,
+    // The WHOLE price lock, fees included — see pinnedRatesFor.
+    ...pinnedRatesFor(trip),
+  });
+
+  let finalFareAmount = fareData.farePerPersonPesewas;
+  let finalCommission = fareData.commissionPerSeatPesewas;
+  let enRouteRatio = null;
+  let resolvedPickupStopId = null;
+  let resolvedDropoffStopId = null;
+  let resolvedDropoff = null;
+
+  const findStop = (id, what) => {
+    if (!id) return null;
+    const stop = trip.route.virtualStops.find((s) => s.id === id);
+    if (!stop) throw new AppError(`Invalid ${what} stop for this route`, 400, 'INVALID_STOP');
+    return stop;
+  };
+  const board = findStop(pickupStopId, 'pickup');
+
+  if (dropoff && Number.isFinite(dropoff.lat) && Number.isFinite(dropoff.lng)) {
+    // A free pin on the road wins over a named stop: it IS the alighting point.
+    const boardPoint = board ? { lat: board.lat, lng: board.lng } : null;
+    resolvedDropoff = resolveDropoff(trip, routeLine, dropoff, boardPoint);
+    const segment = calculateSegmentFareByRatio({
+      fullFarePerSeatPesewas: fareData.farePerPersonPesewas,
+      ratio: resolvedDropoff.ratio,
+    });
+    finalFareAmount = segment.farePerSeatPesewas;
+    finalCommission = percentOf(finalFareAmount, env.PLATFORM_COMMISSION);
+    enRouteRatio = segment.ratio;
+    resolvedPickupStopId = pickupStopId ?? null;
+  } else if (pickupStopId || dropoffStopId) {
+    /**
+     * ── THE PASSENGER'S SEGMENT, BOTH ENDS ────────────────────────────────
+     * Each end is a `VirtualStop` — a point ON the route — so neither costs
+     * the driver a detour, and the fare is the proportion of the route this
+     * passenger actually rides. Resolved together: boarding halfway AND
+     * alighting halfway is not two 50 % discounts.
+     */
+    const alight = findStop(dropoffStopId, 'drop-off');
+    // A passenger cannot get off before they get on. `sequence` is the only
+    // ordering that means anything on a road that doubles back.
+    if (board && alight && alight.sequence <= board.sequence) {
+      throw new AppError('Your drop-off stop must come after your pickup stop', 400, 'INVALID_STOP_ORDER');
+    }
+    const segment = calculateSegmentFare({
+      fullFarePerSeatPesewas: fareData.farePerPersonPesewas,
+      // Absent stop = the trip's own end. Boarding at the origin and riding
+      // to the destination is ratio 1, i.e. exactly the undiscounted fare.
+      boardLat: board?.lat ?? trip.route.originLat,
+      boardLng: board?.lng ?? trip.route.originLng,
+      alightLat: alight?.lat ?? trip.route.destLat,
+      alightLng: alight?.lng ?? trip.route.destLng,
+      totalRouteKm: trip.route.distanceKm,
+    });
+    finalFareAmount = segment.farePerSeatPesewas;
+    finalCommission = percentOf(finalFareAmount, env.PLATFORM_COMMISSION);
+    enRouteRatio = segment.ratio;
+    resolvedPickupStopId = pickupStopId ?? null;
+    resolvedDropoffStopId = dropoffStopId ?? null;
+  }
+
+  // Group-hub joiner picking their own pickup point — surcharge only the
+  // genuinely large detours, per fare.calculator.
+  const addons = applyFareAddons(finalFareAmount, {
+    trip, pickupLat: joinerPickup?.lat, pickupLng: joinerPickup?.lng, heavyCargo: false,
+  });
+  finalFareAmount = addons.fareAmountPesewas;
+  finalCommission = addons.commissionAmountPesewas;
+
+  return {
+    fareData,
+    finalFareAmount,
+    finalCommission,
+    enRouteRatio,
+    resolvedPickupStopId,
+    resolvedDropoffStopId,
+    resolvedDropoff,
+    deviationSurchargePesewas: addons.deviationSurchargePesewas,
+  };
+}
+
+/**
+ * What `bookSeat` WOULD write for this seat, without writing it. The seat and
+ * payment pages call this as the rider moves the pin, so the number they show
+ * is the number they are charged.
+ */
+async function previewSeatFare(tripId, { pickupStopId = null, dropoffStopId = null, dropoff = null, joinerPickup = null } = {}) {
+  const trip = await prisma.trip.findUnique({
+    where: { id: tripId },
+    include: { route: { include: { virtualStops: { where: { isActive: true } } } } },
+  });
+  if (!trip) throw new NotFoundError('Trip');
+  if (!trip.route) throw new AppError('This trip has no route to price against', 400, 'NO_ROUTE');
+  const routeLine = dropoff ? await routeLineForTrip(tripId) : null;
+  const priced = priceSeat(trip, { pickupStopId, dropoffStopId, dropoff, joinerPickup, routeLine });
+  return {
+    farePerSeatPesewas: priced.finalFareAmount,
+    fullFarePerSeatPesewas: priced.fareData.farePerPersonPesewas,
+    enRouteRatio: priced.enRouteRatio,
+    deviationSurchargePesewas: priced.deviationSurchargePesewas,
+    dropoff: priced.resolvedDropoff
+      ? { lat: priced.resolvedDropoff.lat, lng: priced.resolvedDropoff.lng, address: priced.resolvedDropoff.address }
+      : null,
+  };
+}
+
+async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, paymentMethod = null, guestName = null, guestPhone = null, joinerPickup = null, dropoffStopId = null, dropoff = null) {
+  // The road this trip drives, for a free drop-off pin. Fetched BEFORE the
+  // serializable transaction: it may be a Mapbox round trip, and a network
+  // call inside a Serializable tx is a lock held for the length of the internet.
+  const routeLine = dropoff ? await routeLineForTrip(tripId) : null;
   // Use $transaction with Serializable isolation to prevent race conditions.
   // This ensures two riders can't book the same seat simultaneously and the
   // capacity check races are eliminated.
@@ -365,92 +557,23 @@ async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, payment
       });
       if (existing) throw new SeatTakenError();
 
-      // Calculate fare using maxSeats as the denominator — this is the fixed
-      // capacity the driver set for the trip and matches the listing price exactly.
-      const fareData = calculateFare({
-        tier: trip.tier,
-        distanceKm: trip.route.distanceKm,
-        seatCount: trip.maxSeats,
-        doorstepPickup: trip.doorstepPickup,
-        heavyLoad: trip.heavyLoad,
-        surgeMultiplier: trip.surgeMultiplier,
-        // The WHOLE price lock, fees included — see pinnedRatesFor.
-        ...pinnedRatesFor(trip),
-      });
-
-      // En-route boarding: if a virtual stop was selected, apply a distance-
-      // proportional discount (rider travels less of the route → pays less).
-      let finalFareAmount = fareData.farePerPersonPesewas;
-      let finalCommission = fareData.commissionPerSeatPesewas;
-      let enRouteRatio = null;
-      let resolvedPickupStopId = null;
-      let resolvedDropoffStopId = null;
-
       /**
-       * ── THE PASSENGER'S SEGMENT, BOTH ENDS ──────────────────────────────
-       *
-       * A rider may board part-way along the route, alight before the end, or
-       * both. Each end is a `VirtualStop` — a point that lies ON the route — so
-       * neither costs the driver a detour, and the fare is simply the
-       * proportion of the route this passenger actually rides.
-       *
-       * Resolved together rather than as two independent discounts, because
-       * they are not independent: a rider who boards halfway AND gets off
-       * halfway rides almost none of the route, and pricing each end separately
-       * would take 50% off twice and land somewhere meaningless.
+       * PRICED BY THE SAME FUNCTION THE PREVIEW USES — see `priceSeat`. The
+       * seat page and the payment page show `previewSeatFare`'s answer, and
+       * this writes it; the two cannot disagree, which is what "it said 11 and
+       * then charged 3.61" was.
        */
-      if (pickupStopId || dropoffStopId) {
-        const findStop = (id, what) => {
-          if (!id) return null;
-          const stop = trip.route.virtualStops.find((s) => s.id === id);
-          if (!stop) throw new AppError(`Invalid ${what} stop for this route`, 400, 'INVALID_STOP');
-          return stop;
-        };
-
-        const board = findStop(pickupStopId, 'pickup');
-        const alight = findStop(dropoffStopId, 'drop-off');
-
-        /**
-         * A passenger cannot get off before they get on. Both stops carry a
-         * `sequence` along the route, which is the only ordering that means
-         * anything here — comparing distances would call a stop on a road that
-         * doubles back "earlier" than one it passes first.
-         */
-        if (board && alight && alight.sequence <= board.sequence) {
-          throw new AppError(
-            'Your drop-off stop must come after your pickup stop',
-            400,
-            'INVALID_STOP_ORDER',
-          );
-        }
-
-        const segment = calculateSegmentFare({
-          fullFarePerSeatPesewas: fareData.farePerPersonPesewas,
-          // Absent stop = the trip's own end. Boarding at the origin and riding
-          // to the destination is ratio 1, i.e. exactly the undiscounted fare.
-          boardLat: board?.lat ?? trip.route.originLat,
-          boardLng: board?.lng ?? trip.route.originLng,
-          alightLat: alight?.lat ?? trip.route.destLat,
-          alightLng: alight?.lng ?? trip.route.destLng,
-          totalRouteKm: trip.route.distanceKm,
-        });
-
-        finalFareAmount = segment.farePerSeatPesewas;
-        finalCommission = percentOf(finalFareAmount, env.PLATFORM_COMMISSION);
-        enRouteRatio = segment.ratio;
-        resolvedPickupStopId = pickupStopId ?? null;
-        resolvedDropoffStopId = dropoffStopId ?? null;
-      }
-
-      // Group-hub joiner picking their own pickup point (not the trip's main
-      // pickup, e.g. a friend booked via invite link from a different part of
-      // town) — surcharge only the genuinely large detours, per fare.calculator.
-      const addons = applyFareAddons(finalFareAmount, {
-        trip, pickupLat: joinerPickup?.lat, pickupLng: joinerPickup?.lng, heavyCargo: false,
-      });
-      finalFareAmount = addons.fareAmountPesewas;
-      finalCommission = addons.commissionAmountPesewas;
-      const deviationSurchargePesewas = addons.deviationSurchargePesewas;
+      const priced = priceSeat(trip, { pickupStopId, dropoffStopId, dropoff, joinerPickup, routeLine });
+      const {
+        fareData,
+        finalFareAmount,
+        finalCommission,
+        enRouteRatio,
+        resolvedPickupStopId,
+        resolvedDropoffStopId,
+        deviationSurchargePesewas,
+        resolvedDropoff,
+      } = priced;
 
       const boardingQr = crypto.randomBytes(16).toString('hex');
       const holdExpiry = new Date(Date.now() + SEAT_HOLD_MS);
@@ -492,9 +615,14 @@ async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, payment
           guestPhone,
           // Either end of the segment is enough to make the ratio meaningful,
           // so the ratio is written whenever EITHER stop was chosen.
-          ...((resolvedPickupStopId || resolvedDropoffStopId) && { enRouteRatio }),
+          ...((resolvedPickupStopId || resolvedDropoffStopId || resolvedDropoff) && { enRouteRatio }),
           ...(resolvedPickupStopId && { pickupStopId: resolvedPickupStopId }),
           ...(resolvedDropoffStopId && { dropoffStopId: resolvedDropoffStopId }),
+          ...(resolvedDropoff && {
+            dropoffLat: resolvedDropoff.lat,
+            dropoffLng: resolvedDropoff.lng,
+            dropoffAddress: resolvedDropoff.address ?? null,
+          }),
           ...(joinerPickup?.lat != null && {
             pickupLat: joinerPickup.lat,
             pickupLng: joinerPickup.lng,
@@ -1560,4 +1688,6 @@ async function joinGroup(shareToken) {
   return { tripId: group.tripId, trip: group.trip };
 }
 
-module.exports = { bookSeat, normalizePaymentMethod, createRideGroup, generateInvite, regenerateInvite, getGroup, joinGroup, cancelBooking, getUserBookings, getBooking, rateBooking, getMyRating, applyPromoCode, getActiveBooking, tipDriver, submitDispute, recomputeBookingAddons, getTripFareForRider, cargoSurchargeFor };
+module.exports = {
+  previewSeatFare,
+  priceSeat, bookSeat, normalizePaymentMethod, createRideGroup, generateInvite, regenerateInvite, getGroup, joinGroup, cancelBooking, getUserBookings, getBooking, rateBooking, getMyRating, applyPromoCode, getActiveBooking, tipDriver, submitDispute, recomputeBookingAddons, getTripFareForRider, cargoSurchargeFor };

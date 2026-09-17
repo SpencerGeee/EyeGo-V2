@@ -18,7 +18,7 @@ import { walletApi, driverApi, MOMO_NETWORKS, type MomoNetwork } from '@eyego/ap
 import { describeError } from '@eyego/utils';
 import { usePlatformConfig } from '../../hooks/usePlatformConfig';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button, Entrance, GlassCard, GlassSurface, AnimatedFareText, PanelSheet, GradientGlowBorder, goDeeper, notify } from '@eyego/ui';
+import { Text, Button, Entrance, GlassCard, GlassSurface, AnimatedFareText, PanelSheet, GradientGlowBorder, goDeeper, notify , useBiometricGate, BiometricLock } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
@@ -69,6 +69,7 @@ const PERIODS: { key: Period; label: string }[] = [
 ];
 
 export default function EarningsScreen() {
+  const gate = useBiometricGate({ reason: 'Unlock your earnings' });
   const colors = useColors();
   const theme = useDriverStore(s => s.theme);
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -373,6 +374,10 @@ export default function EarningsScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
+      {/* The money is behind the face — see BiometricGate in @eyego/ui. */}
+      {gate.state !== 'unlocked' ? (
+        <BiometricLock state={gate.state} failed={gate.failed} onRetry={gate.retry} label="Unlock to view your earnings" />
+      ) : (
       <ScrollView
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
@@ -617,6 +622,7 @@ export default function EarningsScreen() {
           })()}
         </Entrance>
       </ScrollView>
+      )}
 
       {/* Top-up sheet — same KeyboardStickyView treatment as Withdraw below,
           for the same reason (PanelSheet renders inside a Modal, which

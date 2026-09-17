@@ -24,6 +24,7 @@ import { springs, durations, springForAxis } from '@eyego/config';
 import { loopingLayerProps } from '../effects/hardwareTexture';
 import { useThemedColors } from '../ColorsContext';
 import { beginTransition } from '../motion/smooth/transitionClock';
+import { CloneSizeContext } from './cloneSize';
 
 export interface MorphRect {
   x: number;
@@ -53,9 +54,22 @@ export interface MorphSourceEntry {
 
 type MorphPhase = 'idle' | 'forward' | 'settled' | 'reverse' | 'gesture';
 
+export interface MorphToOptions {
+  /**
+   * Where this flight will land, when several sources land on ONE target.
+   *
+   * The prediction memory (`lastKnownTarget`) is keyed per source id, so the
+   * three service tier cards and the home where-to pill — all of which land on
+   * the same search card — each had to guess the screen once and correct
+   * mid-flight before they learned where it was. Naming the landing spot lets
+   * them share the answer: the first of them to land teaches the rest.
+   */
+  landingKey?: string;
+}
+
 interface MorphContextValue {
   registerSource: (id: string, entry: MorphSourceEntry) => () => void;
-  morphTo: (id: string, navigate: () => void) => void;
+  morphTo: (id: string, navigate: () => void, opts?: MorphToOptions) => void;
   /**
    * `popAfterFlight`: run the reverse flight first and call `navigateBack`
    * only once the clone has landed. For a screen presented as a
@@ -384,6 +398,8 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
   // Track flight data for cleanup
   const flightRef = useRef<{
     id: string;
+    /** Prediction-memory key — see `MorphToOptions.landingKey`. */
+    landingKey: string;
     sourceRect: MorphRect;
     sourceRadius: number;
     targetRect: MorphRect | null;
@@ -508,7 +524,29 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
     settledRef.current = f;
     flightRef.current = null;
     cloneOpacity.value = withTiming(0, { duration: CROSSFADE_MS });
-    setTimeout(() => setCloneNode(null), CROSSFADE_MS + 20);
+    /**
+     * THE SOURCE IS HIDDEN ONLY WHILE A CLONE IS IN THE AIR.
+     *
+     * BUGFIX ("the morph on the services page is off"). `hide()` used to be
+     * undone only by `morphBack` or the target timeout. Every source whose
+     * flight landed and whose rider then went FORWARD — a tier card into the
+     * search sheet into a booking — stayed at opacity 0 for the rest of the
+     * session, so the services page came back missing the card that was
+     * tapped. Home papered over it with a `show()` on focus; nothing else did.
+     *
+     * Once the clone has dissolved into the destination there is nothing left
+     * for the source to hide from: every morph destination in both apps paints
+     * an opaque surface over it. So it comes back here, and `morphBack` hides
+     * it again for exactly the length of the return flight. Delayed past the
+     * crossfade because the clone is still dissolving on top of it.
+     */
+    const landedId = f?.id ?? null;
+    setTimeout(() => {
+      // A reverse that started inside the crossfade owns the clone now.
+      if (flightRef.current) return;
+      setCloneNode(null);
+      if (landedId) sources.current.get(landedId)?.show();
+    }, CROSSFADE_MS + 20);
     closeFlightClock(CROSSFADE_MS);
   }, [cloneOpacity, closeFlightClock]);
 
@@ -553,8 +591,9 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
   // ─── Forward morph ─────────────────────────────────────────────────────
 
   const morphTo = useCallback(
-    (id: string, navigate: () => void) => {
+    (id: string, navigate: () => void, opts?: MorphToOptions) => {
       const entry = sources.current.get(id);
+      const landingKey = opts?.landingKey ?? id;
       surfaceHidden.value = 0;
       if (!entry || skipMorph) {
         navigate();
@@ -604,7 +643,7 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
          * spot (or the screen, first time) is what lets the spring start on the
          * tap instead of on the destination's first layout.
          */
-        const predicted = lastKnownTarget.get(id) ?? {
+        const predicted = lastKnownTarget.get(landingKey) ?? {
           // A full-bleed surface inset by nothing: most morph targets are a
           // screen, and being slightly too large is a far better first guess
           // than not moving at all.
@@ -631,6 +670,7 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
         // Set up flight tracking
         flightRef.current = {
           id,
+          landingKey,
           sourceRect: rect,
           sourceRadius: entry.borderRadius,
           targetRect: null,
@@ -721,7 +761,7 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
        * This is what makes the system self-calibrating rather than reliant on
        * anyone hand-tuning a guess per call site.
        */
-      lastKnownTarget.set(id, { ...rect, radius: borderRadius });
+      lastKnownTarget.set(f.landingKey, { ...rect, radius: borderRadius });
       landing.current.targeted = true;
 
       const glide = { duration: RETARGET_MS };
@@ -865,14 +905,15 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       const deferPop = !!opts?.popAfterFlight;
-      if (deferPop) {
-        deferredNavRef.current = navigateBack;
-        surfaceHidden.value = 1;
-      }
+      if (deferPop) deferredNavRef.current = navigateBack;
       // Reverse takes ownership of the flight data; keep it in `flightRef` for
       // the duration so a second back-press can't start a competing reverse.
       flightRef.current = f;
       settledRef.current = null;
+      // The source came back at settle (see `settle`); it hides again for
+      // exactly the length of the return flight, in the same commit the clone
+      // mounts in, so there is never a frame with two of it or none.
+      entry.hide();
 
       // Re-mount the clone at the target frame.
       //
@@ -903,7 +944,12 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
       morphProgress.value = 1;
       progressX.value = 1;
       progressY.value = 1;
-      cloneOpacity.value = 1;
+      // Over a surface that stays painted until the flight starts (deferPop)
+      // the clone must not appear as a flat opaque slab on top of the live,
+      // glass card for the two frames before anything moves — it fades in as
+      // the spring takes the frame (below). A popped card has nothing under it,
+      // so there the clone is solid from its first frame as before.
+      cloneOpacity.value = deferPop ? 0 : 1;
       setCloneNode(entry.getClone());
       setPhase('reverse');
 
@@ -945,6 +991,28 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
           // The gesture may have taken over (or another morph started) in the
           // two frames we waited. Only drive the flight we still own.
           if (flightRef.current !== f) return;
+          /**
+           * THE DEPARTING SURFACE FADES ON THE FLIGHT, NOT BEFORE IT.
+           *
+           * BUGFIX ("when I morph back it gives me this weird animation before
+           * the glow even registers"). `surfaceHidden` used to be set to 1 in
+           * the same tick `morphBack` was called — before the clone had been
+           * committed, let alone painted. So the whole search sheet vanished in
+           * one frame, an empty clone box appeared where the card had been on
+           * the next, and only then did anything move. That blank beat IS the
+           * "weird animation".
+           *
+           * Now the surface stays until the clone is on screen and the spring
+           * has the frame, and then fades out over the opening third of the
+           * flight — the card's real content is dissolving through MorphTarget
+           * at the same time, so what the eye sees is the page giving way to
+           * the card it came from. Same instant as the springs below, on the
+           * same thread.
+           */
+          if (deferPop) {
+            surfaceHidden.value = withTiming(1, { duration: 220 });
+            cloneOpacity.value = withTiming(1, { duration: 140 });
+          }
           // Same per-axis decomposition as the outbound flight — the return
           // trip covers the same two distances and must not be the one that
           // still glides. See `progressX`/`progressY`.
@@ -1105,7 +1173,17 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
       top: 0,
       width: winW,
       height: winH,
-      overflow: 'hidden' as const,
+      /**
+       * NOT CLIPPED. The clone is a copy of a card whose glow is an iOS shadow
+       * painted OUTSIDE its box (see GradientGlowBorder), and `overflow:
+       * 'hidden'` here sliced that halo off every clone — so a lit card took
+       * off as an unlit one and landed as an unlit one, and the light only
+       * came back when the real card was un-hidden underneath. Nothing else
+       * needed the clip: the clone's content is laid out at the source size
+       * and centred, which is never larger than the box it is flying in, and
+       * the box's own corners still round through `borderRadius`.
+       */
+      overflow: 'visible' as const,
       // The cloned content is laid out at the SOURCE size while the container is
       // laid out at the fixed square, so the two boxes never coincide. React Native
       // scales about a view's centre, so the only placement that keeps the
@@ -1227,7 +1305,11 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
                 overlayStyle,
               ]}
             >
-              <Animated.View style={[contentFrameStyle, contentStyle]}>{cloneNode}</Animated.View>
+              <Animated.View style={[contentFrameStyle, contentStyle]}>
+                {/* The source's laid-out size, so a ring inside the clone can
+                    draw itself on the first frame — see cloneSize.ts. */}
+                <CloneSizeContext.Provider value={contentSize}>{cloneNode}</CloneSizeContext.Provider>
+              </Animated.View>
             </Animated.View>
           </View>
         )}

@@ -8,7 +8,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
-import { MotiView, goDeeper, goBack } from '@eyego/ui';
+import { MotiView, goDeeper, goBack, goOut } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useShallow } from 'zustand/react/shallow';
 import { useRideStore } from '../../../stores/ride.store';
@@ -721,7 +721,7 @@ export default function TripCompleteScreen() {
           */}
           <Pressable
             style={styles.ghostBtn}
-            onPress={() => (isViewOnly ? goBack() : router.replace('/(tabs)/home' as Href))}
+            onPress={() => (isViewOnly ? goBack() : goOut('/(tabs)/home'))}
             accessibilityRole="button"
             accessibilityLabel={isViewOnly ? 'Back to your trips' : 'Back to home'}
           >

@@ -35,7 +35,12 @@ import type { SheetChrome } from '@eyego/ui';
  * being faster. The pushed route survives for push-notification and cold-start
  * entry, where a real screen genuinely has to be built.
  */
-export type DriverStage = 'idle' | 'offer' | 'enroute' | 'arrived' | 'intrip';
+/**
+ * NO `offer` STAGE ANY MORE. An offer is the root-mounted `DispatchOfferSheet`
+ * (see its header for why there is exactly one renderer); the surface only
+ * knows idle and the three driving stages.
+ */
+export type DriverStage = 'idle' | 'enroute' | 'arrived' | 'intrip';
 
 /**
  * ── THE MAP MUST NOT UNMOUNT WHEN THE DRIVER STARTS EARNING ────────────────
@@ -75,7 +80,6 @@ export type DriverStage = 'idle' | 'offer' | 'enroute' | 'arrived' | 'intrip';
  */
 export const DRIVER_SHEET_CHROME: Record<DriverStage, SheetChrome> = {
   idle: { radius: 32, glass: true, collapsed: 0.42 },
-  offer: { radius: 28, glass: false, collapsed: 0.52, aurora: 0.14 },
   /**
    * The three driving stages give the map the most room, in the order the
    * driver needs it. These mirror the rider's tracking detents (0.34) rather
@@ -124,14 +128,15 @@ export const DRIVER_SHEET_MAX_PCT = 0.78;
 
 interface DriverSurfaceState {
   /**
-   * The trip whose offer the driver is looking at ON THE HOME SURFACE, or null
-   * for the idle board.
+   * The board row the driver TAPPED, or null. `DispatchOfferSheet` renders it
+   * (when no exclusive offer outranks it) — from any screen, since the sheet
+   * is mounted at the root.
    *
    * Deliberately only a SELECTION, not a copy of the offer. The offer's own
    * data already lives in `trip.store` (`offer`, `pendingRequests`) and is kept
    * current by socket frames; duplicating it here would create a second copy to
    * drift, which is the bug shape that produced "it brings up the request again
-   * with a fresh counter". The stage is derived from this id plus that store.
+   * with a fresh counter".
    */
   focusedTripId: string | null;
   openOffer: (tripId: string) => void;
@@ -149,29 +154,11 @@ export const useDriverSurface = create<DriverSurfaceState>((set) => ({
  *
  * Same rule the rider's request screen settled on: there is no local stage
  * state that can disagree with the trip, because there is no local stage state.
- * The only stored thing is which row the driver tapped, and even that is
- * overridden the moment the ride it points at stops being offerable.
- *
- * @param focusedTripId what the driver tapped, if anything
- * @param offerable     whether that trip is still a live thing to decide on —
- *                      the caller derives it from `trip.store`, because only it
- *                      knows about held offers, revokes and expiry.
+ * It is a pure projection of the active trip's status — which is what
+ * `a0232a6` promised and never wired: home called this without the status, so
+ * the three driving stages it built could never appear and every accepted ride
+ * still pushed the old 2600-line manage screen.
  */
-export function deriveDriverStage(
-  focusedTripId: string | null,
-  offerable: boolean,
-  activeTripStatus?: string | null,
-): DriverStage {
-  /**
-   * A TRIP IN HAND OUTRANKS ANYTHING ON THE BOARD.
-   *
-   * Order matters and is not arbitrary. A driver who has accepted a ride is
-   * committed to it — the server will not offer them another while it is live
-   * (see driver-availability) — so if the board and the trip ever disagree, the
-   * trip is the truth and the board is a stale frame. Checking the trip first
-   * means a late-arriving revoke cannot bounce a driving driver back to `idle`.
-   */
-  const tripStage = stageForTripStatus(activeTripStatus);
-  if (tripStage) return tripStage;
-  return focusedTripId != null && offerable ? 'offer' : 'idle';
+export function deriveDriverStage(activeTripStatus?: string | null): DriverStage {
+  return stageForTripStatus(activeTripStatus) ?? 'idle';
 }

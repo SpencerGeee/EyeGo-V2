@@ -12,6 +12,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useAmbientRotation } from './useAmbientRotation';
 import { usePerformanceTier } from './usePerformanceTier';
 import { useThemedColors } from '../ColorsContext';
+import { useCloneSize } from '../morph/cloneSize';
 
 export interface GradientGlowBorderHandle {
   /** Speeds the ring up and flashes it bright — the RN equivalent of the
@@ -261,7 +262,22 @@ export const GradientGlowBorder = forwardRef<GradientGlowBorderHandle, GradientG
      */
     // unless the caller explicitly opts in/out via `disabled`.
     const isDisabled = disabled ?? tier !== 'high';
-    const [size, setSize] = useState({ width: 0, height: 0 });
+    /**
+     * INSIDE A MORPH CLONE, THE RING DRAWS ON THE FIRST FRAME.
+     *
+     * BUGFIX ("the morph on the services page is off"; "when I morph back it
+     * gives me this weird animation before the glow even registers"). Everything
+     * below is gated on `diag > 0`, and `diag` comes from this component's own
+     * `onLayout` — so a freshly mounted ring is INVISIBLE for its first frame
+     * or two. That is fine for a screen; it is not fine for a morph clone, which
+     * is mounted on the exact frame the real card is hidden and is supposed to
+     * be indistinguishable from it. Every morph therefore began (and every
+     * reverse ended) with a ringless, halo-less rectangle that grew a ring a
+     * beat later. MorphProvider knows the source's laid-out size before the
+     * clone mounts and offers it here; `onLayout` still corrects it.
+     */
+    const cloneSize = useCloneSize();
+    const [size, setSize] = useState(cloneSize ?? { width: 0, height: 0 });
     const ambient = useAmbientRotation();
     const burstOffset = useSharedValue(0);
     const flash = useSharedValue(0);
