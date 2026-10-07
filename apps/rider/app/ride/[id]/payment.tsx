@@ -24,7 +24,7 @@ import { useAuthStore } from '../../../stores/auth.store';
 import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
 import { Text, Button, AnimatedFareText } from '@eyego/ui';
-import { formatGhs } from '@eyego/utils';
+import { formatGhs, ghanaLocalDigits } from '@eyego/utils';
 import { captureException } from '../../../lib/sentry';
 
 type PaymentTab = 'momo' | 'card' | 'cash' | 'wallet';
@@ -798,11 +798,11 @@ export default function PaymentScreen() {
                   <TextInput maxFontSizeMultiplier={1.4}
                     style={styles.momoTextInput}
                     value={momoPhone}
-                    onChangeText={(t) => setMomoPhone(t.replace(/\D/g, '').slice(0, 9))}
+                    onChangeText={(t) => setMomoPhone(ghanaLocalDigits(t))}
                     keyboardType="number-pad"
                     placeholder="24X XXX XXXX"
                     placeholderTextColor={colors.onSurfaceVariant}
-                    maxLength={9}
+                    accessibilityLabel="Mobile money number"
                   />
                 </View>
                 <Text variant="caption" color={colors.onSurfaceVariant}>

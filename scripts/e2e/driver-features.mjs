@@ -283,7 +283,19 @@ async function main() {
     const num = acct.phone ?? acct.momoNumber ?? acct.number ?? acct.accountNumber;
     if (!num) throw new Error(`read back ${JSON.stringify(a).slice(0, 180)}`);
     if (acct.type !== 'momo') throw new Error(`type came back ${acct.type}`);
+    // Stored as the enum the payout resolver understands, whatever the label.
+    if (acct.network !== 'MOMO_MTN') throw new Error(`network stored as ${acct.network}`);
     return `${acct.network} ${num}`;
+  });
+
+  await check('a payout account that cannot be paid is refused at save time', async () => {
+    const bad = await PATCH(
+      '/driver/wallet/payout-account',
+      { type: 'bank', bankName: 'Ecobank', accountNumber: '', accountName: '' },
+      { token: ctx.driver.token, raw: true },
+    );
+    if (bad.status < 400) throw new Error(`saved an empty bank account (${bad.status})`);
+    return bad.body?.message;
   });
 
   // ── quests, notifications, performance ────────────────────────────────────

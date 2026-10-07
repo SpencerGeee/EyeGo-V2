@@ -71,6 +71,9 @@ export default function HomeScreen() {
   const updateDriver = useDriverStore(s => s.updateDriver);
   const mapRef = useRef<any>(null);
   const [onlineError, setOnlineError] = useState<string | null>(null);
+  /** The server's own sentence for the last refusal — it names the amount, the document. */
+  const [onlineErrorDetail, setOnlineErrorDetail] = useState('');
+  const hasVehicle = useDriverStore((s) => ((s.driver as any)?.vehicles?.length ?? 0) > 0);
   // D14: reconnect retry counter
   const reconnectAttemptsRef = useRef(0);
   // FIX2: single ref for reconnect timer — prevents leaked timers on rapid disconnect/reconnect
@@ -479,15 +482,21 @@ export default function HomeScreen() {
       qc.invalidateQueries({ queryKey: ['driver', 'activeTrip'] });
     },
     onError: (err: any) => {
-      const status = err?.response?.status;
+      /**
+       * By the server's CODE, not by guessing at its words. Every 403 used to
+       * read "Your account is still being reviewed" — an expired licence, a
+       * low rating and a missing vehicle all included — and a GH₵20 floor
+       * shortfall read "We could not read your wallet".
+       */
+      const code: string | undefined = err?.response?.data?.code;
       const msg: string = err?.response?.data?.message ?? (err as Error).message ?? 'Could not go online';
-      if (status === 403 || msg.toLowerCase().includes('approv') || msg.toLowerCase().includes('pending')) {
-        setOnlineError('pending_review');
-      } else if (msg.toLowerCase().includes('wallet') || msg.toLowerCase().includes('balance')) {
-        setOnlineError('wallet');
-      } else {
-        setOnlineError(msg);
-      }
+      setOnlineErrorDetail(msg);
+      if (code === 'DOCUMENTS_NOT_VERIFIED' || code === 'DOCUMENTS_EXPIRED') setOnlineError('documents');
+      else if (code === 'NO_VEHICLE') setOnlineError('vehicle');
+      else if (code === 'NEGATIVE_WALLET_BALANCE' || code === 'WALLET_BELOW_ONLINE_MINIMUM') setOnlineError('wallet');
+      else if (code === 'RATING_TOO_LOW' || code === 'ACCEPTANCE_RATE_TOO_LOW') setOnlineError('standing');
+      else if (err?.response?.status === 403 && /approv/i.test(msg)) setOnlineError('pending_review');
+      else setOnlineError(msg);
     },
   });
 
@@ -899,16 +908,24 @@ export default function HomeScreen() {
             icon={onlineError === 'pending_review' ? 'time' : 'warning'}
             title={
               onlineError === 'pending_review'
-                ? 'Your account is still being reviewed'
-                : onlineError === 'wallet'
-                  ? 'We could not read your wallet'
-                  : 'You could not be brought online'
+                ? hasVehicle ? 'Your account is still being reviewed' : 'Finish setting up to drive'
+                : onlineError === 'documents'
+                  ? 'Your documents need attention'
+                  : onlineError === 'vehicle'
+                    ? 'Add your vehicle'
+                    : onlineError === 'wallet'
+                      ? 'Top up to go online'
+                      : onlineError === 'standing'
+                        ? 'You can’t go online right now'
+                        : 'You could not be brought online'
             }
             detail={
               onlineError === 'pending_review'
-                ? 'You cannot take trips until an operator approves you. We will notify you the moment that happens.'
-                : onlineError === 'wallet'
-                  ? 'Check your balance — a negative wallet blocks new trips.'
+                ? hasVehicle
+                  ? 'You can take trips once an operator approves you. We’ll notify you the moment that happens.'
+                  : 'Add your vehicle and documents so we can review your account.'
+                : onlineError === 'documents' || onlineError === 'vehicle' || onlineError === 'wallet' || onlineError === 'standing'
+                  ? onlineErrorDetail
                   : onlineError
             }
             /* Transient: it describes an attempt that failed, not a state the
@@ -917,12 +934,20 @@ export default function HomeScreen() {
             onDismiss={() => setOnlineError(null)}
             action={
               onlineError === 'pending_review'
-                ? __DEV__
-                  ? { label: devActivate.isPending ? 'Activating…' : 'Activate account (dev)', onPress: () => devActivate.mutate() }
-                  : { label: 'Open my documents', onPress: () => goDeeper('/(profile)/documents' as any) }
-                : onlineError === 'wallet'
-                  ? { label: 'Open my wallet', onPress: () => goDeeper('/(tabs)/earnings' as any) }
-                  : { label: 'Try going online again', onPress: () => { setOnlineError(null); goOnline.mutate(); } }
+                ? !hasVehicle
+                  ? { label: 'Finish setting up', onPress: () => goDeeper('/(onboarding)' as any) }
+                  : __DEV__
+                    ? { label: devActivate.isPending ? 'Activating…' : 'Activate account (dev)', onPress: () => devActivate.mutate() }
+                    : { label: 'Open my documents', onPress: () => goDeeper('/(profile)/documents' as any) }
+                : onlineError === 'documents'
+                  ? { label: 'Open my documents', onPress: () => goDeeper('/(profile)/documents' as any) }
+                  : onlineError === 'vehicle'
+                    ? { label: 'Add my vehicle', onPress: () => goDeeper('/(onboarding)' as any) }
+                    : onlineError === 'wallet'
+                      ? { label: 'Top up', onPress: () => goDeeper('/(tabs)/earnings' as any) }
+                      : onlineError === 'standing'
+                        ? { label: 'Contact support', onPress: () => goDeeper('/(profile)/help' as any) }
+                        : { label: 'Try going online again', onPress: () => { setOnlineError(null); goOnline.mutate(); } }
             }
             busy={devActivate.isPending || goOnline.isPending}
           />

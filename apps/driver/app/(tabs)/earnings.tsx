@@ -1,59 +1,39 @@
 import React, { useState, useMemo } from 'react';
-import { formatGhs, pesewasFromCedis } from '@eyego/utils';
-import {
-  View,
-  StyleSheet,
-  ScrollView,
-  Pressable,
-  TextInput,
-  Keyboard,
-  Alert,
-  RefreshControl,
-} from 'react-native';
+import { formatGhs, pesewasFromCedis, describeError } from '@eyego/utils';
+import { View, StyleSheet, Pressable, TextInput, Keyboard, Alert, RefreshControl } from 'react-native';
 import { KeyboardStickyView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { walletApi, driverApi, MOMO_NETWORKS, type MomoNetwork } from '@eyego/api';
-import { describeError } from '@eyego/utils';
+import { driverApi, MOMO_NETWORKS, type MomoNetwork } from '@eyego/api';
 import { usePlatformConfig } from '../../hooks/usePlatformConfig';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button, Entrance, GlassCard, GlassSurface, AnimatedFareText, PanelSheet, GradientGlowBorder, goDeeper, notify , useBiometricGate, BiometricLock } from '@eyego/ui';
+import {
+  Text,
+  Button,
+  AnimatedFareText,
+  PanelSheet,
+  GradientGlowBorder,
+  Screen,
+  ListSection,
+  ListRow,
+  goDeeper,
+  notify,
+  useBiometricGate,
+  BiometricLock,
+} from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
-import { useDriverStore } from '../../stores/driver.store';
 import { EarningsChart, type ChartDataPoint } from '../../components/EarningsChart';
 
 type Period = 'today' | 'week' | 'month';
 
-// Driver earnings ledger uses several credit types — TRIP_EARNING (completeTrip),
-// EARNINGS_CREDIT (arriveTrip), QUEST_BONUS, and legacy CREDIT (seed). Anything
-// not in this set is treated as a debit (e.g. WITHDRAWAL).
 /**
- * Every ledger type that represents money the driver earned.
- *
- * `CASH_EARNING` is the important addition: cash fares are handed over in person,
- * so the backend deliberately never credits the wallet for them (only the
- * commission is debited). With no earning row of any kind, a driver working cash
- * saw a permanently flat chart and GHS 0 — the reported "blank chart even though
- * sales have been made or a commission has been deducted". `CASH_EARNING` rows
- * carry balanceBeforePesewas === balanceAfterPesewas, i.e. they are income for reporting and
- * not part of the wallet balance.
- *
- * `TIP` counts too — a tip is earnings the driver actually keeps.
+ * Every ledger type that counts as money the driver made — fares (online and
+ * cash), promo subsidy, tips and quest bonuses. Mirrors the server's daily
+ * breakdown so the hourly "Today" bars and the week/month bars mean the same.
+ * `CASH_EARNING` is ledger-only (cash is handed over in person) but is income.
  */
-const CREDIT_TYPES = ['CREDIT', 'TRIP_EARNING', 'EARNINGS_CREDIT', 'CASH_EARNING', 'QUEST_BONUS', 'TIP'];
-
-/**
- * The withdrawal minimum is NOT a constant here any more.
- *
- * It used to be `const MIN_WITHDRAWAL_PESEWAS = 2000`, mirroring the server's
- * default. The server value is operator-tunable from the admin console, so the
- * moment it was changed this screen greyed the button out at one number while
- * the API rejected at another — the driver sees a minimum the platform does not
- * enforce. It now comes from `usePlatformConfig()`, which reads the same
- * `PlatformSetting` row the server does and falls back to 2000 offline.
- */
+const CREDIT_TYPES = ['TRIP_EARNING', 'EARNINGS_CREDIT', 'CASH_EARNING', 'PROMO_SUBSIDY', 'QUEST_BONUS', 'TIP'];
 
 /** Mirrors the server's own top-up bounds (wallet.routes.js / wallet.service.js). */
 const MIN_TOPUP_PESEWAS = 100; // ₵1
@@ -68,52 +48,58 @@ const PERIODS: { key: Period; label: string }[] = [
   { key: 'month', label: 'Month' },
 ];
 
+/** Rows shown per period; the rest is one tap away in the statement. */
+const TX_SHOWN = 30;
+const TX_LIMIT_FOR_PERIOD: Record<Period, number> = { today: 50, week: 150, month: 500 };
+
+/** Start of the selected period, local time — the chart and the list share it. */
+function periodStart(period: Period, now = new Date()): Date {
+  if (period === 'today') return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (period === 'week') return new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
+  return new Date(now.getFullYear(), now.getMonth(), 1);
+}
+
+const localKey = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+/** Week-of-month buckets: 4 or 5 — the old fixed four dropped the 29th–31st. */
+function monthBuckets(now: Date) {
+  const dim = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  return Array.from({ length: Math.ceil(dim / 7) }, (_, i) => {
+    const from = 1 + i * 7;
+    const to = Math.min(dim, from + 6);
+    return { from, to, label: `${from}–${to}` };
+  });
+}
+
+const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+/** Whole day in 3-hour bars — the old 8am–10pm window hid early and late trips. */
+const HOUR_BUCKETS = [0, 3, 6, 9, 12, 15, 18, 21];
+const hourLabel = (h: number) => (h === 0 ? '12a' : h === 12 ? '12p' : h > 12 ? `${h - 12}p` : `${h}a`);
+
 export default function EarningsScreen() {
   const gate = useBiometricGate({ reason: 'Unlock your earnings' });
   const colors = useColors();
-  const theme = useDriverStore(s => s.theme);
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const router = useRouter();
-  const { driverMinWithdrawalPesewas: MIN_WITHDRAWAL_PESEWAS } = usePlatformConfig();
+  const { driverMinWithdrawalPesewas: MIN_WITHDRAWAL_PESEWAS, driverRequiredWalletPesewas } = usePlatformConfig();
   const [period, setPeriod] = useState<Period>('week');
   const [withdrawAmount, setWithdrawAmount] = useState('');
+  const [sheetOpen, setSheetOpen] = useState(false);
   const qc = useQueryClient();
 
-  // Use driver profile as the source of balance — totalEarned reflects actual trip earnings.
-  // walletApi.getBalance() returns 0 until the backend credits the wallet ledger separately.
-  const [sheetOpen, setSheetOpen] = useState(false);
-
-  const { data: meData, isLoading, refetch: refetchWallet, isRefetching } = useQuery({
+  const { data: meData, isLoading, refetch: refetchMe, isRefetching } = useQuery({
     queryKey: ['driver', 'me'],
     queryFn: () => driverApi.getMe(),
-    // Match profile.tsx: unwrap nested driver object before the top-level data key
     select: (r) => (r.data as any).data?.driver ?? (r.data as any).data,
     retry: 1,
     staleTime: 30_000,
   });
 
-  // The chart derives its bars entirely from this list — a fixed limit of 20
-  // silently truncated the "week"/"month" views for any driver with more than
-  // 20 transactions in that window (trivial for a working driver), making
-  // older days/weeks in the period under-report or show as flat zero even
-  // though real earnings existed. Scale the fetch to the selected period.
   /**
-   * THE STATEMENT — the server's own arithmetic for the period.
-   *
-   * `GET /driver/earnings/breakdown` existed for a long time with no caller.
-   * The screen re-derived every total on the phone from ONE PAGE of wallet
-   * transactions, which under-reports any period longer than the page by
-   * construction — that is where the flat-zero chart came from, and the fetch
-   * limits below are a workaround for it rather than a fix.
-   *
-   * The server aggregates over the whole period regardless of page size, so
-   * when the two disagree these are the numbers to trust. The transaction list
-   * stays, because a statement is a summary and drivers also want the rows.
-   *
-   * Failure is NOT fatal here: a driver who cannot reach the breakdown still
-   * sees their balance, their transactions and a chart derived the old way.
+   * THE STATEMENT — the server's arithmetic over the whole period. Failure is
+   * not fatal: the balance, the rows and a phone-derived chart still render.
    */
-  const { data: statement, isError: statementFailed } = useQuery({
+  const { data: statement, isError: statementFailed, refetch: refetchStatement } = useQuery({
     queryKey: ['driver', 'earnings', 'breakdown', period],
     queryFn: () => driverApi.getEarningsBreakdown(period),
     select: (r) => (r.data as any)?.data ?? null,
@@ -121,56 +107,49 @@ export default function EarningsScreen() {
     retry: 1,
   });
 
-  const TX_LIMIT_FOR_PERIOD: Record<Period, number> = { today: 50, week: 150, month: 500 };
-  const { data: txData } = useQuery({
+  const { data: txData, refetch: refetchTx } = useQuery({
     queryKey: ['driver', 'wallet', 'transactions', period],
     queryFn: () => driverApi.getWalletTransactions({ limit: TX_LIMIT_FOR_PERIOD[period] }),
     select: (r) => {
       const d = (r.data as any)?.data;
       if (Array.isArray(d)) return d;
-      if (d?.items && Array.isArray(d.items)) return d.items;
-      if (d?.transactions && Array.isArray(d.transactions)) return d.transactions;
-      if (d?.data && Array.isArray(d.data)) return d.data;
+      if (Array.isArray(d?.transactions)) return d.transactions;
+      if (Array.isArray(d?.items)) return d.items;
       return [];
     },
   });
 
+  // The weekly goal (TRIPS) moved here from the old performance page.
+  const { data: perf, refetch: refetchPerf } = useQuery({
+    queryKey: ['driver', 'performance'],
+    queryFn: () => driverApi.getPerformance(),
+    select: (r) => r.data.data,
+    staleTime: 60_000,
+  });
+
   /**
-   * PUTTING MONEY IN.
-   *
-   * There was no way to do this anywhere in the driver app. A driver working
-   * cash fares has their commission DEBITED from the wallet without any
-   * matching credit (see CREDIT_TYPES above — `CASH_EARNING` is income for
-   * reporting and deliberately does not move the balance), so a busy cash day
-   * drives the balance negative. `goOnline` then refuses them until the balance
-   * clears `DRIVER_REQUIRED_WALLET_TO_GO_ONLINE`, and the only screen it could
-   * point them at had a Withdraw button and nothing else. The app had a one-way
-   * valve on the driver's own money.
+   * PUTTING MONEY IN. A driver working cash has commission debited with no
+   * matching credit, so the balance goes negative and goOnline refuses them
+   * until it clears. This is the way back.
    */
   const [topUpOpen, setTopUpOpen] = useState(false);
   const [topUpAmount, setTopUpAmount] = useState('');
   const [momoNetwork, setMomoNetwork] = useState<MomoNetwork>('MOMO_MTN');
 
   const topUp = useMutation({
-    mutationFn: () =>
-      driverApi.topUp({
-        amountPesewas: pesewasFromCedis(parseFloat(topUpAmount)),
-        method: momoNetwork,
-      }),
-    onSuccess: (res) => {
+    mutationFn: (amountPesewas: number) => driverApi.topUp({ amountPesewas, method: momoNetwork }),
+    onSuccess: (res, added) => {
       const data = (res.data as any)?.data ?? {};
-      const added = pesewasFromCedis(parseFloat(topUpAmount));
       setTopUpOpen(false);
       setTopUpAmount('');
       qc.invalidateQueries({ queryKey: ['driver', 'wallet'] });
       qc.invalidateQueries({ queryKey: ['driver', 'me'] });
       if (data.simulated) {
-        // Say what actually happened. Claiming "check your phone for the MoMo
-        // prompt" when no gateway exists is how a driver ends up waiting for a
-        // prompt that is never coming.
+        // Say what actually happened — there is no MoMo prompt coming.
         notify(
           'Wallet topped up',
           `${formatGhs(added)} has been added to your wallet.\n\nNo payment was taken — the payment gateway is not live yet, so top-ups are credited directly for now.`,
+          { tone: 'success' },
         );
       } else {
         notify(
@@ -195,445 +174,293 @@ export default function EarningsScreen() {
       notify('Too much at once', `The most you can add at once is ${formatGhs(MAX_TOPUP_PESEWAS)}.`);
       return;
     }
-    topUp.mutate();
+    Keyboard.dismiss();
+    topUp.mutate(amountPesewas);
   };
 
   const withdraw = useMutation({
-    // The driver TYPES cedis ("50"), and every balance and limit on this screen
-    // is pesewas. This is the one direction the conversion has to run, and it
-    // runs exactly here — the parsed text never travels any further as cedis.
-    mutationFn: () => driverApi.withdraw({ amountPesewas: pesewasFromCedis(parseFloat(withdrawAmount)) }),
-    onSuccess: () => {
+    // The driver types cedis; everything past this line is pesewas.
+    mutationFn: (amountPesewas: number) => driverApi.withdraw({ amountPesewas }),
+    onSuccess: (res, amountPesewas) => {
       setSheetOpen(false);
       setWithdrawAmount('');
       qc.invalidateQueries({ queryKey: ['driver', 'wallet'] });
-      // Balance is derived from ['driver','me'] (walletBalancePesewas), so refresh that too.
       qc.invalidateQueries({ queryKey: ['driver', 'me'] });
-      notify('Withdrawal Submitted', `${formatGhs(pesewasFromCedis(parseFloat(withdrawAmount)))} is being processed to your mobile money account.`);
+      const serverMessage = (res.data as any)?.data?.message;
+      notify(
+        'Cash out on its way',
+        serverMessage ?? `${formatGhs(amountPesewas)} is being sent to your payout account.`,
+        { tone: 'success' },
+      );
     },
-    onError: (err) => notify('Withdrawal Failed', (err as Error).message),
+    onError: (err) => {
+      const { title, message } = describeError(err, 'We could not send your cash out.');
+      notify(title, message);
+    },
   });
 
+  const balance: number = meData?.walletBalancePesewas ?? 0;
+
   const handleWithdraw = () => {
-    // D12: validate amount before submitting withdrawal.
-    // Converted to pesewas FIRST, so the comparisons below are pesewas-vs-
-    // pesewas. Comparing typed cedis against a pesewas balance would have let a
-    // driver "withdraw" GH₵50 against a GH₵0.50 balance.
     const amountPesewas = pesewasFromCedis(parseFloat(withdrawAmount));
     if (isNaN(amountPesewas) || amountPesewas <= 0) {
-      notify('Invalid Amount', 'Enter a valid amount.');
+      notify('Enter an amount', 'Type how much you want to cash out.');
       return;
     }
     if (amountPesewas < MIN_WITHDRAWAL_PESEWAS) {
-      notify('Minimum Withdrawal', `The minimum withdrawal amount is ${formatGhs(MIN_WITHDRAWAL_PESEWAS)}.`);
+      notify('Below the minimum', `The smallest cash out is ${formatGhs(MIN_WITHDRAWAL_PESEWAS)}.`);
       return;
     }
     if (amountPesewas > balance) {
-      notify('Insufficient Balance', `You only have ${formatGhs(balance)} available.`);
+      notify('Not enough balance', `You have ${formatGhs(balance)} available.`);
       return;
     }
-    Alert.alert(
-      'Confirm Withdrawal',
-      `Send ${formatGhs(amountPesewas)} to your mobile money account?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Confirm', onPress: () => withdraw.mutate() },
-      ]
-    );
+    Keyboard.dismiss();
+    Alert.alert('Cash out', `Send ${formatGhs(amountPesewas)} to your payout account?`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Send', onPress: () => withdraw.mutate(amountPesewas) },
+    ]);
   };
 
-  // Derive chart data from real transactions.
-  //
-  // BUGFIX: every bucket below summed `t.amount`, a field the wallet ledger has
-  // never had — the column is `amountPesewas`. `?? 0` then swallowed it, so the
-  // earnings chart rendered a flat zero for every period on every device while
-  // looking entirely healthy in code review.
-  //
-  // SUPERSEDED for week and month by the server's `dailyBreakdown`, which is
-  // computed over the whole period instead of over whatever fits in one page.
-  // Kept as the fallback, and still the only source for the hourly "today"
-  // view — the server groups by day and has no hour buckets to give.
+  // Phone-side bars: the fallback for week/month, the only source for "today".
   const derivedChartData = useMemo((): ChartDataPoint[] => {
-    // D5: guard against non-array transactions before any derivation
-    if (!Array.isArray(txData)) return [];
-    const txs: any[] = txData;
-    // Filtering only 'CREDIT' made the chart/Today/Trips render 0 — use the
-    // full credit-type set (module-level CREDIT_TYPES).
-    const credits = txs.filter((t) => CREDIT_TYPES.includes(t.type));
+    const credits: any[] = (Array.isArray(txData) ? txData : []).filter((t: any) => CREDIT_TYPES.includes(t.type));
     const now = new Date();
+    const amt = (t: any) => Math.abs(t.amountPesewas ?? 0);
 
     if (period === 'today') {
-      const hours = [8, 10, 12, 14, 16, 18, 20];
-      return hours.map((h) => ({
-        label: h === 12 ? '12pm' : h > 12 ? `${h - 12}pm` : `${h}am`,
+      const today = now.toDateString();
+      return HOUR_BUCKETS.map((h) => ({
+        label: hourLabel(h),
         value: credits
           .filter((t) => {
             const d = new Date(t.createdAt);
-            return d.toDateString() === now.toDateString() && d.getHours() >= h && d.getHours() < h + 2;
+            return d.toDateString() === today && d.getHours() >= h && d.getHours() < h + 3;
           })
-          .reduce((s, t) => s + (t.amountPesewas ?? 0), 0),
+          .reduce((s, t) => s + amt(t), 0),
       }));
     }
-
     if (period === 'week') {
-      const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-      const startOfWeek = new Date(now);
-      startOfWeek.setDate(now.getDate() - now.getDay());
-      startOfWeek.setHours(0, 0, 0, 0);
+      const start = periodStart('week', now);
       return Array.from({ length: 7 }, (_, i) => {
-        const day = new Date(startOfWeek);
-        day.setDate(startOfWeek.getDate() + i);
+        const day = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
         return {
           label: DAY_LABELS[day.getDay()],
-          value: credits
-            .filter((t) => new Date(t.createdAt).toDateString() === day.toDateString())
-            .reduce((s, t) => s + (t.amountPesewas ?? 0), 0),
+          value: credits.filter((t) => new Date(t.createdAt).toDateString() === day.toDateString()).reduce((s, t) => s + amt(t), 0),
         };
       });
     }
-
-    // month — group into 4 weeks
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    return Array.from({ length: 4 }, (_, i) => {
-      const weekStart = new Date(startOfMonth);
-      weekStart.setDate(1 + i * 7);
-      const weekEnd = new Date(weekStart);
-      weekEnd.setDate(weekStart.getDate() + 6);
-      return {
-        label: `W${i + 1}`,
-        value: credits
-          .filter((t) => {
-            const d = new Date(t.createdAt);
-            return d >= weekStart && d <= weekEnd;
-          })
-          .reduce((s, t) => s + (t.amountPesewas ?? 0), 0),
-      };
-    });
+    return monthBuckets(now).map((b) => ({
+      label: b.label,
+      value: credits
+        .filter((t) => {
+          const d = new Date(t.createdAt);
+          return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() >= b.from && d.getDate() <= b.to;
+        })
+        .reduce((s, t) => s + amt(t), 0),
+    }));
   }, [txData, period]);
 
-  /**
-   * The chart the driver actually sees.
-   *
-   * Server-backed for week and month; the phone-side derivation above is the
-   * fallback for those and remains the only source for the hourly view. The
-   * two must never be mixed within one period — a chart whose Monday came from
-   * the server and whose Tuesday came from a truncated page would be wrong in
-   * a way nobody could see.
-   */
+  /** Server-backed for week and month; never mixed with the derivation within a period. */
   const chartData = useMemo((): ChartDataPoint[] => {
-    const days: { date: string; earnings: number }[] = Array.isArray(statement?.dailyBreakdown)
-      ? statement.dailyBreakdown
-      : [];
-    if (period === 'today' || days.length === 0) return derivedChartData;
-
-    // Local YYYY-MM-DD. The server keys these off a UTC ISO date, which is the
-    // same calendar day in Ghana (UTC+0) — spelled out because it stops being
-    // true the moment anyone deploys east or west of here.
-    const key = (d: Date) =>
-      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const days: { date: string; earnings: number }[] = Array.isArray(statement?.dailyBreakdown) ? statement.dailyBreakdown : [];
+    if (period === 'today' || statementFailed || !statement) return derivedChartData;
+    // Server keys are UTC dates — the same calendar day in Ghana (UTC+0).
     const byDate = new Map(days.map((d) => [d.date, d.earnings ?? 0]));
     const now = new Date();
-
     if (period === 'week') {
-      const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-      const startOfWeek = new Date(now);
-      startOfWeek.setDate(now.getDate() - now.getDay());
-      startOfWeek.setHours(0, 0, 0, 0);
+      const start = periodStart('week', now);
       return Array.from({ length: 7 }, (_, i) => {
-        const day = new Date(startOfWeek);
-        day.setDate(startOfWeek.getDate() + i);
-        return { label: DAY_LABELS[day.getDay()], value: byDate.get(key(day)) ?? 0 };
+        const day = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
+        return { label: DAY_LABELS[day.getDay()], value: byDate.get(localKey(day)) ?? 0 };
       });
     }
-
-    // month — the same four week buckets the derivation uses, so switching
-    // sources cannot silently change the shape of the chart.
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    return Array.from({ length: 4 }, (_, i) => {
-      const weekStart = new Date(startOfMonth);
-      weekStart.setDate(1 + i * 7);
+    return monthBuckets(now).map((b) => {
       let value = 0;
-      for (let d = 0; d < 7; d++) {
-        const day = new Date(weekStart);
-        day.setDate(weekStart.getDate() + d);
-        if (day.getMonth() !== startOfMonth.getMonth()) break;
-        value += byDate.get(key(day)) ?? 0;
-      }
-      return { label: `W${i + 1}`, value };
+      for (let d = b.from; d <= b.to; d++) value += byDate.get(localKey(new Date(now.getFullYear(), now.getMonth(), d))) ?? 0;
+      return { label: b.label, value };
     });
-  }, [statement, derivedChartData, period]);
+  }, [statement, statementFailed, derivedChartData, period]);
 
-  // Withdrawable balance is the actual wallet balance, not lifetime totalEarned.
-  const balance = meData?.walletBalancePesewas != null ? meData.walletBalancePesewas : 0;
-  const currency = meData?.currency ?? 'GHS';
+  // The rows the list shows are the selected period's — it used to show the
+  // latest N whatever the toggle said.
+  const periodTx = useMemo(() => {
+    const since = periodStart(period).getTime();
+    return (Array.isArray(txData) ? txData : []).filter((t: any) => new Date(t.createdAt).getTime() >= since);
+  }, [txData, period]);
+
   const withdrawAmtPesewas = pesewasFromCedis(parseFloat(withdrawAmount));
-  const canWithdraw =
-    !isNaN(withdrawAmtPesewas) &&
-    withdrawAmtPesewas >= MIN_WITHDRAWAL_PESEWAS &&
-    withdrawAmtPesewas <= balance;
+  const canWithdraw = !isNaN(withdrawAmtPesewas) && withdrawAmtPesewas >= MIN_WITHDRAWAL_PESEWAS && withdrawAmtPesewas <= balance;
+
+  const goal = perf?.weeklyGoal ?? 0;
+  const goalDone = perf?.weeklyGoalProgress ?? 0;
+
+  const onRefresh = () => {
+    refetchMe();
+    refetchStatement();
+    refetchTx();
+    refetchPerf();
+  };
+
+  if (gate.state !== 'unlocked') {
+    // The money is behind the face — see BiometricGate in @eyego/ui.
+    return (
+      <SafeAreaView style={styles.locked}>
+        <BiometricLock state={gate.state} failed={gate.failed} onRetry={gate.retry} label="Unlock to view your earnings" />
+      </SafeAreaView>
+    );
+  }
 
   return (
-    <SafeAreaView style={styles.safe}>
-      {/* The money is behind the face — see BiometricGate in @eyego/ui. */}
-      {gate.state !== 'unlocked' ? (
-        <BiometricLock state={gate.state} failed={gate.failed} onRetry={gate.retry} label="Unlock to view your earnings" />
-      ) : (
-      <ScrollView
-        contentContainerStyle={styles.scroll}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl refreshing={isRefetching} onRefresh={refetchWallet} />
-        }
+    <>
+      <Screen
+        title="Earnings"
+        back={false}
+        contentContainerStyle={{ paddingBottom: 120 }}
+        refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={onRefresh} tintColor={colors.primary} />}
       >
-        {/* Header */}
-        <Entrance animation="slideUp" delay={50} style={styles.header}>
-          <Text variant="headlineMedium" style={styles.title}>Earnings</Text>
-        </Entrance>
-
-        {/* Balance card — the screen's hero number gets the premium ring */}
-        <Entrance animation="slideDown" delay={100} style={styles.balanceCardWrapper}>
-        <GradientGlowBorder
-          palette="gold"
-          fillColor={colors.surfaceContainerHigh}
-          borderRadius={radii['2xl']}
-          glow
-          style={styles.balanceCard}
-        >
-          <GlassSurface borderRadius={radii['2xl'] - 3} intensity="high" dark style={StyleSheet.absoluteFill} />
-          <View style={styles.balanceGlow} pointerEvents="none" />
-          <Text variant="caption" color={colors.onSurfaceVariant}>Available Balance</Text>
-          {isLoading ? (
-            <Text style={styles.balanceAmount}>GHS —</Text>
-          ) : (
-            <AnimatedFareText pesewas={balance} variant="fareLarge" color={colors.onSurface} shiny />
-          )}
-          <View style={styles.balanceMeta}>
-            <View style={styles.currencyBadge}>
-              <Text style={styles.currencyText}>{currency}</Text>
+        {/* Balance — the screen's one glow */}
+        <View style={styles.balanceWrap}>
+          <GradientGlowBorder palette="gold" fillColor={colors.surfaceContainerHigh} borderRadius={radii['2xl']} glow style={styles.balanceCard}>
+            <Text variant="labelCaps" color={colors.onSurfaceVariant}>Balance</Text>
+            {isLoading ? (
+              <Text style={styles.balanceAmount}>GH₵—</Text>
+            ) : (
+              <AnimatedFareText pesewas={balance} variant="fareLarge" color={balance < 0 ? colors.error : colors.onSurface} />
+            )}
+            {balance < 0 ? (
+              <View style={styles.oweNotice}>
+                <Ionicons name="alert-circle" size={15} color={colors.error} />
+                <Text variant="caption" color={colors.error} style={{ flex: 1 }}>
+                  You owe {formatGhs(Math.abs(balance))} in commission. Top up to go back online.
+                </Text>
+              </View>
+            ) : null}
+            <View style={styles.balanceActions}>
+              <Button
+                label="Top up"
+                size="sm"
+                onPress={() => {
+                  // Enough to clear the debt AND meet the online floor, so the
+                  // common case is one tap.
+                  if (balance < 0) setTopUpAmount(String(Math.ceil((Math.abs(balance) + driverRequiredWalletPesewas) / 100)));
+                  setTopUpOpen(true);
+                }}
+              />
+              <Button
+                label="Cash out"
+                size="sm"
+                variant="secondary"
+                onPress={() => setSheetOpen(true)}
+                disabled={balance < MIN_WITHDRAWAL_PESEWAS}
+              />
             </View>
-          </View>
-          {/*
-            THE WAY BACK. A negative balance is not an edge case for a driver
-            working cash — commission is debited per trip and cash fares credit
-            nothing — and until this existed there was no screen in the app that
-            could clear it. Stated in the driver's own terms ("you owe"), with
-            the exact amount needed, because "top up your wallet" without a
-            number is a puzzle.
-          */}
-          {balance < 0 && (
-            <View style={styles.oweNotice}>
-              <Ionicons name="alert-circle" size={15} color={colors.error} />
-              <Text variant="caption" color={colors.error} style={{ flex: 1 }}>
-                You owe {formatGhs(Math.abs(balance))} in commission. Top up to go back online.
+          </GradientGlowBorder>
+        </View>
+
+        <ListSection>
+          <ListRow icon="card-outline" title="Payout account" onPress={() => goDeeper('/(profile)/payout-account')} />
+        </ListSection>
+
+        {/* Weekly goal (trips, Sun–Sat) */}
+        {perf && goal > 0 ? (
+          <View style={styles.block}>
+            <Text variant="labelCaps" color={colors.onSurfaceVariant}>Weekly goal</Text>
+            <View style={styles.goalRow}>
+              <Text style={styles.goalNumber}>
+                {Math.min(goalDone, goal)}
+                <Text style={styles.goalOf}> of {goal} trips</Text>
+              </Text>
+              <Text variant="caption" color={goalDone >= goal ? colors.primary : colors.onSurfaceVariant}>
+                {goalDone >= goal ? 'Goal reached' : `${goal - goalDone} to go`}
               </Text>
             </View>
-          )}
-          <View style={styles.balanceActions}>
-            <Button
-              label="Top up"
-              size="sm"
-              onPress={() => {
-                // Pre-fill enough to clear the debt AND meet the online floor,
-                // so the common case is one tap.
-                if (balance < 0) {
-                  setTopUpAmount(String(Math.ceil((Math.abs(balance) + 2000) / 100)));
-                }
-                setTopUpOpen(true);
-              }}
-            />
-            <Button
-              label="Withdraw"
-              size="sm"
-              variant="secondary"
-              onPress={() => setSheetOpen(true)}
-              disabled={balance < MIN_WITHDRAWAL_PESEWAS}
-            />
+            <View style={styles.track} accessible accessibilityLabel={`${goalDone} of ${goal} trips this week`}>
+              <View style={[styles.fill, { width: `${Math.min(100, Math.round((goalDone / goal) * 100))}%` }]} />
+            </View>
           </View>
-          <Pressable
-            onPress={() => goDeeper('/(profile)/payout-account' as any)}
-            style={styles.payoutLink}
-           accessibilityRole="button">
-            <Ionicons name="card-outline" size={13} color={colors.onSurfaceVariant} />
-            <Text variant="caption" color={colors.onSurfaceVariant}>Manage payout account</Text>
-          </Pressable>
-        </GradientGlowBorder>
-        </Entrance>
+        ) : null}
 
-        {/* Period toggle */}
-        <Entrance animation="slideDown" delay={150} style={styles.periodWrapper}>
-          <View style={styles.periodContainer}>
-            {PERIODS.map((p) => (
+        {/* Period */}
+        <View style={styles.segment} accessibilityRole="tablist">
+          {PERIODS.map((p) => {
+            const on = period === p.key;
+            return (
               <Pressable
                 key={p.key}
-                style={[styles.periodBtn, period === p.key && styles.periodActive]}
+                style={[styles.segmentBtn, on && styles.segmentOn]}
                 onPress={() => setPeriod(p.key)}
-               accessibilityRole="button">
-                <Text
-                  style={[
-                    styles.periodText,
-                    { color: period === p.key ? colors.onPrimary : colors.onSurfaceVariant },
-                  ]}
-                >
-                  {p.label}
-                </Text>
+                accessibilityRole="tab"
+                accessibilityState={{ selected: on }}
+              >
+                <Text style={[styles.segmentText, { color: on ? colors.onSurface : colors.onSurfaceVariant }]}>{p.label}</Text>
               </Pressable>
-            ))}
-          </View>
-        </Entrance>
-
-        {/* Chart */}
-        <Entrance animation="slideDown" delay={200} style={styles.chartCardWrapper}>
-        <GlassCard style={styles.chartCard}>
-          <EarningsChart period={period} data={chartData} />
-        </GlassCard>
-        </Entrance>
-
-        {/*
-          THE STATEMENT.
-
-          What a driver is owed, what was taken, and what is left — the server's
-          arithmetic, not the phone's. Deliberately shows deductions even when
-          they are unwelcome: commission on cash fares is the single most common
-          reason a wallet goes negative and `goOnline` starts refusing, and a
-          screen that reported only income left that unexplained.
-
-          Hidden entirely when the endpoint is unreachable rather than rendered
-          with zeros. "You earned GH₵ 0.00 this week" is a claim, and it is the
-          wrong one to make on a failed request.
-        */}
-        {!statementFailed && statement && (
-          <Entrance animation="slideDown" delay={225} style={styles.statementWrapper}>
-            <GlassCard style={styles.statementCard}>
-              <View style={styles.statementHeader}>
-                <Text style={styles.sectionTitleInline}>Statement</Text>
-                <Text variant="caption" color={colors.onSurfaceVariant}>
-                  {PERIODS.find((p) => p.key === period)?.label ?? ''}
-                </Text>
-              </View>
-
-              <View style={styles.statementRow}>
-                <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Earned</Text>
-                <Text style={styles.statementValue}>{formatGhs(statement.totalEarningsPesewas ?? 0)}</Text>
-              </View>
-              {(statement.totalTips ?? 0) > 0 && (
-                <View style={styles.statementRow}>
-                  <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Tips</Text>
-                  <Text style={styles.statementValue}>{formatGhs(statement.totalTips)}</Text>
-                </View>
-              )}
-              <View style={styles.statementRow}>
-                <Text variant="bodyMedium" color={colors.onSurfaceVariant}>
-                  Commission &amp; withdrawals
-                </Text>
-                <Text style={[styles.statementValue, { color: colors.error }]}>
-                  −{formatGhs(Math.abs(statement.totalDeductions ?? 0))}
-                </Text>
-              </View>
-
-              <View style={styles.statementDivider} />
-
-              <View style={styles.statementRow}>
-                <Text style={styles.statementNetLabel}>Net</Text>
-                <Text
-                  style={[
-                    styles.statementNetValue,
-                    (statement.netEarnings ?? 0) < 0 && { color: colors.error },
-                  ]}
-                >
-                  {formatGhs(statement.netEarnings ?? 0)}
-                </Text>
-              </View>
-
-              <View style={styles.statementFooter}>
-                <Text variant="caption" color={colors.onSurfaceVariant}>
-                  {statement.totalTrips ?? 0} {(statement.totalTrips ?? 0) === 1 ? 'trip' : 'trips'}
-                </Text>
-                {(statement.totalTrips ?? 0) > 0 && (
-                  <Text variant="caption" color={colors.onSurfaceVariant}>
-                    {formatGhs(statement.averagePerTripPesewas ?? 0)} average
-                  </Text>
-                )}
-              </View>
-            </GlassCard>
-          </Entrance>
-        )}
-
-        {/* Transactions */}
-        <Entrance animation="slideDown" delay={250}>
-          <Text style={styles.sectionTitle}>Transactions</Text>
-          {(() => {
-            const txs: any[] = Array.isArray(txData) ? txData : [];
-            return (
-              <>
-                {txs.length === 0 && (
-                  <View style={styles.emptyTx}>
-                    <Text variant="bodyMedium" color={colors.onSurfaceVariant}>No transactions yet.</Text>
-                  </View>
-                )}
-                {txs.map((tx: any, i: number) => {
-                  // BUGFIX ("the top-up row just shows a dash"): the ledger
-                  // column is `amountPesewas` — `tx.amount` has never existed,
-                  // so every row formatted `undefined`. The ledger also stores
-                  // SIGNED amounts (a debit is negative, and `balanceAfter =
-                  // balanceBefore + amount` is asserted on write), so the sign
-                  // is a fact about the row, not something to infer from the
-                  // type list: a type missing from CREDIT_TYPES used to render
-                  // a credit with a minus in front of it.
-                  const amountPesewas = tx.amountPesewas ?? 0;
-                  const isCredit = amountPesewas >= 0;
-                  return (
-            <Entrance
-              key={tx.id}
-              animation="slideLeft"
-              delay={260 + i * 50}
-              style={styles.txRow}
-            >
-              <View style={[
-                styles.txIcon,
-                { backgroundColor: isCredit ? `${colors.online}22` : `${colors.error}22` },
-              ]}>
-                <Ionicons
-                  name={isCredit ? 'arrow-down' : 'arrow-up'}
-                  size={16}
-                  color={isCredit ? colors.online : colors.error}
-                />
-              </View>
-              <View style={styles.txInfo}>
-                {/* A row with no description used to render as nothing at all,
-                    which is the other half of the reported blank/dash row. */}
-                <Text style={styles.txDesc}>
-                  {tx.description || (isCredit ? 'Wallet credit' : 'Wallet debit')}
-                </Text>
-                <Text variant="caption" color={colors.onSurfaceVariant}>
-                  {new Date(tx.createdAt).toLocaleDateString()}
-                </Text>
-              </View>
-              <Text style={[
-                styles.txAmount,
-                { color: isCredit ? colors.online : colors.error },
-              ]}>
-                {isCredit ? '+' : '-'}{formatGhs(Math.abs(amountPesewas))}
-              </Text>
-            </Entrance>
-                  );
-                })}
-              </>
             );
-          })()}
-        </Entrance>
-      </ScrollView>
-      )}
+          })}
+        </View>
 
-      {/* Top-up sheet — same KeyboardStickyView treatment as Withdraw below,
-          for the same reason (PanelSheet renders inside a Modal, which
-          KeyboardAvoidingView never resizes correctly). */}
+        <View style={styles.block}>
+          <EarningsChart period={period} data={chartData} />
+        </View>
+
+        {/* Statement — the server's arithmetic. Hidden on failure rather than
+            rendered as zeros: "you earned GH₵0.00" is a claim. */}
+        {!statementFailed && statement ? (
+          <ListSection
+            title="Statement"
+            footer={`${statement.totalTrips ?? 0} ${(statement.totalTrips ?? 0) === 1 ? 'trip' : 'trips'}${
+              (statement.totalTrips ?? 0) > 0 ? ` · ${formatGhs(statement.averagePerTripPesewas ?? 0)} average fare` : ''
+            }. Cash outs are not deductions — they're your money moving.`}
+          >
+            <ListRow title="Fares" value={formatGhs(statement.totalEarningsPesewas ?? 0)} valueColor={colors.onSurface} />
+            {(statement.totalTips ?? 0) > 0 ? <ListRow title="Tips" value={formatGhs(statement.totalTips)} valueColor={colors.onSurface} /> : null}
+            {(statement.totalBonuses ?? 0) > 0 ? <ListRow title="Quest bonuses" value={formatGhs(statement.totalBonuses ?? 0)} valueColor={colors.onSurface} /> : null}
+            <ListRow title="Commission" value={`−${formatGhs(Math.abs(statement.totalDeductions ?? 0))}`} valueColor={colors.error} />
+            <ListRow
+              title="Net"
+              value={formatGhs(statement.netEarnings ?? 0)}
+              valueColor={(statement.netEarnings ?? 0) < 0 ? colors.error : colors.onSurface}
+            />
+          </ListSection>
+        ) : null}
+
+        <ListSection
+          title="Activity"
+          footer={periodTx.length > TX_SHOWN ? `Showing the latest ${TX_SHOWN} of ${periodTx.length}.` : undefined}
+        >
+          {periodTx.length === 0 ? (
+            <ListRow icon="receipt-outline" title="Nothing yet" subtitle={`No wallet activity ${period === 'today' ? 'today' : `this ${period}`}.`} />
+          ) : (
+            periodTx.slice(0, TX_SHOWN).map((tx: any) => {
+              // Server-signed (see signedLedgerAmount): a debit is negative.
+              const amount = tx.amountPesewas ?? 0;
+              const credit = amount >= 0;
+              const when = new Date(tx.createdAt);
+              return (
+                <ListRow
+                  key={tx.id}
+                  leading={
+                    <View style={[styles.txIcon, { backgroundColor: credit ? `${colors.online}22` : `${colors.error}1F` }]}>
+                      <Ionicons name={credit ? 'arrow-down' : 'arrow-up'} size={15} color={credit ? colors.online : colors.error} />
+                    </View>
+                  }
+                  title={tx.description || (credit ? 'Wallet credit' : 'Wallet debit')}
+                  subtitle={`${when.toLocaleDateString('en-GH', { day: 'numeric', month: 'short' })} · ${when.toLocaleTimeString('en-GH', { hour: 'numeric', minute: '2-digit' })}`}
+                  subtitleLines={1}
+                  value={`${credit ? '+' : '−'}${formatGhs(Math.abs(amount))}`}
+                  valueColor={credit ? colors.online : colors.error}
+                />
+              );
+            })
+          )}
+        </ListSection>
+      </Screen>
+
+      {/* Top-up sheet. KeyboardStickyView, not KeyboardAvoidingView — PanelSheet
+          renders in a Modal, which KeyboardAvoidingView never resizes. */}
       <PanelSheet
         visible={topUpOpen}
-        // Dismissing has to take the KEYBOARD with it. Tapping the backdrop with
-        // the amount field focused used to close the sheet underneath a keyboard
-        // that stayed up, and on iOS the still-presented input accessory made it
-        // look as though nothing had happened — reported as "dismissing it
-        // doesn't seem to go". Same call the Done button already made.
+        // Dismissing takes the keyboard with it, or iOS leaves it up over nothing.
         onDismiss={() => { Keyboard.dismiss(); setTopUpOpen(false); }}
         maxHeightPct={0.85}
         sheetStyle={styles.sheetBg}
@@ -646,7 +473,7 @@ export default function EarningsScreen() {
               onPress={() => { Keyboard.dismiss(); setTopUpOpen(false); }}
               hitSlop={8}
               accessibilityRole="button"
-              accessibilityLabel="Done, close top-up sheet"
+              accessibilityLabel="Close top-up"
             >
               <Text variant="label" color={colors.primary}>Done</Text>
             </Pressable>
@@ -658,22 +485,24 @@ export default function EarningsScreen() {
           </Text>
 
           <View style={styles.presetRow}>
-            {TOPUP_PRESETS_PESEWAS.map((p) => (
-              <Pressable
-                key={p}
-                style={styles.presetChip}
-                onPress={() => setTopUpAmount(String(p / 100))}
-                accessibilityRole="button"
-                accessibilityLabel={`Top up ${formatGhs(p)}`}
-              >
-                <Text variant="label" color={colors.onSurface}>{formatGhs(p)}</Text>
-              </Pressable>
-            ))}
+            {TOPUP_PRESETS_PESEWAS.map((p) => {
+              const on = pesewasFromCedis(parseFloat(topUpAmount)) === p;
+              return (
+                <Pressable
+                  key={p}
+                  style={[styles.presetChip, on && styles.presetChipActive]}
+                  onPress={() => setTopUpAmount(String(p / 100))}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: on }}
+                  accessibilityLabel={`Top up ${formatGhs(p)}`}
+                >
+                  <Text variant="label" color={on ? colors.onPrimary : colors.onSurface}>{formatGhs(p, { showDecimals: false })}</Text>
+                </Pressable>
+              );
+            })}
           </View>
 
-          <Text variant="caption" color={colors.onSurfaceVariant} style={styles.networkLabel}>
-            MOBILE MONEY NETWORK
-          </Text>
+          <Text variant="labelCaps" color={colors.onSurfaceVariant}>Mobile money network</Text>
           <View style={styles.presetRow}>
             {MOMO_NETWORKS.map((n) => (
               <Pressable
@@ -684,10 +513,7 @@ export default function EarningsScreen() {
                 accessibilityState={{ selected: momoNetwork === n.value }}
                 accessibilityLabel={n.label}
               >
-                <Text
-                  variant="label"
-                  color={momoNetwork === n.value ? colors.onPrimary : colors.onSurfaceVariant}
-                >
+                <Text variant="label" color={momoNetwork === n.value ? colors.onPrimary : colors.onSurfaceVariant}>
                   {n.label}
                 </Text>
               </Pressable>
@@ -696,8 +522,9 @@ export default function EarningsScreen() {
 
           <KeyboardStickyView style={styles.stickyGroup}>
             <View style={styles.amountInputWrapper}>
-              <Text style={styles.ghsPrefix}>GHS</Text>
-              <TextInput maxFontSizeMultiplier={1.4}
+              <Text style={styles.ghsPrefix}>GH₵</Text>
+              <TextInput
+                maxFontSizeMultiplier={1.4}
                 style={styles.amountInput}
                 value={topUpAmount}
                 onChangeText={setTopUpAmount}
@@ -708,55 +535,39 @@ export default function EarningsScreen() {
                 accessibilityLabel="Top-up amount in cedis"
               />
             </View>
-            <Button
-              label="Add money"
-              onPress={handleTopUp}
-              disabled={topUp.isPending}
-              loading={topUp.isPending}
-              style={styles.confirmBtn}
-            />
+            <Button label="Add money" onPress={handleTopUp} disabled={topUp.isPending} loading={topUp.isPending} />
           </KeyboardStickyView>
         </View>
       </PanelSheet>
 
-      {/* Withdraw sheet */}
-      {/* scrollable=false: content is short and doesn't need PanelSheet's own
-          gesture-arbitrated ScrollView. Amount input + confirm button are
-          wrapped in KeyboardStickyView (same pattern as dispute.tsx / rate-tip.tsx)
-          instead of KeyboardAvoidingView — KeyboardAvoidingView never reliably
-          resized content living inside PanelSheet's Modal, so the keyboard just
-          slid up over the fixed-position sheet and covered the amount input and
-          Confirm button. KeyboardStickyView tracks the real keyboard frame via
-          react-native-keyboard-controller's native listeners and translates the
-          group above it regardless of the Modal's layout quirks. */}
-      <PanelSheet visible={sheetOpen} onDismiss={() => setSheetOpen(false)} maxHeightPct={0.5} sheetStyle={styles.sheetBg} scrollable={false}>
+      {/* Cash-out sheet */}
+      <PanelSheet
+        visible={sheetOpen}
+        onDismiss={() => { Keyboard.dismiss(); setSheetOpen(false); }}
+        maxHeightPct={0.6}
+        sheetStyle={styles.sheetBg}
+        scrollable={false}
+      >
         <View style={styles.sheetContent}>
           <View style={styles.sheetTitleRow}>
-            <Text variant="titleLarge" style={styles.sheetTitle}>Withdraw Funds</Text>
-            {/* A header button labeled "Done" reads as "close this sheet" (the
-                standard iOS/Android sheet convention) — it previously only
-                called Keyboard.dismiss(), so tapping it left the sheet open
-                with no visible change, which looked like the button (and the
-                backdrop-tap fallback) simply didn't work. Close the sheet for
-                real; dismissing the keyboard first avoids the Android
-                stuck-keyboard issue the PanelSheet backdrop tap already guards
-                against (see PanelSheet.tsx's `dismiss`). */}
+            <Text variant="titleLarge" style={styles.sheetTitle}>Cash out</Text>
             <Pressable
               onPress={() => { Keyboard.dismiss(); setSheetOpen(false); }}
               hitSlop={8}
               accessibilityRole="button"
-              accessibilityLabel="Done, close withdraw sheet"
+              accessibilityLabel="Close cash out"
             >
               <Text variant="label" color={colors.primary}>Done</Text>
             </Pressable>
           </View>
           <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.sheetSub}>
-            Balance: {formatGhs(balance)} · Min. GHS 20
+            Available {formatGhs(balance)} · minimum {formatGhs(MIN_WITHDRAWAL_PESEWAS, { showDecimals: false })}
           </Text>
           <KeyboardStickyView style={styles.stickyGroup}>
             <View style={styles.amountInputWrapper}>
-              <Text style={styles.ghsPrefix}>GHS</Text>
-              <TextInput maxFontSizeMultiplier={1.4}
+              <Text style={styles.ghsPrefix}>GH₵</Text>
+              <TextInput
+                maxFontSizeMultiplier={1.4}
                 style={styles.amountInput}
                 value={withdrawAmount}
                 onChangeText={setWithdrawAmount}
@@ -764,78 +575,40 @@ export default function EarningsScreen() {
                 placeholder="0.00"
                 placeholderTextColor={colors.onSurfaceVariant}
                 selectionColor={colors.primary}
+                accessibilityLabel="Cash out amount in cedis"
               />
+              {balance >= MIN_WITHDRAWAL_PESEWAS ? (
+                <Pressable onPress={() => setWithdrawAmount(String(balance / 100))} hitSlop={8} accessibilityRole="button" accessibilityLabel="Cash out everything">
+                  <Text variant="label" color={colors.primary}>All</Text>
+                </Pressable>
+              ) : null}
             </View>
             <Button
-              label="Confirm Withdrawal"
+              label="Cash out"
               onPress={handleWithdraw}
               disabled={!canWithdraw || withdraw.isPending}
               loading={withdraw.isPending}
-              style={styles.confirmBtn}
             />
           </KeyboardStickyView>
         </View>
       </PanelSheet>
-    </SafeAreaView>
+    </>
   );
 }
 
 const makeStyles = (colors: DriverColors) =>
   StyleSheet.create({
-    safe: { flex: 1, backgroundColor: 'transparent' },
-    scroll: {
-      paddingBottom: 120,
-    },
-    header: {
-      paddingHorizontal: spacing['2xl'],
-      paddingTop: spacing.xl,
-      paddingBottom: spacing.md,
-    },
-    title: { fontFamily: fonts.displayBold, letterSpacing: -0.5 },
-    balanceCardWrapper: {
-      marginHorizontal: spacing['2xl'],
-      marginBottom: spacing.xl,
-    },
-    balanceCard: {
-      padding: spacing['2xl'],
-      gap: spacing.xs,
-    },
-    balanceGlow: {
-      position: 'absolute',
-      width: 200,
-      height: 200,
-      borderRadius: 100,
-      backgroundColor: colors.primary,
-      opacity: 0.07,
-      top: -60,
-      right: -40,
-    },
+    locked: { flex: 1, backgroundColor: colors.background },
+    balanceWrap: { marginHorizontal: 20, marginTop: 8 },
+    balanceCard: { padding: spacing.xl, gap: spacing.xs },
     balanceAmount: {
       fontFamily: fonts.displayBold,
       fontSize: fontSizes.hero,
       lineHeight: Math.round(fontSizes.hero * 1.3),
       color: colors.onSurface,
       letterSpacing: -1,
-      marginVertical: spacing.xs,
     },
-    balanceMeta: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.md },
-    currencyBadge: {
-      backgroundColor: `${colors.primary}22`,
-      borderRadius: radii.full,
-      paddingHorizontal: spacing.sm,
-      paddingVertical: 3,
-      borderWidth: 1,
-      borderColor: `${colors.primary}44`,
-    },
-    currencyText: {
-      fontFamily: fonts.semiBold,
-      fontSize: 10,
-      lineHeight: Math.round(10 * 1.3),
-      color: colors.primary,
-      letterSpacing: 1,
-    },
-    withdrawBtn: { alignSelf: 'flex-start' },
-    balanceActions: { flexDirection: 'row', gap: spacing.sm, alignSelf: 'flex-start' },
+    balanceActions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
     oweNotice: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -844,171 +617,41 @@ const makeStyles = (colors: DriverColors) =>
       paddingHorizontal: spacing.md,
       borderRadius: radii.lg,
       backgroundColor: `${colors.error}18`,
-      borderWidth: 1,
-      borderColor: `${colors.error}44`,
-      marginBottom: spacing.md,
+      marginTop: spacing.xs,
     },
-    // No `marginBottom`: every parent of this row sets a `gap`, so the margin
-    // was a second helping of spacing and part of what pushed the top-up sheet
-    // past its own height cap. See `sheetContent`.
+    block: { marginTop: 24, paddingHorizontal: 20 },
+    goalRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 6, marginBottom: 10 },
+    goalNumber: { fontFamily: fonts.displayBold, fontSize: 22, lineHeight: 28, color: colors.onSurface },
+    goalOf: { fontFamily: fonts.regular, fontSize: 15, color: colors.onSurfaceVariant },
+    track: { height: 6, borderRadius: 3, backgroundColor: colors.surfaceContainerHighest, overflow: 'hidden' },
+    fill: { height: '100%', borderRadius: 3, backgroundColor: colors.primary },
+    segment: {
+      flexDirection: 'row',
+      marginTop: 28,
+      marginHorizontal: 20,
+      padding: 3,
+      borderRadius: radii.full,
+      backgroundColor: colors.surfaceContainer,
+    },
+    segmentBtn: { flex: 1, height: 36, borderRadius: radii.full, alignItems: 'center', justifyContent: 'center' },
+    segmentOn: { backgroundColor: colors.surfaceContainerHighest },
+    segmentText: { fontFamily: fonts.semiBold, fontSize: 14, lineHeight: 18 },
+    txIcon: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
     presetRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     presetChip: {
       paddingHorizontal: spacing.md,
       paddingVertical: spacing.sm,
       borderRadius: radii.full,
       borderWidth: 1,
-      borderColor: colors.outlineVariant ?? `${colors.onSurface}22`,
+      borderColor: colors.outlineVariant,
       backgroundColor: colors.surfaceContainer,
     },
-    presetChipActive: {
-      backgroundColor: colors.primary,
-      borderColor: colors.primary,
-    },
-    networkLabel: { letterSpacing: 1, marginBottom: spacing.sm },
-    payoutLink: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.sm },
-    periodWrapper: { paddingHorizontal: spacing['2xl'], marginBottom: spacing.lg },
-    periodContainer: {
-      flexDirection: 'row',
-      backgroundColor: colors.surfaceContainer,
-      borderRadius: radii.xl,
-      borderWidth: 1,
-      borderColor: colors.outline,
-      padding: 4,
-    },
-    periodBtn: {
-      flex: 1,
-      paddingVertical: spacing.sm,
-      borderRadius: radii.lg,
-      alignItems: 'center',
-    },
-    periodActive: { backgroundColor: colors.primary },
-    periodText: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodyMedium, lineHeight: Math.round(fontSizes.bodyMedium * 1.3) },
-    chartCardWrapper: {
-      marginHorizontal: spacing['2xl'],
-      marginBottom: spacing.xl,
-    },
-    chartCard: {
-      padding: spacing.xl,
-    },
-    statementWrapper: {
-      marginHorizontal: spacing['2xl'],
-      marginBottom: spacing.xl,
-    },
-    statementCard: {
-      padding: spacing.xl,
-    },
-    statementHeader: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      marginBottom: spacing.md,
-    },
-    sectionTitleInline: {
-      fontFamily: fonts.displaySemiBold,
-      fontSize: fontSizes.titleSmall,
-      lineHeight: Math.round(fontSizes.titleSmall * 1.3),
-      color: colors.onSurface,
-    },
-    statementRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      paddingVertical: spacing.xs,
-      // The label wraps on a small phone at large font scale; the amount never
-      // should, so the row gives it whatever it needs and lets the label give.
-      gap: spacing.md,
-    },
-    statementValue: {
-      fontFamily: fonts.semiBold,
-      fontSize: fontSizes.bodyMedium,
-      lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
-      color: colors.onSurface,
-      // Digits that do not reflow as the numbers change.
-      fontVariant: ['tabular-nums'],
-    },
-    statementDivider: {
-      height: StyleSheet.hairlineWidth,
-      backgroundColor: colors.outlineVariant ?? colors.outline,
-      marginVertical: spacing.md,
-    },
-    statementNetLabel: {
-      fontFamily: fonts.displaySemiBold,
-      fontSize: fontSizes.bodyLarge,
-      lineHeight: Math.round(fontSizes.bodyLarge * 1.3),
-      color: colors.onSurface,
-    },
-    statementNetValue: {
-      fontFamily: fonts.displaySemiBold,
-      fontSize: fontSizes.titleSmall,
-      lineHeight: Math.round(fontSizes.titleSmall * 1.3),
-      color: colors.onSurface,
-      fontVariant: ['tabular-nums'],
-    },
-    statementFooter: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      marginTop: spacing.md,
-    },
-    sectionTitle: {
-      fontFamily: fonts.displaySemiBold,
-      fontSize: fontSizes.titleSmall,
-      lineHeight: Math.round(fontSizes.titleSmall * 1.3),
-      color: colors.onSurface,
-      paddingHorizontal: spacing['2xl'],
-      marginBottom: spacing.md,
-    },
-    emptyTx: { alignItems: 'center', padding: spacing['2xl'] },
-    txRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      paddingHorizontal: spacing['2xl'],
-      paddingVertical: spacing.md,
-      gap: spacing.md,
-    },
-    txIcon: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    txInfo: { flex: 1 },
-    txDesc: {
-      fontFamily: fonts.medium,
-      fontSize: fontSizes.bodyMedium,
-      lineHeight: Math.round(fontSizes.bodyMedium * 1.4),
-      color: colors.onSurface,
-    },
-    txAmount: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodyMedium, lineHeight: Math.round(fontSizes.bodyMedium * 1.3) },
+    presetChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
     sheetBg: { backgroundColor: colors.surfaceContainerHigh },
-    /**
-     * BUGFIX ("on the top up page the texts are all clipped and overlapped").
-     *
-     * The sheet was capped at 62% of the screen with `scrollable={false}` and
-     * this content is taller than that: title, subtitle, a WRAPPING row of five
-     * amount chips, a network label, a second wrapping row of network chips, an
-     * amount field and a button. Add it up against an 844pt phone and the
-     * content column runs about 540pt into a 523pt box — so the last rows were
-     * cut off, and the `KeyboardStickyView` holding the input and the button
-     * (which positions itself against the keyboard, not against its siblings)
-     * came to rest on top of the rows above it. Both symptoms, one cause.
-     *
-     * `2xl` padding on all four sides plus an `lg` gap between eight children
-     * was most of the excess, and the chip rows carried their own bottom margin
-     * on top of that gap. Tightened to a rhythm the content fits in, and the
-     * cap raised so it has room even at large accessibility text sizes.
-     */
-    sheetContent: {
-      paddingHorizontal: spacing['2xl'],
-      paddingTop: spacing.xl,
-      paddingBottom: spacing.lg,
-      gap: spacing.md,
-    },
-    sheetTitleRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-    },
+    // Tight rhythm on purpose: the top-up sheet once ran past its own height
+    // cap and the sticky input landed on the chip rows above it.
+    sheetContent: { paddingHorizontal: spacing['2xl'], paddingTop: spacing.xl, paddingBottom: spacing.lg, gap: spacing.md },
+    sheetTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
     sheetTitle: { fontFamily: fonts.displayBold },
     sheetSub: { marginTop: -spacing.sm },
     stickyGroup: { gap: spacing.lg },
@@ -1033,8 +676,8 @@ const makeStyles = (colors: DriverColors) =>
       flex: 1,
       fontFamily: fonts.displayBold,
       fontSize: fontSizes.titleLarge,
-      lineHeight: Math.round(fontSizes.titleLarge * 1.3),
+      // No lineHeight on a TextInput: Android clips the glyphs with one set.
       color: colors.onSurface,
+      paddingVertical: 0,
     },
-    confirmBtn: { marginTop: spacing.sm },
   });

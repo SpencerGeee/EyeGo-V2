@@ -38,7 +38,7 @@ type Props = {
     body: string;
     confirmLabel?: string;
     /** Prompt for a reason; when `required`, the confirm button stays disabled until filled. */
-    reason?: { label: string; placeholder?: string; required?: boolean };
+    reason?: { label: string; placeholder?: string; required?: boolean; type?: 'text' | 'date'; hint?: string };
   };
   onDone?: (result: ActionResult) => void;
 };
@@ -80,7 +80,8 @@ export function ActionButton({
     });
   };
 
-  const reasonMissing = !!confirm?.reason?.required && reason.trim().length < 3;
+  const reasonMissing =
+    !!confirm?.reason?.required && reason.trim().length < (confirm.reason.type === 'date' ? 1 : 3);
 
   return (
     <>
@@ -147,18 +148,34 @@ export function ActionButton({
                   </span>
                 ) : null}
               </label>
-              <textarea
-                id="action-reason"
-                className="textarea"
-                value={reason}
-                placeholder={confirm.reason.placeholder}
-                onChange={(e) => setReason(e.target.value)}
-                required={confirm.reason.required}
-                aria-describedby="action-reason-hint"
-              />
+              {confirm.reason.type === 'date' ? (
+                <input
+                  id="action-reason"
+                  type="date"
+                  className="input"
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  required={confirm.reason.required}
+                  aria-describedby="action-reason-hint"
+                />
+              ) : (
+                <textarea
+                  id="action-reason"
+                  className="textarea"
+                  value={reason}
+                  placeholder={confirm.reason.placeholder}
+                  onChange={(e) => setReason(e.target.value)}
+                  required={confirm.reason.required}
+                  aria-describedby="action-reason-hint"
+                />
+              )}
               <p id="action-reason-hint" className="hint">
-                This is recorded in the audit log
-                {confirm.reason.required ? ' and shown to the person affected.' : '.'}
+                {confirm.reason.hint ?? (
+                  <>
+                    This is recorded in the audit log
+                    {confirm.reason.required ? ' and shown to the person affected.' : '.'}
+                  </>
+                )}
               </p>
             </div>
           ) : (

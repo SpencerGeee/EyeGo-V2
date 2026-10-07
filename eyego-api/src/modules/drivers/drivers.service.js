@@ -240,7 +240,7 @@ function attachGroupSummary(trip) {
 }
 
 async function getMe(driverId) {
-  const [driver, totalTrips, ratingAgg] = await Promise.all([
+  const [driver, totalTrips, ratingAgg, earnedAgg] = await Promise.all([
     prisma.driver.findUnique({
       where: { id: driverId },
       select: {
@@ -275,6 +275,11 @@ async function getMe(driverId) {
       _avg: { stars: true },
       _count: { stars: true },
     }),
+    // Lifetime earnings, the same rows the Earnings tab sums.
+    prisma.walletTransaction.aggregate({
+      where: { driverId, type: { in: EARNING_TYPES } },
+      _sum: { amountPesewas: true },
+    }),
   ]);
   if (!driver) throw new NotFoundError('Driver');
   // updatePreferences() writes navigationApp/theme into the preferences JSON
@@ -282,7 +287,9 @@ async function getMe(driverId) {
   // settings was the only copy that ever displayed, so a reinstall silently
   // lost them even though the account had them saved all along.
   const { preferences: preferencesJson, emergencyContact: emergencyContactJson, ...driverFields } = driver;
-  const preferences = preferencesJson ? JSON.parse(preferencesJson) : {};
+  let preferences = {};
+  // A malformed blob must not 500 the whole profile (and with it every screen).
+  try { preferences = preferencesJson ? JSON.parse(preferencesJson) : {}; } catch { preferences = {}; }
   /**
    * AND THE SAME FOR THE EMERGENCY CONTACT.
    *
@@ -315,7 +322,9 @@ async function getMe(driverId) {
     // null when no ratings yet — frontend shows "New" instead of a number
     rating: ratingAgg._avg.stars ?? null,
     ratingCount: ratingAgg._count.stars ?? 0,
-    totalEarned: driver.walletBalancePesewas,
+    // Was the wallet BALANCE — so "Earned" dropped every time a driver
+    // withdrew. Lifetime earnings is what the label says.
+    totalEarned: earnedAgg._sum.amountPesewas ?? 0,
     isActive: driver.status === 'ACTIVE',
     profileComplete: !!(driver.name && driver.profilePhoto),
   };
@@ -454,6 +463,13 @@ async function goOnline(driverId, lat, lng) {
   const driver = await prisma.driver.findUnique({ where: { id: driverId } });
   if (!driver) throw new NotFoundError('Driver');
   if (driver.status !== 'ACTIVE') throw new ForbiddenError('Your account must be approved before going online');
+
+  // A driver with no vehicle could go online and then fail every accept with
+  // NO_VEHICLE — online, visible, and unable to take a single trip.
+  const vehicleCount = await prisma.vehicle.count({ where: { driverId, isActive: true } });
+  if (vehicleCount === 0) {
+    throw new AppError('Add your vehicle before going online.', 403, 'NO_VEHICLE');
+  }
 
   // Clear out trips this driver created but never ran before they start taking
   // dispatch. Without this, one abandoned trip keeps them permanently "busy"
@@ -2821,14 +2837,25 @@ async function getPerformance(driverId) {
   const weekAgo = new Date(now);
   weekAgo.setDate(weekAgo.getDate() - 7);
 
+  /**
+   * The app shows these under "This week", so they ARE this week. They were
+   * lifetime ratios over every trip ever created — scheduled-but-not-run trips
+   * counted as incomplete, and a rider's cancellation counted against the
+   * driver. Now: trips that finished in the last 7 days, and only the ones the
+   * DRIVER cancelled. The weekly goal counts completed trips, not created ones.
+   */
+  // The weekly goal runs on the calendar week (Sun–Sat), like the Earnings chart.
+  const weekStart = new Date(now);
+  weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+  weekStart.setHours(0, 0, 0, 0);
+
   const [
-    totalTrips, completedTrips, cancelledTrips, weekTrips, weekEarnings,
-    acceptedDispatches, declinedDispatches, onlineSessions,
+    completedTrips, weekTrips, weekDriverCancelled, weekEarnings,
+    acceptedDispatches, declinedDispatches, onlineSessions, goalTrips,
   ] = await Promise.all([
-    prisma.trip.count({ where: { driverId } }),
     prisma.trip.count({ where: { driverId, status: 'COMPLETED' } }),
-    prisma.trip.count({ where: { driverId, status: 'CANCELLED' } }),
-    prisma.trip.count({ where: { driverId, createdAt: { gte: weekAgo } } }),
+    prisma.trip.count({ where: { driverId, status: 'COMPLETED', completedAt: { gte: weekAgo } } }),
+    prisma.trip.count({ where: { driverId, status: 'CANCELLED', cancelledBy: 'DRIVER', cancelledAt: { gte: weekAgo } } }),
     prisma.walletTransaction.aggregate({
       // Cash fares included — see EARNING_TYPES.
       where: { driverId, type: { in: EARNING_TYPES }, createdAt: { gte: weekAgo } },
@@ -2842,6 +2869,7 @@ async function getPerformance(driverId) {
       where: { driverId, startTime: { gte: weekAgo } },
       select: { startTime: true, endTime: true },
     }),
+    prisma.trip.count({ where: { driverId, status: 'COMPLETED', completedAt: { gte: weekStart } } }),
   ]);
 
   // Calculate real acceptance rate
@@ -2857,16 +2885,41 @@ async function getPerformance(driverId) {
     return total + hours;
   }, 0);
 
+  const weekFinished = weekTrips + weekDriverCancelled;
   return {
     acceptanceRate,
-    completionRate: totalTrips > 0 ? Math.round((completedTrips / totalTrips) * 100) : 100,
-    cancellationRate: totalTrips > 0 ? Math.round((cancelledTrips / totalTrips) * 100) : 0,
+    // null = nothing finished this week; the app shows "—", not a fake 100%.
+    completionRate: weekFinished > 0 ? Math.round((weekTrips / weekFinished) * 100) : null,
+    cancellationRate: weekFinished > 0 ? Math.round((weekDriverCancelled / weekFinished) * 100) : null,
     onlineHoursThisWeek: Math.round(onlineHoursThisWeek * 10) / 10,
     tripsThisWeek: weekTrips,
     earningsThisWeek: weekEarnings._sum.amountPesewas ?? 0,
-    level: completedTrips >= 100 ? 'PLATINUM' : completedTrips >= 50 ? 'GOLD' : completedTrips >= 20 ? 'SILVER' : 'BRONZE',
+    ...levelFor(completedTrips),
+    // A TRIP count, not money — the app once rendered it as "GH₵0.20".
     weeklyGoal: 20,
-    weeklyGoalProgress: weekTrips,
+    weeklyGoalProgress: goalTrips,
+  };
+}
+
+/**
+ * Tier by completed trips — the ONE table. The app used to keep its own copy
+ * (50/200/500) against this one (20/50/100), so "150 trips to Gold" was shown
+ * to drivers who were already Gold. It now reads `nextLevel`/`tripsToNextLevel`.
+ */
+const DRIVER_LEVELS = [
+  { level: 'BRONZE', minTrips: 0 },
+  { level: 'SILVER', minTrips: 20 },
+  { level: 'GOLD', minTrips: 50 },
+  { level: 'PLATINUM', minTrips: 100 },
+];
+function levelFor(completedTrips) {
+  const idx = DRIVER_LEVELS.reduce((at, l, i) => (completedTrips >= l.minTrips ? i : at), 0);
+  const next = DRIVER_LEVELS[idx + 1] ?? null;
+  return {
+    level: DRIVER_LEVELS[idx].level,
+    completedTrips,
+    nextLevel: next?.level ?? null,
+    tripsToNextLevel: next ? next.minTrips - completedTrips : 0,
   };
 }
 
@@ -2997,18 +3050,28 @@ async function getDocuments(driverId) {
   let review = {};
   try { review = driver.documentReview ? JSON.parse(driver.documentReview) : {}; } catch { /* ignore malformed data */ }
 
+  // Dates live in DriverDocument (written when a reviewer approves).
+  const dated = await prisma.driverDocument.findMany({
+    where: { driverId, type: { in: ['DRIVERS_LICENSE', 'GHANA_CARD'] } },
+    select: { type: true, expiresAt: true },
+  });
+  const expiresAtFor = (type) => dated.find((d) => d.type === type)?.expiresAt ?? undefined;
+
   const statusFor = (type, hasPhoto) => {
     if (!hasPhoto) return 'MISSING';
     // Grandfather photos uploaded before this review system existed — otherwise every
     // already-active driver would be retroactively gated offline pending re-review.
     // Only uploads made through the (now PENDING-by-default) upload flow have a
     // review entry at all, so its absence here specifically means "predates review."
-    return review[type]?.status ?? 'VERIFIED';
+    const status = review[type]?.status ?? 'VERIFIED';
+    // Same rule the go-online gate applies (driver-documents.service isExpired).
+    const exp = expiresAtFor(type);
+    return status === 'VERIFIED' && exp && exp.getTime() < Date.now() ? 'EXPIRED' : status;
   };
 
   const docs = [
-    { id: 'license', type: 'DRIVERS_LICENSE', status: statusFor('DRIVERS_LICENSE', !!driver.licensePhoto), url: driver.licensePhoto ?? undefined, rejectionReason: review.DRIVERS_LICENSE?.rejectionReason ?? undefined },
-    { id: 'ghana_card', type: 'GHANA_CARD', status: statusFor('GHANA_CARD', !!driver.ghanaCardPhoto), url: driver.ghanaCardPhoto ?? undefined, rejectionReason: review.GHANA_CARD?.rejectionReason ?? undefined },
+    { id: 'license', type: 'DRIVERS_LICENSE', status: statusFor('DRIVERS_LICENSE', !!driver.licensePhoto), url: driver.licensePhoto ?? undefined, rejectionReason: review.DRIVERS_LICENSE?.rejectionReason ?? undefined, expiresAt: expiresAtFor('DRIVERS_LICENSE') },
+    { id: 'ghana_card', type: 'GHANA_CARD', status: statusFor('GHANA_CARD', !!driver.ghanaCardPhoto), url: driver.ghanaCardPhoto ?? undefined, rejectionReason: review.GHANA_CARD?.rejectionReason ?? undefined, expiresAt: expiresAtFor('GHANA_CARD') },
     /**
      * A PROFILE PHOTO IS NOT REVIEWED — see `uploadDocument`. It is either
      * there or it is not, and `requiresReview: false` is what lets the app stop
@@ -3026,7 +3089,7 @@ async function getDocuments(driverId) {
 /** The only documents that exist. getDocuments() reads exactly these keys. */
 const REVIEWABLE_DOCUMENT_TYPES = ['DRIVERS_LICENSE', 'GHANA_CARD', 'PROFILE_PHOTO'];
 
-async function reviewDocument(driverId, type, { approve, rejectionReason } = {}) {
+async function reviewDocument(driverId, type, { approve, rejectionReason, expiresOn, reviewedById } = {}) {
   /**
    * `type` comes straight off the URL and was written into the JSON blob
    * unchecked, so POST /drivers/:id/documents/banana/review answered 200
@@ -3043,20 +3106,59 @@ async function reviewDocument(driverId, type, { approve, rejectionReason } = {})
     );
   }
 
-  const driver = await prisma.driver.findUnique({ where: { id: driverId }, select: { documentReview: true } });
+  /**
+   * THE EXPIRY DATE IS WRITTEN HERE OR NOWHERE.
+   *
+   * `DriverDocument.expiresAt` feeds the go-online expiry gate and the nightly
+   * 30/7-day warnings — and nothing ever wrote it, so both were dead code and a
+   * licence verified once stayed "fine" for ever. The reviewer reads the date
+   * off the photo they are approving; that is the one moment it is known.
+   */
+  let expiresAt = null;
+  if (approve && expiresOn) {
+    expiresAt = new Date(`${String(expiresOn).slice(0, 10)}T23:59:59.000Z`);
+    if (Number.isNaN(expiresAt.getTime())) throw new AppError('expiresOn must be a date (YYYY-MM-DD)', 400, 'VALIDATION_ERROR');
+    if (expiresAt.getTime() < Date.now()) throw new AppError('That document has already expired', 400, 'DOCUMENT_EXPIRED');
+  }
+
+  const driver = await prisma.driver.findUnique({
+    where: { id: driverId },
+    select: { documentReview: true, licensePhoto: true, ghanaCardPhoto: true },
+  });
   if (!driver) throw new NotFoundError('Driver');
 
   let review = {};
   try { review = driver.documentReview ? JSON.parse(driver.documentReview) : {}; } catch { /* reset on malformed data */ }
 
+  const reviewedAt = new Date();
   review[type] = {
     status: approve ? 'VERIFIED' : 'REJECTED',
-    reviewedAt: new Date().toISOString(),
+    reviewedAt: reviewedAt.toISOString(),
     rejectionReason: approve ? null : (rejectionReason || 'Document rejected by review team'),
   };
 
-  await prisma.driver.update({ where: { id: driverId }, data: { documentReview: JSON.stringify(review) } });
-  return review[type];
+  const url = type === 'DRIVERS_LICENSE' ? driver.licensePhoto : type === 'GHANA_CARD' ? driver.ghanaCardPhoto : null;
+  await prisma.$transaction([
+    prisma.driver.update({ where: { id: driverId }, data: { documentReview: JSON.stringify(review) } }),
+    ...(type === 'PROFILE_PHOTO'
+      ? []
+      : [
+          prisma.driverDocument.upsert({
+            where: { driverId_type: { driverId, type } },
+            create: { driverId, type, url, expiresAt, status: review[type].status, rejectionReason: review[type].rejectionReason, reviewedAt, reviewedById: reviewedById ?? null },
+            // A rejection keeps the last good date; an approval replaces it.
+            update: {
+              url,
+              status: review[type].status,
+              rejectionReason: review[type].rejectionReason,
+              reviewedAt,
+              reviewedById: reviewedById ?? null,
+              ...(approve ? { expiresAt } : {}),
+            },
+          }),
+        ]),
+  ]);
+  return { ...review[type], expiresAt };
 }
 
 // ── Emergency contact ───────────────────────────────────────────────
@@ -3226,18 +3328,25 @@ async function getEarningsBreakdown(driverId, period = 'week') {
   const now = new Date();
   let startDate;
 
+  /**
+   * Calendar periods, matching the Earnings chart (Sun–Sat week, 1st of the
+   * month). They were rolling windows, so the statement under the chart summed
+   * different days than the bars above it — and the app sends 'today', which
+   * fell through to the 7-day default: "Today" showed a week's money.
+   */
   switch (period) {
     case 'day':
+    case 'today':
       startDate = new Date(now);
       startDate.setHours(0, 0, 0, 0);
       break;
     case 'week':
       startDate = new Date(now);
-      startDate.setDate(startDate.getDate() - 7);
+      startDate.setDate(startDate.getDate() - startDate.getDay());
+      startDate.setHours(0, 0, 0, 0);
       break;
     case 'month':
-      startDate = new Date(now);
-      startDate.setMonth(startDate.getMonth() - 1);
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
       break;
     case 'year':
       startDate = new Date(now);
@@ -3248,7 +3357,7 @@ async function getEarningsBreakdown(driverId, period = 'week') {
       startDate.setDate(startDate.getDate() - 7);
   }
 
-  const [earningsAgg, tipsAgg, deductionsAgg, tripsData, dailyRows] = await Promise.all([
+  const [earningsAgg, tipsAgg, deductionsAgg, bonusAgg, tripsData, dailyRows] = await Promise.all([
     // EARNINGS_CREDIT (online-paid, wallet-credited) + CASH_EARNING (collected in
     // person, ledger-only). Counting only the former reported zero earnings and
     // zero trips for any driver working cash fares — see the CASH_EARNING note in
@@ -3262,14 +3371,20 @@ async function getEarningsBreakdown(driverId, period = 'week') {
       where: { driverId, type: 'TIP', createdAt: { gte: startDate } },
       _sum: { amountPesewas: true },
     }),
+    // Commission only. Withdrawals used to be in here too, so "Net" fell every
+    // time a driver cashed out — moving your own money is not a deduction.
     prisma.walletTransaction.aggregate({
-      where: { driverId, type: { in: ['COMMISSION_DEDUCTION', 'WITHDRAWAL'] }, createdAt: { gte: startDate } },
+      where: { driverId, type: 'COMMISSION_DEDUCTION', createdAt: { gte: startDate } },
+      _sum: { amountPesewas: true },
+    }),
+    prisma.walletTransaction.aggregate({
+      where: { driverId, type: 'QUEST_BONUS', createdAt: { gte: startDate } },
       _sum: { amountPesewas: true },
     }),
     prisma.trip.findMany({
-      where: { driverId, status: 'COMPLETED', createdAt: { gte: startDate } },
-      select: { id: true, shortId: true, createdAt: true, baseFarePesewas: true },
-      orderBy: { createdAt: 'desc' },
+      where: { driverId, status: 'COMPLETED', completedAt: { gte: startDate } },
+      select: { id: true, shortId: true, createdAt: true, completedAt: true, baseFarePesewas: true },
+      orderBy: { completedAt: 'desc' },
     }),
     /**
      * Daily breakdown.
@@ -3285,9 +3400,11 @@ async function getEarningsBreakdown(driverId, period = 'week') {
      * earning rows over at most a year, and hand-written identifiers are exactly
      * what drifted from the schema in the first place. Prisma's own query cannot.
      */
+    // Gross per day: fares, tips and bonuses — the same set the app's hourly
+    // "Today" bars use, so switching period never changes what a bar means.
     prisma.walletTransaction.findMany({
-      where: { driverId, type: { in: EARNING_TYPES }, createdAt: { gte: startDate } },
-      select: { amountPesewas: true, createdAt: true },
+      where: { driverId, type: { in: [...EARNING_TYPES, 'TIP', 'QUEST_BONUS'] }, createdAt: { gte: startDate } },
+      select: { amountPesewas: true, createdAt: true, type: true },
       orderBy: { createdAt: 'desc' },
     }),
   ]);
@@ -3297,6 +3414,11 @@ async function getEarningsBreakdown(driverId, period = 'week') {
     const date = row.createdAt.toISOString().slice(0, 10);
     const acc = byDay.get(date) ?? { date, earnings: 0, trips: 0 };
     acc.earnings += row.amountPesewas ?? 0;
+    byDay.set(date, acc);
+  }
+  for (const t of tripsData) {
+    const date = t.completedAt.toISOString().slice(0, 10);
+    const acc = byDay.get(date) ?? { date, earnings: 0, trips: 0 };
     acc.trips += 1;
     byDay.set(date, acc);
   }
@@ -3304,17 +3426,40 @@ async function getEarningsBreakdown(driverId, period = 'week') {
 
   return {
     totalEarningsPesewas: earningsAgg._sum.amountPesewas ?? 0,
-    totalTrips: earningsAgg._count ?? 0,
+    // Trips, not ledger rows — one trip writes up to three earning rows
+    // (fare, cash, promo subsidy), so the row count over-counted.
+    totalTrips: tripsData.length,
     totalTips: tipsAgg._sum.amountPesewas ?? 0,
-    totalDeductions: deductionsAgg._sum.amountPesewas ?? 0,
-    netEarnings: (earningsAgg._sum.amountPesewas ?? 0) - (deductionsAgg._sum.amountPesewas ?? 0),
-    averagePerTripPesewas: earningsAgg._count > 0
-      ? wholePesewas((earningsAgg._sum.amountPesewas ?? 0) / earningsAgg._count)
+    totalBonuses: bonusAgg._sum.amountPesewas ?? 0,
+    // Commission rows store a positive amount — see signedLedgerAmount.
+    totalDeductions: Math.abs(deductionsAgg._sum.amountPesewas ?? 0),
+    netEarnings:
+      (earningsAgg._sum.amountPesewas ?? 0) +
+      (tipsAgg._sum.amountPesewas ?? 0) +
+      (bonusAgg._sum.amountPesewas ?? 0) -
+      Math.abs(deductionsAgg._sum.amountPesewas ?? 0),
+    averagePerTripPesewas: tripsData.length > 0
+      ? wholePesewas((earningsAgg._sum.amountPesewas ?? 0) / tripsData.length)
       : 0,
     dailyBreakdown: Array.isArray(dailyBreakdown) ? dailyBreakdown : [],
     recentTrips: tripsData.slice(0, 10),
     period,
   };
+}
+
+/**
+ * The ledger's sign convention is mixed: COMMISSION_DEDUCTION and WITHDRAWAL
+ * store a POSITIVE amount and move the balance down; ADMIN_DEBIT stores a
+ * negative one. The app trusted the sign, so every commission and withdrawal
+ * rendered as a green "+" credit. The balance movement is the truth; a
+ * ledger-only row (CASH_EARNING: before === after) is income.
+ */
+const DEBIT_TYPES = new Set(['WITHDRAWAL', 'COMMISSION_DEDUCTION', 'ADMIN_DEBIT']);
+function signedLedgerAmount(tx) {
+  const abs = Math.abs(tx.amountPesewas ?? 0);
+  const delta = (tx.balanceAfterPesewas ?? 0) - (tx.balanceBeforePesewas ?? 0);
+  if (tx.balanceAfterPesewas != null && tx.balanceBeforePesewas != null && delta !== 0) return delta < 0 ? -abs : abs;
+  return DEBIT_TYPES.has(tx.type) ? -abs : abs;
 }
 
 async function getWalletTransactions(driverId, page = 1, limit = 20) {
@@ -3341,7 +3486,7 @@ async function getWalletTransactions(driverId, page = 1, limit = 20) {
     transactions: transactions.map((tx) => ({
       id: tx.id,
       type: tx.type,
-      amountPesewas: tx.amountPesewas,
+      amountPesewas: signedLedgerAmount(tx),
       description: tx.description,
       balanceBeforePesewas: tx.balanceBeforePesewas,
       balanceAfterPesewas: tx.balanceAfterPesewas,
@@ -3358,10 +3503,14 @@ async function getWalletTransactions(driverId, page = 1, limit = 20) {
 // SUPPORT TICKETS (Driver-side)
 // ═══════════════════════════════════════════════════════════════════
 
+const DRIVER_TICKET_CATEGORIES = ['GENERAL', 'PAYMENT', 'TRIP', 'ACCOUNT', 'TECHNICAL', 'LOST_ITEM'];
+
 async function createSupportTicket(driverId, { subject, category, description }) {
-  if (!subject || !description) {
+  if (!String(subject ?? '').trim() || !String(description ?? '').trim()) {
     throw new AppError('Subject and description are required', 400);
   }
+  // Free text went straight into the column; the admin queue filters on it.
+  category = DRIVER_TICKET_CATEGORIES.includes(category) ? category : 'GENERAL';
 
   // Create a user entry for the driver if one doesn't exist
   const driver = await prisma.driver.findUnique({ where: { id: driverId } });
@@ -3426,13 +3575,26 @@ async function getSupportTickets(driverId) {
     include: {
       messages: {
         orderBy: { createdAt: 'asc' },
-        select: { id: true, text: true, senderRole: true, createdAt: true },
+        select: { id: true, text: true, senderRole: true, senderId: true, createdAt: true },
       },
     },
     orderBy: { updatedAt: 'desc' },
   });
 
-  return { tickets };
+  /**
+   * Who wrote each message, from the driver's side. A driver's own ticket is
+   * filed through the rider account sharing their phone, so their messages are
+   * senderRole USER — and the app labelled the driver's own words "Rider".
+   * `fromMe` is the answer; `filedByMe` tells a dispute from a request.
+   */
+  const mine = new Set([driverId, ...(user ? [user.id] : [])]);
+  return {
+    tickets: tickets.map((t) => ({
+      ...t,
+      filedByMe: !!user && t.userId === user.id,
+      messages: t.messages.map(({ senderId, ...m }) => ({ ...m, fromMe: mine.has(senderId) })),
+    })),
+  };
 }
 
 async function replyToTicket(driverId, ticketId, { message }) {

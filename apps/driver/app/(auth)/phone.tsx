@@ -1,18 +1,11 @@
 import React, { useState, useRef, useMemo } from 'react';
-import {
-  View,
-  TextInput,
-  StyleSheet,
-  ScrollView,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  } from 'react-native';
+import { View, TextInput, StyleSheet, ScrollView, Pressable } from 'react-native';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
 import { MotiView, goDeeper, notify } from '@eyego/ui';
 import { useMutation } from '@tanstack/react-query';
 import { driverAuthApi } from '@eyego/api';
+import { ghanaLocalDigits, describeError } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
 import { Text, Button } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../utils/useColors';
@@ -22,8 +15,7 @@ export default function DriverPhoneScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [phone, setPhone] = useState('');
   const inputRef = useRef<TextInput>(null);
-  const router = useRouter();
-  const isValid = phone.replace(/\s/g, '').length === 9;
+  const isValid = phone.length === 9;
 
   const sendOtp = useMutation({
     mutationFn: () =>
@@ -38,34 +30,25 @@ export default function DriverPhoneScreen() {
     },
     // Without this a failed request left the driver stuck on the phone screen
     // with zero feedback — the tap just did nothing.
-    onError: (err: any) => {
-      notify(
-        'Could not send code',
-        err?.response?.data?.message ?? err?.message ?? 'Please check your connection and try again.'
-      );
+    onError: (err) => {
+      const { message } = describeError(err, 'Please check your connection and try again.');
+      notify('Could not send code', message);
     },
   });
 
   return (
     <SafeAreaView style={styles.safe}>
-      {/* Blue background orbs */}
+      {/* The screen's one glow */}
       <MotiView
         style={styles.orb1}
         from={{ opacity: 0, scale: 0.5 }}
-        animate={{ opacity: 0.18, scale: 1 }}
+        animate={{ opacity: 0.16, scale: 1 }}
         transition={{ type: 'timing', duration: 800 }}
       />
-      <MotiView
-        style={styles.orb2}
-        from={{ opacity: 0, scale: 0.5 }}
-        animate={{ opacity: 0.1, scale: 1 }}
-        transition={{ type: 'timing', duration: 900, delay: 80 }}
-      />
 
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+      {/* keyboard-controller's avoider: the same on iOS and Android, where RN's
+          'height' mode double-shifted under edge-to-edge. */}
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
         <ScrollView
           contentContainerStyle={styles.scroll}
           keyboardShouldPersistTaps="handled"
@@ -119,25 +102,20 @@ export default function DriverPhoneScreen() {
                 ref={inputRef}
                 style={styles.phoneInput}
                 value={phone}
-                onChangeText={(t) => setPhone(t.replace(/\D/g, '').slice(0, 9))}
+                onChangeText={(t) => setPhone(ghanaLocalDigits(t))}
                 keyboardType="number-pad"
+                textContentType="telephoneNumber"
+                autoComplete="tel"
                 placeholder="24X XXX XXXX"
                 placeholderTextColor={colors.onSurfaceVariant}
                 returnKeyType="done"
+                onSubmitEditing={() => isValid && !sendOtp.isPending && sendOtp.mutate()}
                 autoFocus
                 selectionColor={colors.primary}
-                maxLength={9}
+                accessibilityLabel="Phone number"
               />
             </Pressable>
           </MotiView>
-
-          {sendOtp.isError && (
-            <MotiView from={{ opacity: 0, translateY: -8 }} animate={{ opacity: 1, translateY: 0 }}>
-              <Text variant="caption" color={colors.error} style={styles.errorText}>
-                {(sendOtp.error as Error)?.message ?? 'Failed to send code. Try again.'}
-              </Text>
-            </MotiView>
-          )}
 
           {/* CTA */}
           <MotiView

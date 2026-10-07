@@ -113,5 +113,7 @@ export function QueryBoundary({
 }
 
 const styles = StyleSheet.create({
-  fill: { flex: 1, justifyContent: 'center' },
+  // flexGrow, not flex: `flex: 1` is flexBasis 0, which collapses to nothing
+  // inside a ScrollView (every kit Screen) and clips the retry button on Android.
+  fill: { flexGrow: 1, justifyContent: 'center', paddingVertical: 48 },
 });

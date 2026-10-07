@@ -27,6 +27,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { BlurView } from 'expo-blur';
 import * as SecureStore from 'expo-secure-store';
+import { useAuthStore } from '../../stores/auth.store';
 import Svg, { Circle, Path, Rect, Line, G } from 'react-native-svg';
 import { fonts, fontSizes, spacing, withOpacity, springs } from '@eyego/config';
 import {
@@ -186,10 +187,13 @@ export default function OnboardingScreen() {
     <SlideItem slide={item} index={index} scrollX={scrollX} colors={colors} styles={styles} />
   ), [scrollX, colors, styles]);
 
+  const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const handleDone = useCallback(async () => {
-    await SecureStore.setItemAsync('eyego_onboarded', 'true');
-    router.replace('/(tabs)/home');
-  }, [router]);
+    await SecureStore.setItemAsync('eyego_onboarded', 'true').catch(() => {});
+    // Straight to sign-in when signed out — it used to bounce off the tabs
+    // guard to get there.
+    router.replace(isLoggedIn ? '/(tabs)/home' : '/(auth)/phone');
+  }, [router, isLoggedIn]);
 
   const handleNext = useCallback(() => {
     if (currentIndex < SLIDES.length - 1) {

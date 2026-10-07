@@ -61,15 +61,20 @@ export async function reviewDriverDocument(
   driverId: string,
   type: string,
   approve: boolean,
-  rejectionReason?: string
+  rejectionReason?: string,
+  expiresOn?: string
 ): Promise<ActionResult> {
   if (!approve && (!rejectionReason || rejectionReason.trim().length < 3)) {
     return fail('Say why the document was rejected — the driver has to know what to re-upload.');
+  }
+  if (approve && expiresOn && new Date(`${expiresOn}T23:59:59`).getTime() < Date.now()) {
+    return fail('That date has already passed — an expired licence cannot be approved.');
   }
   const result = await run(approve ? 'Document approved' : 'Document rejected', () =>
     apiPost(`/drivers/${driverId}/documents/${type}/review`, {
       approve,
       rejectionReason: rejectionReason?.trim(),
+      expiresOn,
     })
   );
   revalidatePath(`/drivers/${driverId}`);

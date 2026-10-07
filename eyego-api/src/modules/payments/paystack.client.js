@@ -186,11 +186,39 @@ async function getGhanaBankList() {
  * a real payout is worse than failing the withdrawal and asking the driver to
  * re-check their payout settings.
  */
+/**
+ * The app has saved the network as a label ("MTN MoMo"), the top-up enum
+ * ("MOMO_MTN") and the key this file wanted ("MTN") at different times. Only
+ * the last matched, so every MoMo payout account threw and every cash out
+ * failed with "balance restored". Any spelling of the network now resolves.
+ */
+function momoNetworkKey(network) {
+  const s = String(network ?? '');
+  if (/mtn/i.test(s)) return 'MTN';
+  if (/voda|telecel/i.test(s)) return 'TELECEL';
+  if (/airtel|tigo/i.test(s)) return 'AIRTELTIGO';
+  return null;
+}
+
+/**
+ * "Ghana Commercial Bank" is "GCB Bank Limited" on Paystack, and "Ecobank" is
+ * "Ecobank Ghana Limited": compare on the distinctive words only.
+ */
+const BANK_ALIASES = { ghanacommercial: 'gcb', uba: 'unitedforafrica', gtbank: 'guarantytrust', adb: 'agriculturaldevelopment' };
+function bankKey(name) {
+  const k = String(name ?? '')
+    .toLowerCase()
+    .replace(/\(.*?\)/g, ' ')
+    .replace(/\b(bank|limited|ltd|plc|ghana|of|the|company)\b/g, ' ')
+    .replace(/[^a-z0-9]/g, '');
+  return BANK_ALIASES[k] ?? k;
+}
+
 async function resolvePayoutBankCode(payoutData) {
   const banks = await getGhanaBankList();
 
   if (payoutData?.type === 'momo') {
-    const matcher = MOMO_NAME_MATCH[payoutData.network];
+    const matcher = MOMO_NAME_MATCH[momoNetworkKey(payoutData.network)];
     const match = matcher && banks.find((b) => b.type === 'mobile_money' && matcher.test(b.name));
     if (!match) {
       throw new Error(`Could not resolve a MoMo routing code for network "${payoutData.network}"`);
@@ -199,9 +227,10 @@ async function resolvePayoutBankCode(payoutData) {
   }
 
   if (payoutData?.type === 'bank') {
-    const nameLower = (payoutData.bankName || '').toLowerCase().trim();
-    const match = banks.find((b) => b.type !== 'mobile_money' && b.name.toLowerCase().trim() === nameLower)
-      || banks.find((b) => b.type !== 'mobile_money' && b.name.toLowerCase().includes(nameLower));
+    const want = bankKey(payoutData.bankName);
+    const nonMomo = banks.filter((b) => b.type !== 'mobile_money');
+    const match = (want && nonMomo.find((b) => bankKey(b.name) === want))
+      || (want.length >= 3 && nonMomo.find((b) => bankKey(b.name).startsWith(want) || want.startsWith(bankKey(b.name))));
     if (!match) {
       throw new Error(`Could not resolve a bank routing code for "${payoutData.bankName}"`);
     }
@@ -221,4 +250,6 @@ module.exports = {
   verifyTransfer,
   createTransferRecipient,
   resolvePayoutBankCode,
+  momoNetworkKey,
+  bankKey,
 };

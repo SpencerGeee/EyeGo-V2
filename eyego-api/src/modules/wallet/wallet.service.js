@@ -374,18 +374,27 @@ async function updatePayoutAccount(driverId, data) {
   const driver = await prisma.driver.findUnique({ where: { id: driverId } });
   if (!driver) throw new NotFoundError('Driver');
 
-  const payout = {
-    type: data.type,
-    ...(data.type === 'bank' && {
-      bankName: data.bankName,
-      accountNumber: data.accountNumber,
-      accountName: data.accountName,
-    }),
-    ...(data.type === 'momo' && {
-      network: data.network,
-      phone: data.phone,
-    }),
-  };
+  /**
+   * Validated here because nothing else checks it before money moves: an empty
+   * account number or an unknown network saved "successfully" and the driver
+   * found out at cash-out time, as "Withdrawal failed".
+   */
+  const clean = (v) => String(v ?? '').trim();
+  let payout;
+  if (data.type === 'momo') {
+    const phone = clean(data.phone).replace(/\D/g, '').replace(/^233/, '0');
+    const n = clean(data.network);
+    const network = /mtn/i.test(n) ? 'MOMO_MTN' : /voda|telecel/i.test(n) ? 'MOMO_TELECEL' : /airtel|tigo/i.test(n) ? 'MOMO_AIRTELTIGO' : null;
+    if (!network) throw new AppError('Choose your mobile money network', 400, 'VALIDATION_ERROR');
+    if (!/^0[235]\d{8}$/.test(phone)) throw new AppError('Enter the 10-digit mobile money number, e.g. 024 123 4567', 400, 'VALIDATION_ERROR');
+    payout = { type: 'momo', network, phone, ...(clean(data.accountName) ? { accountName: clean(data.accountName) } : {}) };
+  } else {
+    const accountNumber = clean(data.accountNumber).replace(/\s/g, '');
+    if (!clean(data.bankName)) throw new AppError('Choose your bank', 400, 'VALIDATION_ERROR');
+    if (!/^\d{6,20}$/.test(accountNumber)) throw new AppError('Enter a valid account number (digits only)', 400, 'VALIDATION_ERROR');
+    if (clean(data.accountName).length < 3) throw new AppError('Enter the name on the account', 400, 'VALIDATION_ERROR');
+    payout = { type: 'bank', bankName: clean(data.bankName), accountNumber, accountName: clean(data.accountName) };
+  }
 
   await prisma.driver.update({
     where: { id: driverId },

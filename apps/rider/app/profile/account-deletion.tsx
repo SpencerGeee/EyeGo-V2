@@ -1,5 +1,5 @@
 ﻿import React, { useState, useMemo } from 'react';
-import { View, StyleSheet, Pressable, TextInput } from 'react-native';
+import { View, StyleSheet, Pressable, TextInput, Alert } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';import { Ionicons } from '@expo/vector-icons';
@@ -7,12 +7,13 @@ import { fonts, spacing, radii } from '@eyego/config';
 import { Text, Button, Loader, goBack, notify } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
 import { useAuthStore } from '../../stores/auth.store';
-import { apiClient } from '@eyego/api';
+import { userApi } from '@eyego/api';
 
+// Each line is what the server actually does (users.service.deactivateAccount).
 const CONSEQUENCES = [
-  'All active and upcoming bookings will be immediately cancelled.',
-  'Wallet balance under GHS 5 will be forfeited and cannot be recovered.',
-  'Your account data will be permanently deleted after 30 days.',
+  'Finish or cancel any ride you have booked or in progress first.',
+  'Any wallet balance can’t be used once your account is deleted — spend it or send it first.',
+  'Your name, phone, email and photo are removed and you’re signed out everywhere.',
   'This action cannot be undone — you will lose access immediately.',
   'You will need to create a new account to use EyeGo again.',
 ];
@@ -29,17 +30,26 @@ export default function AccountDeletionScreen() {
 
   const canConfirm = confirmText === 'DELETE';
 
-  const handleDelete = async () => {
+  const handleDelete = async (acknowledgeBalance = false) => {
     if (!canConfirm) return;
     setIsDeleting(true);
     try {
-      await apiClient.delete('/user/me');
+      await userApi.deleteAccount({ acknowledgeBalance });
       logout();
       router.replace('/(auth)/phone');
     } catch (err: any) {
+      // A wallet balance is a question, not a wall: the server says how much,
+      // the rider decides.
+      if (err?.response?.data?.code === 'WALLET_NOT_EMPTY') {
+        Alert.alert('Money left in your wallet', err.response.data.message, [
+          { text: 'Keep my account', style: 'cancel' },
+          { text: 'Delete anyway', style: 'destructive', onPress: () => handleDelete(true) },
+        ]);
+        return;
+      }
       notify(
         'Deletion Failed',
-        err?.message || 'Something went wrong. Please try again later.',
+        err?.response?.data?.message || err?.message || 'Something went wrong. Please try again later.',
       );
     } finally {
       setIsDeleting(false);
@@ -137,7 +147,7 @@ export default function AccountDeletionScreen() {
                 </View>
               ) : (
                 <View style={{ marginTop: spacing['2xl'], gap: spacing.base }}>
-                  <Button label="Delete My Account" onPress={handleDelete} variant="destructive" disabled={!canConfirm} />
+                  <Button label="Delete My Account" onPress={() => handleDelete(false)} variant="destructive" disabled={!canConfirm} />
                   <Button label="Go Back" onPress={() => setStep(1)} variant="secondary" />
                 </View>
               )}

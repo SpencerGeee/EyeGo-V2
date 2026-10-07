@@ -1,225 +1,178 @@
 import React, { useMemo } from 'react';
-import { formatGhs } from '@eyego/utils';
-import { View, StyleSheet, ScrollView, Pressable } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { MotiView, goBack } from '@eyego/ui';
+import { View, StyleSheet, RefreshControl } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
-import { driverApi } from '@eyego/api';
-import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
-import { Text, AppBackground } from '@eyego/ui';
+import { driverApi, type DriverLevel } from '@eyego/api';
+import { fonts } from '@eyego/config';
+import { Text, Screen, ListSection, ListRow, Skeleton } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
-import { useDriverStore } from '../../stores/driver.store';
 
-const LEVEL_CONFIG = {
-  BRONZE:   { color: '#CD7F32', label: 'Bronze',   icon: 'medal-outline',  minTrips: 0,   description: 'Getting started' },
-  SILVER:   { color: '#94A3B8', label: 'Silver',   icon: 'medal-outline',  minTrips: 50,  description: 'Building experience' },
-  GOLD:     { color: '#F59E0B', label: 'Gold',     icon: 'ribbon-outline', minTrips: 200, description: 'Trusted driver' },
-  PLATINUM: { color: '#3B82F6', label: 'Platinum', icon: 'star-outline',   minTrips: 500, description: 'Elite driver' },
-} as const;
+const LEVEL_LABEL: Record<DriverLevel, string> = {
+  BRONZE: 'Bronze', SILVER: 'Silver', GOLD: 'Gold', PLATINUM: 'Platinum',
+};
 
-function StatCircle({ value, label, color, colors }: { value: number; label: string; color: string; colors: DriverColors }) {
-  return (
-    <View style={{ alignItems: 'center', gap: spacing.xs }}>
-      <View style={{ width: 80, height: 80, borderRadius: 40, borderWidth: 4, borderColor: `${color}44`, backgroundColor: `${color}14`, alignItems: 'center', justifyContent: 'center' }}>
-        <Text style={{ fontFamily: fonts.displayBold, fontSize: 22, color, letterSpacing: -1 }}>{value}%</Text>
-      </View>
-      <Text variant="caption" color={colors.onSurfaceVariant} style={{ textAlign: 'center' }}>{label}</Text>
-    </View>
-  );
-}
+const COMPLIMENT_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
+  Punctual: 'time-outline',
+  'On Time': 'time-outline',
+  'Safe Driver': 'shield-checkmark-outline',
+  Professional: 'briefcase-outline',
+  Friendly: 'happy-outline',
+  'Clean Vehicle': 'car-outline',
+  'Great Navigation': 'navigate-outline',
+  Helpful: 'hand-left-outline',
+  'Smooth Ride': 'speedometer-outline',
+};
 
-function ProgressBar({ value, max, color, colors }: { value: number; max: number; color: string; colors: DriverColors }) {
-  const pct = Math.min(100, Math.round((value / Math.max(max, 1)) * 100));
-  return (
-    <View style={{ height: 10, backgroundColor: colors.surfaceContainerHighest, borderRadius: 5, overflow: 'hidden' }}>
-      <MotiView
-        from={{ width: '0%' }}
-        animate={{ width: `${pct}%` }}
-        transition={{ type: 'timing', duration: 900, delay: 200 }}
-        style={{ height: '100%', backgroundColor: color, borderRadius: 5 }}
-      />
-    </View>
-  );
-}
+const pct = (n: number | null | undefined) => (n == null ? '—' : `${n}%`);
 
+/**
+ * RATINGS & PERFORMANCE — one page, the way Uber Pro shows it (rival spec §17).
+ *
+ * Was two screens with two bugs between them:
+ *  - Ratings read the rating from the local store with a 0 default, so a new
+ *    driver saw "0.0" and five empty stars instead of "New".
+ *  - Performance kept its own tier table (50/200/500 trips) against the
+ *    server's (20/50/100), showed an inverted "No Cancel %", read a null
+ *    acceptance rate as 0%, and rendered the 20-TRIP weekly goal as GH₵0.20.
+ *    The weekly goal now lives on Earnings; tier thresholds come from the server.
+ *
+ * Ratings stay aggregate-only: no list of individual scores (they're anonymous).
+ */
 export default function PerformanceScreen() {
   const colors = useColors();
-  const theme = useDriverStore(s => s.theme);
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const router = useRouter();
-  const driver = useDriverStore((s) => s.driver);
 
-  const { data: perf, isLoading } = useQuery({
+  const perfQ = useQuery({
     queryKey: ['driver', 'performance'],
     queryFn: () => driverApi.getPerformance(),
     select: (r) => r.data.data,
   });
+  const ratingsQ = useQuery({
+    queryKey: ['driver', 'ratings'],
+    queryFn: () => driverApi.getRatings(),
+    select: (r) => r.data.data,
+  });
+  const perf = perfQ.data;
+  const ratings = ratingsQ.data;
 
-  const level = perf?.level ?? 'BRONZE';
-  const lvl = LEVEL_CONFIG[level];
+  const rated = (ratings?.total ?? 0) > 0;
+  const rating = rated ? ratings!.average : null;
+  const recent = ratings?.last30Days?.average ?? null;
+  const delta = recent != null && rating != null ? recent - rating : 0;
+  const trend =
+    recent == null
+      ? null
+      : Math.abs(delta) < 0.05
+        ? { text: `Last 30 days ${recent.toFixed(2)} · in line with your average`, color: colors.onSurfaceVariant }
+        : { text: `Last 30 days ${recent.toFixed(2)} · ${delta > 0 ? 'up' : 'down'} ${Math.abs(delta).toFixed(2)}`, color: delta > 0 ? colors.primary : colors.error };
+
+  const breakdown = [5, 4, 3, 2, 1].map(
+    (s) => ratings?.breakdown?.find((b) => b.stars === s) ?? { stars: s, count: 0, percentage: 0 },
+  );
+
+  const tierProgress = perf && perf.nextLevel
+    ? perf.completedTrips / Math.max(1, perf.completedTrips + perf.tripsToNextLevel)
+    : 1;
+
+  const refreshing = perfQ.isRefetching || ratingsQ.isRefetching;
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <AppBackground isDark={theme !== 'light'} />
-      <MotiView from={{ opacity: 0, translateX: -6 }} animate={{ opacity: 1, translateX: 0 }}
-        transition={{ type: 'spring', ...springs.standard }}
-        style={styles.backRow}>
-        <Pressable onPress={() => goBack()} hitSlop={12} accessibilityRole="button">
-          <Text variant="bodyMedium" color={colors.onSurfaceVariant}>← Back</Text>
-        </Pressable>
-      </MotiView>
-
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <MotiView from={{ opacity: 0, translateY: -6 }} animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', ...springs.standard, delay: 40 }}>
-          <Text variant="headlineLarge" style={styles.headline}>Performance</Text>
-        </MotiView>
-
-        {/* Level card */}
-        <MotiView from={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
-          transition={{ type: 'spring', ...springs.standard, delay: 80 }}
-          style={[styles.levelCard, { borderColor: `${lvl.color}55` }]}>
-          <View style={[styles.levelGlow, { backgroundColor: lvl.color }]} />
-          <View style={[styles.levelBadge, { backgroundColor: `${lvl.color}22`, borderColor: `${lvl.color}55` }]}>
-            <Ionicons name={lvl.icon as any} size={28} color={lvl.color} />
+    <Screen
+      title="Ratings & performance"
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={() => { perfQ.refetch(); ratingsQ.refetch(); }} tintColor={colors.primary} />
+      }
+    >
+      {/* The rating — the page's one big number */}
+      <View style={styles.hero}>
+        {ratingsQ.isLoading ? (
+          <Skeleton width={140} height={56} />
+        ) : (
+          <View style={styles.heroRow}>
+            <Text style={styles.heroNumber}>{rating == null ? 'New' : rating.toFixed(2)}</Text>
+            {rating != null ? <Ionicons name="star" size={28} color={colors.onSurface} style={{ marginBottom: 10 }} /> : null}
           </View>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.levelName, { color: lvl.color }]}>{lvl.label} Driver</Text>
-            <Text variant="caption" color={colors.onSurfaceVariant}>{lvl.description}</Text>
-            <Text variant="caption" color={colors.onSurfaceVariant}>
-              {driver?.totalTrips ?? 0} total trips
+        )}
+        <Text style={styles.heroSub}>
+          {rated
+            ? `From ${ratings!.total} rating${ratings!.total === 1 ? '' : 's'}`
+            : 'Your rating appears after your first rated trip.'}
+        </Text>
+        {trend ? <Text style={[styles.heroTrend, { color: trend.color }]}>{trend.text}</Text> : null}
+      </View>
+
+      <ListSection title="Last 7 days" footer="Acceptance counts ride offers you answered. Cancellation counts only trips you cancelled — a rider cancelling never counts against you.">
+        <ListRow icon="checkmark-circle-outline" title="Acceptance rate" value={perfQ.isLoading ? '…' : pct(perf?.acceptanceRate)} />
+        <ListRow icon="close-circle-outline" title="Cancellation rate" value={perfQ.isLoading ? '…' : pct(perf?.cancellationRate)} />
+        <ListRow icon="flag-outline" title="Completion rate" value={perfQ.isLoading ? '…' : pct(perf?.completionRate)} />
+        <ListRow icon="time-outline" title="Time online" value={perfQ.isLoading ? '…' : `${(perf?.onlineHoursThisWeek ?? 0).toFixed(1)} h`} />
+      </ListSection>
+
+      {/* Tier */}
+      {perf ? (
+        <View style={styles.block}>
+          <Text variant="labelCaps" style={styles.blockTitle}>Tier</Text>
+          <View style={styles.tierRow}>
+            <Text style={styles.tierName}>{LEVEL_LABEL[perf.level]}</Text>
+            <Text style={styles.tierNext}>
+              {perf.nextLevel
+                ? `${perf.tripsToNextLevel} trip${perf.tripsToNextLevel === 1 ? '' : 's'} to ${LEVEL_LABEL[perf.nextLevel]}`
+                : 'Top tier'}
             </Text>
           </View>
-        </MotiView>
-
-        {/* Rate circles */}
-        <MotiView from={{ opacity: 0, translateY: 12 }} animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', ...springs.standard, delay: 120 }}
-          style={styles.card}>
-          <Text style={styles.cardTitle}>Rates</Text>
-          {isLoading ? (
-            <View style={{ height: 100, borderRadius: radii.lg, backgroundColor: colors.surfaceContainerHigh }} />
-          ) : (
-            <View style={{ flexDirection: 'row', justifyContent: 'space-around', paddingVertical: spacing.md }}>
-              <StatCircle
-                value={perf?.acceptanceRate ?? 0}
-                label="Acceptance"
-                color={colors.primary}
-                colors={colors}
-              />
-              <StatCircle
-                value={perf?.completionRate ?? 0}
-                label="Completion"
-                color="#22C55E"
-                colors={colors}
-              />
-              <StatCircle
-                value={Math.max(0, 100 - (perf?.cancellationRate ?? 0))}
-                label="No Cancel"
-                color="#F59E0B"
-                colors={colors}
-              />
-            </View>
-          )}
-          <Text variant="caption" color={colors.onSurfaceVariant} style={{ textAlign: 'center', marginTop: spacing.xs }}>
-            Maintain {'>'} 80% acceptance to keep your account in good standing
-          </Text>
-        </MotiView>
-
-        {/* This week */}
-        <MotiView from={{ opacity: 0, translateY: 12 }} animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', ...springs.standard, delay: 160 }}
-          style={styles.card}>
-          <Text style={styles.cardTitle}>This Week</Text>
-          <View style={styles.weekGrid}>
-            {[
-              { label: 'Trips',         value: String(perf?.tripsThisWeek ?? 0),              icon: 'car-outline' as const },
-              { label: 'Online Hours',  value: `${(perf?.onlineHoursThisWeek ?? 0).toFixed(1)}h`,  icon: 'time-outline' as const },
-              { label: 'Earnings',      value: `${formatGhs(perf?.earningsThisWeek ?? 0, { showDecimals: false })}`, icon: 'cash-outline' as const },
-            ].map((stat) => (
-              <View key={stat.label} style={styles.weekStat}>
-                <View style={styles.weekIconBg}>
-                  <Ionicons name={stat.icon} size={18} color={colors.primary} />
-                </View>
-                <Text style={styles.weekValue}>{isLoading ? '—' : stat.value}</Text>
-                <Text variant="caption" color={colors.onSurfaceVariant}>{stat.label}</Text>
-              </View>
-            ))}
+          <View style={styles.track}>
+            <View style={[styles.fill, { width: `${Math.round(tierProgress * 100)}%` }]} />
           </View>
-        </MotiView>
+          <Text style={styles.blockFoot}>{perf.completedTrips} completed trips</Text>
+        </View>
+      ) : null}
 
-        {/* Weekly goal */}
-        {perf?.weeklyGoal != null && (
-          <MotiView from={{ opacity: 0, translateY: 12 }} animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', ...springs.standard, delay: 200 }}
-            style={styles.card}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md }}>
-              <Text style={styles.cardTitle}>Weekly Earnings Goal</Text>
-              <Text style={{ fontFamily: fonts.semiBold, fontSize: fontSizes.bodySmall ?? 12, color: colors.primary }}>
-                {Math.round((perf.weeklyGoalProgress / perf.weeklyGoal) * 100)}%
-              </Text>
+      {/* Breakdown */}
+      <View style={styles.block}>
+        <Text variant="labelCaps" style={styles.blockTitle}>Rating breakdown</Text>
+        {breakdown.map((b) => (
+          <View key={b.stars} style={styles.barRow} accessible accessibilityLabel={`${b.stars} stars, ${b.count}`}>
+            <Text style={styles.barLabel}>{b.stars}★</Text>
+            <View style={styles.track}>
+              <View style={[styles.fill, { width: `${b.percentage}%`, opacity: b.stars >= 4 ? 1 : 0.55 }]} />
             </View>
-            <ProgressBar value={perf.weeklyGoalProgress} max={perf.weeklyGoal} color={colors.primary} colors={colors} />
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.sm }}>
-              <Text variant="caption" color={colors.onSurfaceVariant}>
-                {formatGhs(perf.weeklyGoalProgress, { showDecimals: false })} earned
-              </Text>
-              <Text variant="caption" color={colors.onSurfaceVariant}>
-                Goal: {formatGhs(perf.weeklyGoal, { showDecimals: false })}
-              </Text>
-            </View>
-          </MotiView>
+            <Text style={styles.barCount}>{b.count}</Text>
+          </View>
+        ))}
+      </View>
+
+      <ListSection
+        title="Compliments"
+        footer="Ratings are anonymous. Riders rate the trip, and nobody can see who said what."
+      >
+        {(ratings?.compliments?.length ?? 0) === 0 ? (
+          <ListRow icon="ribbon-outline" title="No compliments yet" subtitle="Riders can add one when they rate a trip." />
+        ) : (
+          ratings!.compliments.map((c) => (
+            <ListRow key={c.label} icon={COMPLIMENT_ICONS[c.label] ?? 'thumbs-up-outline'} title={c.label} value={`${c.count}×`} />
+          ))
         )}
-      </ScrollView>
-    </SafeAreaView>
+      </ListSection>
+    </Screen>
   );
 }
 
-const makeStyles = (colors: DriverColors) =>
+const makeStyles = (c: DriverColors) =>
   StyleSheet.create({
-    safe: { flex: 1, backgroundColor: 'transparent' },
-    backRow: { paddingHorizontal: spacing['2xl'], paddingTop: spacing.base },
-    scroll: { paddingHorizontal: spacing['2xl'], paddingTop: spacing.xl, paddingBottom: spacing['3xl'], gap: spacing.xl },
-    headline: { letterSpacing: -1 },
-    levelCard: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.lg,
-      backgroundColor: colors.surfaceContainerHigh,
-      borderRadius: radii['2xl'],
-      borderWidth: 1.5,
-      padding: spacing.xl,
-      overflow: 'hidden',
-    },
-    levelGlow: { position: 'absolute', width: 120, height: 120, borderRadius: 60, opacity: 0.08, right: -20, top: -20 },
-    levelBadge: {
-      width: 56,
-      height: 56,
-      borderRadius: 16,
-      borderWidth: 1,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    levelName: { fontFamily: fonts.displayBold, fontSize: fontSizes.titleMedium, lineHeight: Math.round(fontSizes.titleMedium * 1.3), letterSpacing: -0.5 },
-    card: {
-      backgroundColor: colors.surfaceContainer,
-      borderRadius: radii['2xl'],
-      borderWidth: 1,
-      borderColor: colors.outline,
-      padding: spacing.xl,
-    },
-    cardTitle: { fontFamily: fonts.displaySemiBold, fontSize: fontSizes.titleSmall, lineHeight: Math.round(fontSizes.titleSmall * 1.3), color: colors.onSurface, marginBottom: spacing.md },
-    weekGrid: { flexDirection: 'row', justifyContent: 'space-around' },
-    weekStat: { alignItems: 'center', gap: spacing.sm },
-    weekIconBg: {
-      width: 44,
-      height: 44,
-      borderRadius: 14,
-      backgroundColor: `${colors.primary}14`,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    weekValue: { fontFamily: fonts.displayBold, fontSize: fontSizes.titleSmall, lineHeight: Math.round(fontSizes.titleSmall * 1.3), color: colors.onSurface },
+    hero: { paddingHorizontal: 20, paddingTop: 8 },
+    heroRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 6 },
+    heroNumber: { fontFamily: fonts.displayBold, fontSize: 56, lineHeight: 64, letterSpacing: -2, color: c.onSurface, fontVariant: ['tabular-nums'] },
+    heroSub: { fontFamily: fonts.regular, fontSize: 15, lineHeight: 21, color: c.onSurfaceVariant, marginTop: 4 },
+    heroTrend: { fontFamily: fonts.medium, fontSize: 14, lineHeight: 19, marginTop: 6 },
+    block: { marginTop: 24, paddingHorizontal: 20 },
+    blockTitle: { marginBottom: 10 },
+    blockFoot: { fontFamily: fonts.regular, fontSize: 13, lineHeight: 18, color: c.onSurfaceVariant, marginTop: 8 },
+    tierRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 },
+    tierName: { fontFamily: fonts.displayBold, fontSize: 22, lineHeight: 28, color: c.onSurface },
+    tierNext: { fontFamily: fonts.medium, fontSize: 14, lineHeight: 19, color: c.onSurfaceVariant },
+    track: { flex: 1, height: 6, borderRadius: 3, backgroundColor: c.surfaceContainerHighest, overflow: 'hidden' },
+    fill: { height: '100%', borderRadius: 3, backgroundColor: c.primary },
+    barRow: { flexDirection: 'row', alignItems: 'center', gap: 12, height: 26 },
+    barLabel: { width: 26, fontFamily: fonts.medium, fontSize: 13, color: c.onSurfaceVariant },
+    barCount: { width: 32, textAlign: 'right', fontFamily: fonts.regular, fontSize: 13, color: c.onSurfaceVariant, fontVariant: ['tabular-nums'] },
   });

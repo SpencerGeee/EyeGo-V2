@@ -751,7 +751,9 @@ async function searchTrips(query) {
   const include = {
     route: { include: { virtualStops: { where: { isActive: true }, orderBy: { sequence: 'asc' } } } },
     vehicle: true,
-    driver: { select: { id: true, name: true, profilePhoto: true, currentLat: true, currentLng: true } },
+    // No currentLat/currentLng: a public listing handed every browsing rider each
+    // driver's live GPS — for a bus leaving on Thursday, wherever the driver is now.
+    driver: { select: { id: true, name: true, profilePhoto: true } },
     bookings: {
       where: { ...seatOccupyingWhere() },
       select: { id: true, seatNumber: true, status: true },

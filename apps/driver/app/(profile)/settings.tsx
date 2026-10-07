@@ -1,23 +1,18 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { View, StyleSheet, ScrollView, Switch, Pressable, Platform } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { MotiView, goDeeper, goBack, notify } from '@eyego/ui';
+import React, { useState, useEffect } from 'react';
+import { Switch, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
-import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
-import { Text, AppBackground } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
-import { useColors, type DriverColors } from '../../utils/useColors';
+import { Screen, ListSection, ListRow, Text, goDeeper, notify } from '@eyego/ui';
+import { useColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
 import { getPreferredNavApp, setPreferredNavApp, type NavApp } from '../../utils/externalNav';
 
 const NOTIF_KEY = 'eyego_driver_notifications_enabled';
 
 // One vocabulary, one key: the value here is what `openExternalNavigation`
-// reads on the trip page. This screen used to write 'google_maps' under a
-// different AsyncStorage key, so the choice never reached Navigate.
+// reads on the trip page.
 const NAV_OPTIONS: { key: NavApp; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { key: 'google', label: 'Google Maps', icon: 'navigate-outline' },
   { key: 'waze', label: 'Waze', icon: 'car-outline' },
@@ -27,85 +22,59 @@ const SERVER_NAV: Record<NavApp, 'google_maps' | 'waze' | 'apple_maps'> = {
   google: 'google_maps', waze: 'waze', apple: 'apple_maps',
 };
 
-const PRIVACY_TEXT = `EyeGo collects your location during active trips to provide real-time tracking for passengers and route optimisation. Your personal data is never sold to third parties. You may request deletion of your account data by contacting support@eyego.app.\n\nFor the full privacy policy, visit eyego.app/privacy.`;
-
-const TERMS_TEXT = `By using the EyeGo Driver app you agree to our driver terms of service. You must maintain valid insurance and a clean driving record. EyeGo reserves the right to suspend accounts that violate community standards or engage in fraudulent activity.\n\nFor full terms, visit eyego.app/terms.`;
-
-function ExpandSection({ title, body, colors }: { title: string; body: string; colors: DriverColors }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <View style={{ borderBottomWidth: 1, borderBottomColor: `${colors.outline}88` }}>
-      <Pressable
-        style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.base, gap: spacing.md }}
-        onPress={() => setOpen((v) => !v)}
-       accessibilityRole="button">
-        <Text style={{ flex: 1, fontFamily: fonts.semiBold, fontSize: fontSizes.bodyMedium, color: colors.onSurface }}>
-          {title}
-        </Text>
-        <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={16} color={colors.onSurfaceVariant} />
-      </Pressable>
-      {open && (
-        <MotiView
-          from={{ opacity: 0, translateY: -4 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', ...springs.standard }}
-        >
-          <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ paddingBottom: spacing.base, lineHeight: 22 }}>
-            {body}
-          </Text>
-        </MotiView>
-      )}
-    </View>
-  );
-}
-
+/**
+ * SETTINGS — the driver's settings hub (rival spec §18).
+ *
+ * Holds what Uber keeps under Settings: navigation app, request alerts,
+ * appearance, legal, and Delete account last. Log out stays on the Account tab.
+ *
+ * BUGFIXES carried in this rewrite:
+ *  - the saved notification + maps-app choice never came back after a
+ *    reinstall: getMe answers `{ driver }`, this read `data.notificationsEnabled`.
+ *  - Legal showed two placeholder paragraphs while the real Driver Agreement
+ *    and Privacy Policy screens sat one route away.
+ */
 export default function SettingsScreen() {
   const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
-  const router = useRouter();
-  const { theme, setTheme, logout, offerAlertsEnabled, setOfferAlertsEnabled } = useDriverStore();
+  const { theme, setTheme, offerAlertsEnabled, setOfferAlertsEnabled } = useDriverStore();
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [navApp, setNavApp] = useState<NavApp | null>(null);
 
+  const me = useQuery({
+    queryKey: ['driver', 'me'],
+    queryFn: () => driverApi.getMe(),
+    select: (r) => {
+      const data = (r.data as any)?.data;
+      return data?.driver ?? data;
+    },
+  });
+
+  // Local cache first for an instant paint...
   useEffect(() => {
-    // Local cache first for instant paint...
     AsyncStorage.getItem(NOTIF_KEY).then((val) => {
       if (val !== null) setNotificationsEnabled(val === 'true');
     });
     getPreferredNavApp().then((val) => { if (val) setNavApp(val); });
-    // ...then the account's saved value wins, so this follows the driver
-    // across reinstalls/devices instead of always defaulting to "on".
-    // Previously toggling this only wrote to AsyncStorage — nothing was ever
-    // sent to the backend, so the setting was invisible to anything else
-    // (support, admin) and lost on reinstall.
-    driverApi.getMe().then((res) => {
-      const remote = (res.data as any)?.data?.notificationsEnabled;
-      if (typeof remote === 'boolean') {
-        setNotificationsEnabled(remote);
-        AsyncStorage.setItem(NOTIF_KEY, String(remote)).catch(() => {});
-      }
-      // Same for the maps app: a reinstall gets the account's choice back.
-      const remoteNav = (res.data as any)?.data?.navigationApp;
-      const local = (Object.keys(SERVER_NAV) as NavApp[]).find((k) => SERVER_NAV[k] === remoteNav);
-      if (local) getPreferredNavApp().then((cur) => { if (!cur) { setNavApp(local); void setPreferredNavApp(local); } });
-    }).catch(() => {});
   }, []);
 
-  const handleDeleteAccount = () => {
-    // Route to the dedicated deletion screen, which calls the real
-    // DELETE /driver/me endpoint with proper error handling. The previous
-    // inline flow PATCHed { isDeleted: true } — a field updateMe ignores —
-    // then logged out regardless: the account was never actually deleted
-    // and any failure was swallowed.
-    goDeeper('/(profile)/account-deletion' as any);
-  };
+  // ...then the account's saved values win, so they follow the driver across
+  // reinstalls and devices.
+  useEffect(() => {
+    const remote = me.data?.notificationsEnabled;
+    if (typeof remote === 'boolean') {
+      setNotificationsEnabled(remote);
+      AsyncStorage.setItem(NOTIF_KEY, String(remote)).catch(() => {});
+    }
+    const local = (Object.keys(SERVER_NAV) as NavApp[]).find((k) => SERVER_NAV[k] === me.data?.navigationApp);
+    if (local) getPreferredNavApp().then((cur) => { if (!cur) { setNavApp(local); void setPreferredNavApp(local); } });
+  }, [me.data?.notificationsEnabled, me.data?.navigationApp]);
 
   const toggleNotifications = (val: boolean) => {
     setNotificationsEnabled(val);
     AsyncStorage.setItem(NOTIF_KEY, String(val));
-    driverApi.updatePreferences({ notificationsEnabled: val }).catch((e) =>
-      console.warn('[Settings] Failed to sync notification preference:', e)
-    );
+    driverApi.updatePreferences({ notificationsEnabled: val }).catch(() => {
+      notify(null, 'Couldn’t save that on your account — it will apply on this phone.');
+    });
   };
 
   const updateNavPref = useMutation({
@@ -119,228 +88,69 @@ export default function SettingsScreen() {
     updateNavPref.mutate(app);
   };
 
+  const switchProps = {
+    trackColor: { false: colors.outline, true: colors.primary },
+    thumbColor: colors.onPrimary,
+  };
+
   return (
-    <SafeAreaView style={styles.safe}>
-      <AppBackground isDark={theme !== 'light'} />
-      <MotiView
-        from={{ opacity: 0, translateX: -6 }}
-        animate={{ opacity: 1, translateX: 0 }}
-        transition={{ type: 'spring', ...springs.standard }}
-        style={styles.backRow}
-      >
-        <Pressable onPress={() => goBack()} hitSlop={12} accessibilityRole="button">
-          <Text variant="bodyMedium" color={colors.onSurfaceVariant}>← Back</Text>
-        </Pressable>
-      </MotiView>
+    <Screen title="Settings">
+      <ListSection title="Navigation app" footer="Opens when you tap Navigate on a trip.">
+        {NAV_OPTIONS.map((opt) => (
+          <ListRow
+            key={opt.key}
+            icon={opt.icon}
+            title={opt.label}
+            onPress={() => handleSelectNav(opt.key)}
+            chevron={false}
+            right={navApp === opt.key ? <Ionicons name="checkmark" size={20} color={colors.primary} /> : undefined}
+            accessibilityLabel={`${opt.label}${navApp === opt.key ? ', selected' : ''}`}
+          />
+        ))}
+      </ListSection>
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <MotiView
-          from={{ opacity: 0, translateY: -6 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', ...springs.standard, delay: 40 }}
-        >
-          <Text variant="headlineLarge" style={styles.headline}>Settings</Text>
-        </MotiView>
+      {/*
+        THE ONE ALERT THAT COSTS MONEY TO MISS. "New ride alert" is separate
+        from push on purpose: it is the in-app alarm while a ride is offered. A
+        driver who mutes marketing pushes must not also silence the offer that
+        pays them. See utils/dispatchAlert.ts.
+      */}
+      <ListSection title="Alerts">
+        <ListRow
+          icon="volume-high-outline"
+          title="New ride alert"
+          subtitle="Chime and vibrate while a ride is offered to you, until you answer."
+          right={<Switch value={offerAlertsEnabled} onValueChange={setOfferAlertsEnabled} {...switchProps} />}
+        />
+        <ListRow
+          icon="notifications-outline"
+          title="Push notifications"
+          subtitle="Trip updates, payouts and account notices."
+          right={<Switch value={notificationsEnabled} onValueChange={toggleNotifications} {...switchProps} />}
+        />
+      </ListSection>
 
-        {/* Preferences */}
-        <MotiView
-          from={{ opacity: 0, translateY: 12 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', ...springs.standard, delay: 80 }}
-        >
-          <Text variant="label" color={colors.onSurfaceVariant} style={styles.sectionLabel}>Preferences</Text>
-          <View style={styles.card}>
-            {/* Theme toggle */}
-            <View style={[styles.settingsRow, { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }]}>
-              <View style={styles.iconBg}>
-                <Ionicons name={theme === 'dark' ? 'moon-outline' : 'sunny-outline'} size={18} color={colors.primary} />
-              </View>
-              {/*
-                THE TOGGLE SAYS WHICH WAY IT IS MEANT TO BE — same hint as the
-                rider app's settings screen, and for a stronger reason here: a
-                driver reads this phone in a cradle, often at night, and the map
-                styles, the elevation system and the offer surfaces are all
-                designed against a deep ground. Light mode works; dark is the
-                design.
-              */}
-              <View style={styles.rowText}>
-                <Text style={styles.rowLabel}>{theme === 'dark' ? 'Dark Mode' : 'Light Mode'}</Text>
-                <Text variant="caption" color={colors.onSurfaceVariant} style={styles.rowHint}>
-                  EyeGo is designed for dark mode — easier to read at night and in a cradle.
-                </Text>
-              </View>
-              <Switch
-                value={theme === 'dark'}
-                onValueChange={(val) => setTheme(val ? 'dark' : 'light')}
-                trackColor={{ false: colors.outline, true: colors.primary }}
-                thumbColor={colors.onPrimary}
-              />
-            </View>
-            {/* Notifications toggle */}
-            <View style={[styles.settingsRow, { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }]}>
-              <View style={styles.iconBg}>
-                <Ionicons name="notifications-outline" size={18} color={colors.primary} />
-              </View>
-              <Text style={styles.rowLabel}>Push Notifications</Text>
-              <Switch
-                value={notificationsEnabled}
-                onValueChange={toggleNotifications}
-                trackColor={{ false: colors.outline, true: colors.primary }}
-                thumbColor={colors.onPrimary}
-              />
-            </View>
+      {/* Dark is the design — a driver reads this in a cradle, often at night. */}
+      <ListSection title="Appearance" footer="EyeGo is designed for dark mode: easier to read at night and in a cradle.">
+        <ListRow
+          icon={theme === 'dark' ? 'moon-outline' : 'sunny-outline'}
+          title="Dark mode"
+          right={<Switch value={theme === 'dark'} onValueChange={(v) => setTheme(v ? 'dark' : 'light')} {...switchProps} />}
+        />
+      </ListSection>
 
-            {/*
-              THE ONE ALERT THAT COSTS MONEY TO MISS.
+      <ListSection title="Legal">
+        <ListRow icon="document-text-outline" title="Driver agreement" onPress={() => goDeeper('/(profile)/terms')} />
+        <ListRow icon="lock-closed-outline" title="Privacy policy" onPress={() => goDeeper('/(profile)/privacy')} />
+      </ListSection>
 
-              Separate from Push Notifications on purpose: this is not a push,
-              it is the in-app alarm that fires while the app is open and the
-              phone is in a cradle. A driver who turns pushes off to stop
-              marketing must not also silence the offer that pays them, and a
-              driver carrying a passenger must be able to silence THIS without
-              losing everything else. See utils/dispatchAlert.ts.
-            */}
-            <View style={styles.settingsRow}>
-              <View style={styles.iconBg}>
-                <Ionicons name="volume-high-outline" size={18} color={colors.primary} />
-              </View>
-              <View style={styles.rowText}>
-                <Text style={styles.rowLabel}>New ride alert</Text>
-                <Text variant="caption" color={colors.onSurfaceVariant} style={styles.rowHint}>
-                  Chime and vibrate while a ride is being offered to you, until you answer it.
-                </Text>
-              </View>
-              <Switch
-                value={offerAlertsEnabled}
-                onValueChange={setOfferAlertsEnabled}
-                trackColor={{ false: colors.outline, true: colors.primary }}
-                thumbColor={colors.onPrimary}
-              />
-            </View>
-          </View>
-        </MotiView>
+      <ListSection>
+        <ListRow icon="trash-outline" title="Delete account" destructive onPress={() => goDeeper('/(profile)/account-deletion')} />
+      </ListSection>
 
-        {/* Navigation App */}
-        <MotiView
-          from={{ opacity: 0, translateY: 12 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', ...springs.standard, delay: 100 }}
-        >
-          <Text variant="label" color={colors.onSurfaceVariant} style={styles.sectionLabel}>Navigation App</Text>
-          <View style={styles.card}>
-            {NAV_OPTIONS.map((opt, i) => (
-              <Pressable
-                key={opt.key}
-                style={[styles.settingsRow, i < NAV_OPTIONS.length - 1 && { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }]}
-                onPress={() => handleSelectNav(opt.key)}
-               accessibilityRole="button">
-                <View style={styles.iconBg}>
-                  <Ionicons name={opt.icon} size={18} color={navApp === opt.key ? colors.primary : colors.onSurfaceVariant} />
-                </View>
-                <Text style={[styles.rowLabel, navApp === opt.key && { color: colors.primary }]}>{opt.label}</Text>
-                {navApp === opt.key && (
-                  <Ionicons name="checkmark-circle" size={20} color={colors.primary} />
-                )}
-              </Pressable>
-            ))}
-          </View>
-        </MotiView>
-
-        {/* Legal */}
-        <MotiView
-          from={{ opacity: 0, translateY: 12 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', ...springs.standard, delay: 120 }}
-        >
-          <Text variant="label" color={colors.onSurfaceVariant} style={styles.sectionLabel}>Legal</Text>
-          <View style={styles.card}>
-            <ExpandSection title="Privacy Policy" body={PRIVACY_TEXT} colors={colors} />
-            <ExpandSection title="Terms of Service" body={TERMS_TEXT} colors={colors} />
-          </View>
-        </MotiView>
-
-        {/* Account */}
-        <MotiView
-          from={{ opacity: 0, translateY: 12 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', ...springs.standard, delay: 140 }}
-        >
-          <Text variant="label" color={colors.onSurfaceVariant} style={styles.sectionLabel}>Account</Text>
-          <View style={styles.card}>
-            <Pressable
-              style={[styles.settingsRow, { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }]}
-              onPress={() => { logout(); router.replace('/(auth)/phone' as any); }}
-             accessibilityRole="button">
-              <View style={[styles.iconBg, { backgroundColor: `${colors.error}18` }]}>
-                <Ionicons name="log-out-outline" size={18} color={colors.error} />
-              </View>
-              <Text style={[styles.rowLabel, { color: colors.error }]}>Logout</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.settingsRow, { borderColor: `${colors.error}30` }]}
-              onPress={handleDeleteAccount}
-             accessibilityRole="button">
-              <View style={[styles.iconBg, { backgroundColor: `${colors.error}18` }]}>
-                <Ionicons name="trash-outline" size={18} color={colors.error} />
-              </View>
-              <Text style={[styles.rowLabel, { color: colors.error }]}>Delete Account</Text>
-            </Pressable>
-          </View>
-        </MotiView>
-
-        {/* App info */}
-        <MotiView
-          from={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ type: 'timing', duration: 400, delay: 160 }}
-          style={styles.appInfo}
-        >
-          <Text variant="caption" color={colors.onSurfaceVariant}>EyeGo Driver · Version 1.0.0</Text>
-          <Text variant="caption" color={colors.onSurfaceVariant}>© 2025 EyeGo Technologies</Text>
-        </MotiView>
-      </ScrollView>
-    </SafeAreaView>
+      <Text variant="caption" color={colors.onSurfaceVariant} style={{ textAlign: 'center', marginTop: 28 }}>
+        EyeGo Driver · Version 1.0.0
+      </Text>
+    </Screen>
   );
 }
-
-const makeStyles = (colors: DriverColors) =>
-  StyleSheet.create({
-    safe: { flex: 1, backgroundColor: 'transparent' },
-    backRow: { paddingHorizontal: spacing['2xl'], paddingTop: spacing.base },
-    scroll: { paddingHorizontal: spacing['2xl'], paddingTop: spacing.xl, paddingBottom: spacing['3xl'] },
-    headline: { letterSpacing: -1, marginBottom: spacing['2xl'] },
-    sectionLabel: { marginBottom: spacing.sm, marginLeft: spacing.xs },
-    card: {
-      backgroundColor: colors.surfaceContainer,
-      borderRadius: radii['2xl'],
-      borderWidth: 1,
-      borderColor: colors.outline,
-      paddingHorizontal: spacing.xl,
-      marginBottom: spacing.xl,
-    },
-    settingsRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      paddingVertical: spacing.base,
-      gap: spacing.md,
-    },
-    iconBg: {
-      width: 36,
-      height: 36,
-      borderRadius: 12,
-      backgroundColor: `${colors.primary}18`,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    rowLabel: {
-      flex: 1,
-      fontFamily: fonts.medium,
-      fontSize: fontSizes.bodyMedium,
-      lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
-      color: colors.onSurface,
-    },
-    /** Label + hint, stacked — only the theme row has one. See the render. */
-    rowText: { flex: 1, gap: 2 },
-    rowHint: { lineHeight: 16 },
-    appInfo: { alignItems: 'center', gap: spacing.xs, marginTop: spacing.md },
-  });

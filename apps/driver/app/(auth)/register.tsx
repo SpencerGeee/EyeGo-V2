@@ -7,6 +7,7 @@ import {
   Platform,
   TextInput,
   Pressable,
+  Image,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -42,13 +43,34 @@ export default function DriverRegisterScreen() {
 
   const updateProfile = useMutation({
     mutationFn: async () => {
-      const dobStr = dob ? dob.toISOString().split('T')[0] : undefined;
+      // Local calendar date — toISOString() is UTC and can be the day before.
+      const dobStr = dob
+        ? `${dob.getFullYear()}-${String(dob.getMonth() + 1).padStart(2, '0')}-${String(dob.getDate()).padStart(2, '0')}`
+        : undefined;
       const { data } = await driverApi.updateMe({ name: name.trim(), dateOfBirth: dobStr });
-      return data.data;
+      /**
+       * The photo picked here used to go nowhere: it was never uploaded and
+       * never even shown. Best-effort — a failed photo must not block sign-up;
+       * it can be added later from Edit profile.
+       */
+      let photoUrl: string | undefined;
+      if (avatarUri) {
+        try {
+          const form = new FormData();
+          form.append('type', 'PROFILE_PHOTO');
+          form.append('file', { uri: avatarUri, name: avatarUri.split('/').pop() ?? 'avatar.jpg', type: 'image/jpeg' } as any);
+          const res = await driverApi.uploadDocument('PROFILE_PHOTO', form);
+          const r = (res as any)?.data?.data;
+          photoUrl = r?.profilePhotoUrl ?? r?.url;
+        } catch { /* added later from Edit profile */ }
+      }
+      return { ...(data.data as any), ...(photoUrl ? { profilePhoto: photoUrl, avatarUrl: photoUrl } : {}) };
     },
     onSuccess: (updatedDriver) => {
       updateDriver(updatedDriver);
-      router.replace('/(tabs)/home');
+      // Next: vehicle and documents. The setup wizard existed but nothing ever
+      // opened it, so a new driver landed on Home with no way to submit them.
+      router.replace('/(onboarding)');
     },
     onError: (err: any) => {
       const msg = err?.response?.data?.message ?? 'Failed to save profile. Please try again.';
@@ -72,7 +94,7 @@ export default function DriverRegisterScreen() {
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.8,
@@ -134,7 +156,9 @@ export default function DriverRegisterScreen() {
           >
             <Pressable onPress={pickImage} style={styles.avatarTouch} accessibilityRole="button">
               <View style={styles.avatarCircle}>
-                {initials ? (
+                {avatarUri ? (
+                  <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
+                ) : initials ? (
                   <Text style={styles.avatarInitials}>{initials}</Text>
                 ) : (
                   <Ionicons name="camera-outline" size={32} color={colors.primary} />
@@ -239,7 +263,7 @@ export default function DriverRegisterScreen() {
             style={styles.ctaWrapper}
           >
             <Button
-              label="Start Driving"
+              label="Continue"
               onPress={handleContinue}
               loading={updateProfile.isPending}
               disabled={!name.trim() || !dob}
@@ -278,6 +302,7 @@ const makeStyles = (colors: DriverColors) =>
       alignItems: 'center',
       justifyContent: 'center',
     },
+    avatarImage: { width: '100%', height: '100%', borderRadius: 50 },
     avatarInitials: {
       fontFamily: fonts.displayBold,
       fontSize: 32,

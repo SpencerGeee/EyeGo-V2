@@ -1,5 +1,5 @@
 import React, { useRef, useState, useImperativeHandle, forwardRef } from 'react';
-import { View, TextInput, Pressable, StyleSheet } from 'react-native';
+import { View, TextInput, Pressable, StyleSheet, Platform } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -20,7 +20,15 @@ interface OTPInputProps {
 export interface OTPInputRef {
   shake: () => void;
   clear: () => void;
+  focus: () => void;
 }
+
+/**
+ * One hidden input owns the whole code; the boxes only draw it. That is what
+ * lets the SMS code iOS offers above the keyboard, Android's SMS autofill, and
+ * a paste land in one go — the screens used six maxLength-1 inputs that kept
+ * only the last digit of anything longer than one.
+ */
 
 export const OTPInput = forwardRef<OTPInputRef, OTPInputProps>(
   ({ length = 6, onComplete, hasError = false, onErrorReset }, ref) => {
@@ -42,6 +50,7 @@ export const OTPInput = forwardRef<OTPInputRef, OTPInputProps>(
         );
       },
       clear: () => setCode(''),
+      focus: () => inputRef.current?.focus(),
     }));
 
     const animatedStyle = useAnimatedStyle(() => ({
@@ -80,10 +89,15 @@ export const OTPInput = forwardRef<OTPInputRef, OTPInputProps>(
           value={code}
           onChangeText={handleChangeText}
           keyboardType="number-pad"
+          textContentType="oneTimeCode"
+          autoComplete={Platform.OS === 'android' ? 'sms-otp' : 'one-time-code'}
+          importantForAutofill="yes"
           maxLength={length}
           style={styles.hiddenInput}
           autoFocus
           caretHidden
+          selectionColor="transparent"
+          accessibilityLabel={`Verification code, ${length} digits`}
         />
       </Pressable>
     );
@@ -99,8 +113,10 @@ function getStyles(colors: ColorTokens) {
       gap: spacing.sm,
       justifyContent: 'center',
     },
+    // flex + maxWidth: six fixed 52pt boxes overflowed a 360dp Android screen.
     box: {
-      width: 52,
+      flex: 1,
+      maxWidth: 52,
       height: 60,
       borderRadius: radii.lg,
       backgroundColor: colors.surfaceInput,
@@ -127,11 +143,12 @@ function getStyles(colors: ColorTokens) {
       color: colors.onSurface,
       textAlign: 'center',
     },
+    // Over the boxes, near-transparent (some Android builds skip autofill for
+    // a 1×1 or fully transparent field).
     hiddenInput: {
-      position: 'absolute',
-      width: 1,
-      height: 1,
-      opacity: 0,
+      ...StyleSheet.absoluteFillObject,
+      opacity: 0.015,
+      color: 'transparent',
     },
   });
 }

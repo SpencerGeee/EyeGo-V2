@@ -104,6 +104,19 @@ export function maskPhone(phone: string | null | undefined): string {
 }
 
 /**
+ * What a Ghanaian types into a "+233 | ___" field, reduced to the 9 local
+ * digits. People type "0244123456" (and paste "+233 24 412 3456") — the old
+ * `digits.slice(0, 9)` kept the leading 0 and dropped the LAST digit, so the
+ * code went to "+233024412345", a number that does not exist.
+ */
+export function ghanaLocalDigits(text: string): string {
+  let d = String(text ?? '').replace(/\D/g, '');
+  if (d.startsWith('233') && d.length > 9) d = d.slice(3);
+  if (d.startsWith('0')) d = d.slice(1);
+  return d.slice(0, 9);
+}
+
+/**
  * Format phone for display
  * e.g. '0244123456' → '+233 244 123 456'
  */

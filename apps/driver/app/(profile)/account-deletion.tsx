@@ -1,226 +1,68 @@
-import React, { useState, useMemo } from 'react';
-import { View, StyleSheet, ScrollView, Pressable, TextInput, Alert } from 'react-native';
-import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import React from 'react';
+import { Alert } from 'react-native';
 import { useRouter } from 'expo-router';
-import { MotiView, Loader, goBack, notify } from '@eyego/ui';
-import { Ionicons } from '@expo/vector-icons';
-import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
-import { Text, Button, AppBackground } from '@eyego/ui';
-import { useColors, type DriverColors } from '../../utils/useColors';
-import { useDriverStore } from '../../stores/driver.store';
-import { apiClient } from '@eyego/api';
 import { useMutation } from '@tanstack/react-query';
+import { apiClient } from '@eyego/api';
+import { describeError } from '@eyego/utils';
+import { Button, Screen, ListSection, ListRow, notify } from '@eyego/ui';
+import { useColors } from '../../utils/useColors';
+import { useDriverStore } from '../../stores/driver.store';
 
 // Each line is what the server actually does (drivers.service.deleteMe).
-const DELETION_CONSEQUENCES = [
-  'Finish or cancel any active or published trip first',
-  'Withdraw your earnings first — a balance left behind can’t be withdrawn later',
-  'Your name, phone and photo are removed and you’re signed out everywhere',
-  'Your account cannot be recovered once deleted',
+const CONSEQUENCES: { icon: 'car-outline' | 'wallet-outline' | 'person-remove-outline' | 'lock-closed-outline'; title: string; detail: string }[] = [
+  { icon: 'car-outline', title: 'Trips first', detail: 'Finish or cancel any active or published trip before you delete.' },
+  { icon: 'wallet-outline', title: 'Cash out first', detail: 'A balance left behind can’t be cashed out after deletion.' },
+  { icon: 'person-remove-outline', title: 'Your details go', detail: 'Your name, phone and photo are removed and you’re signed out everywhere.' },
+  { icon: 'lock-closed-outline', title: 'It can’t be undone', detail: 'A deleted account cannot be recovered or signed into again.' },
 ];
 
+/**
+ * DELETE ACCOUNT — one page, one confirm, the Uber way. The old two-step
+ * "type DELETE" screen asked for the same decision twice.
+ */
 export default function AccountDeletionScreen() {
   const colors = useColors();
-  const theme = useDriverStore(s => s.theme);
-  const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
-  const logout = useDriverStore((s: any) => s.logout);
-
-  const [step, setStep] = useState<1 | 2>(1);
-  const [confirmText, setConfirmText] = useState('');
+  const logout = useDriverStore((s) => s.logout);
 
   const { mutate: deleteAccount, isPending } = useMutation({
-    mutationFn: (acknowledgeBalance: boolean = false) =>
-      apiClient.delete('/driver/me', { data: { acknowledgeBalance } }),
-    onSuccess: () => {
-      logout();
-      router.replace('/(auth)/phone' as any);
+    mutationFn: (acknowledgeBalance: boolean) => apiClient.delete('/driver/me', { data: { acknowledgeBalance } }),
+    onSuccess: async () => {
+      await logout();
+      router.replace('/(auth)/phone');
     },
     onError: (err: any) => {
-      // Earnings are a question, not a wall: below the withdrawal minimum they
-      // can never be withdrawn, so the driver decides.
+      // Earnings are a question, not a wall: below the cash-out minimum they
+      // can never leave, so the driver decides.
       if (err?.response?.data?.code === 'WALLET_NOT_EMPTY') {
-        Alert.alert('Earnings left in your wallet', err.response.data.message, [
+        Alert.alert('Money left in your balance', err.response.data.message, [
           { text: 'Keep my account', style: 'cancel' },
           { text: 'Delete anyway', style: 'destructive', onPress: () => deleteAccount(true) },
         ]);
         return;
       }
-      notify('Could not delete your account', err?.response?.data?.message ?? err?.message ?? 'Failed to delete account. Please try again.');
+      const { title, message } = describeError(err, 'Failed to delete your account. Please try again.');
+      notify(title, message);
     },
   });
 
-  const canConfirm = confirmText.trim() === 'DELETE';
-
-  if (step === 2) {
-    return (
-      <SafeAreaView style={styles.safe}>
-        <AppBackground isDark={theme !== 'light'} />
-        <MotiView
-          from={{ opacity: 0, translateX: -6 }}
-          animate={{ opacity: 1, translateX: 0 }}
-          transition={{ type: 'spring', ...springs.standard }}
-          style={styles.backRow}
-        >
-          <Pressable onPress={() => setStep(1)} hitSlop={12} accessibilityRole="button">
-            <Text variant="bodyMedium" color={colors.onSurfaceVariant}>← Back</Text>
-          </Pressable>
-        </MotiView>
-        <KeyboardAwareScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" bottomOffset={24}>
-          <MotiView
-            from={{ opacity: 0, translateY: -6 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', ...springs.standard, delay: 40 }}
-          >
-            <Text variant="headlineLarge" style={styles.headline}>Confirm Deletion</Text>
-          </MotiView>
-          <MotiView
-            from={{ opacity: 0, translateY: 8 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', ...springs.standard, delay: 80 }}
-          >
-            <View style={styles.card}>
-              <Text variant="bodyMedium" color={colors.onSurface} style={{ marginBottom: spacing.lg }}>
-                To confirm account deletion, type <Text variant="bodyMedium" style={{ fontFamily: fonts.bold, color: colors.error }}>DELETE</Text> in the field below.
-              </Text>
-              <TextInput maxFontSizeMultiplier={1.4}
-                style={[styles.textInput, { borderColor: confirmText === 'DELETE' ? colors.error : colors.outline }]}
-                value={confirmText}
-                onChangeText={setConfirmText}
-                placeholder="Type DELETE here"
-                placeholderTextColor={colors.onSurfaceVariant}
-                autoCapitalize="characters"
-                autoCorrect={false}
-              />
-            </View>
-            {isPending ? (
-              <View style={styles.loadingRow}>
-                <Loader size={36} color={colors.error} />
-                <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={{ marginTop: spacing.md }}>
-                  Deleting account…
-                </Text>
-              </View>
-            ) : (
-              <Button
-                label="Permanently Delete Account"
-                onPress={() => deleteAccount(false)}
-                disabled={!canConfirm}
-                style={[styles.dangerBtn, ...(!canConfirm ? [styles.dangerBtnDisabled] : [])]}
-              />
-            )}
-          </MotiView>
-        </KeyboardAwareScrollView>
-      </SafeAreaView>
-    );
-  }
+  const confirm = () =>
+    Alert.alert('Delete your account?', 'This is permanent. You’ll be signed out and can’t sign back in to this account.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: () => deleteAccount(false) },
+    ]);
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <AppBackground isDark={theme !== 'light'} />
-      <MotiView
-        from={{ opacity: 0, translateX: -6 }}
-        animate={{ opacity: 1, translateX: 0 }}
-        transition={{ type: 'spring', ...springs.standard }}
-        style={styles.backRow}
-      >
-        <Pressable onPress={() => goBack()} hitSlop={12} accessibilityRole="button">
-          <Text variant="bodyMedium" color={colors.onSurfaceVariant}>← Back</Text>
-        </Pressable>
-      </MotiView>
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <MotiView
-          from={{ opacity: 0, translateY: -6 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', ...springs.standard, delay: 40 }}
-        >
-          <Text variant="headlineLarge" style={styles.headline}>Delete Account</Text>
-        </MotiView>
-
-        <MotiView
-          from={{ opacity: 0, translateY: 8 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', ...springs.standard, delay: 80 }}
-        >
-          <View style={styles.warningBanner}>
-            <Ionicons name="warning" size={22} color="#fff" style={{ marginRight: spacing.sm }} />
-            <Text variant="bodyMedium" style={styles.warningText}>
-              This action is permanent and cannot be undone.
-            </Text>
-          </View>
-
-          <View style={styles.card}>
-            <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={{ marginBottom: spacing.md }}>
-              Deleting your account will:
-            </Text>
-            {DELETION_CONSEQUENCES.map((item, idx) => (
-              <View key={idx} style={styles.consequenceRow}>
-                <Ionicons name="close-circle" size={18} color={colors.error} style={{ marginTop: 2 }} />
-                <Text variant="bodyMedium" color={colors.onSurface} style={styles.consequenceText}>
-                  {item}
-                </Text>
-              </View>
-            ))}
-          </View>
-
-          <Button
-            label="Continue to Delete"
-            onPress={() => setStep(2)}
-            style={styles.dangerBtn}
-          />
-        </MotiView>
-      </ScrollView>
-    </SafeAreaView>
+    <Screen
+      title="Delete account"
+      subtitle="Before you go, here’s what happens."
+      footer={<Button label="Delete account" variant="destructive" onPress={confirm} loading={isPending} disabled={isPending} />}
+    >
+      <ListSection>
+        {CONSEQUENCES.map((c) => (
+          <ListRow key={c.title} icon={c.icon} iconColor={colors.error} title={c.title} subtitle={c.detail} subtitleLines={3} />
+        ))}
+      </ListSection>
+    </Screen>
   );
 }
-
-const makeStyles = (colors: DriverColors) => StyleSheet.create({
-  safe: { flex: 1, backgroundColor: 'transparent' },
-  backRow: { paddingHorizontal: spacing['2xl'], paddingTop: spacing.base },
-  scroll: { paddingHorizontal: spacing['2xl'], paddingTop: spacing.xl, paddingBottom: spacing['3xl'] },
-  headline: { letterSpacing: -1, marginBottom: spacing['2xl'] },
-  warningBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.error,
-    borderRadius: radii.xl,
-    padding: spacing.lg,
-    marginBottom: spacing.xl,
-  },
-  warningText: { flex: 1, color: '#fff', fontFamily: fonts.medium },
-  card: {
-    backgroundColor: colors.surfaceContainer,
-    borderRadius: radii['2xl'],
-    borderWidth: 1,
-    borderColor: colors.outline,
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.xl,
-    marginBottom: spacing.xl,
-  },
-  consequenceRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    marginBottom: spacing.md,
-    alignItems: 'flex-start',
-  },
-  consequenceText: { flex: 1 },
-  dangerBtn: {
-    backgroundColor: colors.error,
-    borderRadius: radii['2xl'],
-    marginBottom: spacing.xl,
-  },
-  dangerBtnDisabled: { opacity: 0.5 },
-  textInput: {
-    fontFamily: fonts.medium,
-    fontSize: fontSizes.bodyMedium,
-    lineHeight: Math.round(fontSizes.bodyMedium * 1.4),
-    color: colors.onSurface,
-    borderWidth: 1.5,
-    borderRadius: radii.xl,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    marginBottom: spacing.xl,
-    backgroundColor: colors.backgroundDeep,
-  },
-  loadingRow: { alignItems: 'center', paddingVertical: spacing['2xl'] },
-});

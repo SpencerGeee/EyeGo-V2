@@ -12,6 +12,7 @@ import { useRouter } from 'expo-router';
 import { Entrance, goDeeper, notify } from '@eyego/ui';
 import { useMutation } from '@tanstack/react-query';
 import { authApi } from '@eyego/api';
+import { ghanaLocalDigits, describeError } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { Text } from '@eyego/ui';
 import { Button } from '@eyego/ui';
@@ -38,21 +39,15 @@ export default function PhoneScreen() {
         params: { phone: `233${phone.replace(/\s/g, '')}`, ...(devOtp ? { devOtp } : {}) },
       });
     },
-    onError: (err: any) => {
-      // Previously a failed request did nothing at all — the rider tapped
-      // Continue and the screen just sat there.
-      notify(
-        'Could not send code',
-        err?.response?.data?.message ?? err?.message ?? 'Please check your connection and try again.'
-      );
+    onError: (err) => {
+      // One message, the server's words — the inline axios text
+      // ("Request failed with status code 400") used to sit under it.
+      notify('Could not send code', describeError(err, 'Please check your connection and try again.').message);
     },
   });
 
-  const handlePhoneChange = (text: string) => {
-    // Only digits, max 9
-    const digits = text.replace(/\D/g, '').slice(0, 9);
-    setPhone(digits);
-  };
+  // "0244123456" and "+233 24…" both reduce to the 9 local digits.
+  const handlePhoneChange = (text: string) => setPhone(ghanaLocalDigits(text));
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -60,7 +55,6 @@ export default function PhoneScreen() {
           not a full-scale entrance. Uses standalone Animated.View with useSharedValue
           for the continuous pulse effect. */}
       <View style={styles.orb1} pointerEvents="none" />
-      <View style={styles.orb2} pointerEvents="none" />
 
       <KeyboardAwareScrollView
         style={{ flex: 1 }}
@@ -104,22 +98,15 @@ export default function PhoneScreen() {
                 placeholder="24X XXX XXXX"
                 placeholderTextColor={colors.onSurfaceVariant}
                 returnKeyType="done"
+                onSubmitEditing={() => isValid && !sendOtp.isPending && sendOtp.mutate()}
+                textContentType="telephoneNumber"
+                autoComplete="tel"
                 autoFocus
                 selectionColor={colors.primary}
-                maxLength={9}
                 accessibilityLabel="Phone number input"
               />
             </Pressable>
           </Entrance>
-
-          {/* Error */}
-          {sendOtp.isError && (
-            <Entrance animation="slideUp" duration={200}>
-              <Text variant="caption" color={colors.error} style={styles.errorText}>
-                {(sendOtp.error as Error)?.message ?? 'Failed to send code. Try again.'}
-              </Text>
-            </Entrance>
-          )}
 
           {/* CTA */}
           <Entrance animation="slideUp" delay={180} style={styles.ctaContainer}>

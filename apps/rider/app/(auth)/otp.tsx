@@ -1,27 +1,15 @@
-﻿import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import {
-  View,
-  TextInput,
-  StyleSheet,
-  Pressable,
-  } from 'react-native';
-import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { View, StyleSheet, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { Entrance, goBack, notify } from '@eyego/ui';
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withSequence,
-  withTiming,
-  withSpring,
-} from 'react-native-reanimated';
+import { Entrance, goBack, notify, OTPInput, type OTPInputRef } from '@eyego/ui';
 import { useMutation } from '@tanstack/react-query';
 import { authApi } from '@eyego/api';
 import { useAuthStore } from '../../stores/auth.store';
-import { fonts, fontSizes, spacing, radii, withOpacity, springs } from '@eyego/config';
-import { Text, Button } from '@eyego/ui';
-import { maskPhone } from '@eyego/utils';
+import { spacing, radii } from '@eyego/config';
+import { Text } from '@eyego/ui';
+import { describeError, formatPhone } from '@eyego/utils';
+import { Ionicons } from '@expo/vector-icons';
 import { useColors, Colors } from '../../utils/useColors';
 
 const OTP_LENGTH = 6;
@@ -31,150 +19,74 @@ export default function OtpScreen() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { phone: rawPhone, devOtp } = useLocalSearchParams<{ phone: string; devOtp?: string }>();
-  // Normalize phone: ensure '+' prefix (URL encoding can eat the '+' sign)
+  // URL encoding can eat the '+'.
   const phone = rawPhone ? `+${rawPhone.replace(/^\+/, '')}` : '';
   const router = useRouter();
   const { login } = useAuthStore();
 
-  const [otp, setOtp] = useState<string[]>(Array(OTP_LENGTH).fill(''));
-  const [activeIndex, setActiveIndex] = useState(0);
+  const otpRef = useRef<OTPInputRef>(null);
+  const [error, setError] = useState('');
   const [countdown, setCountdown] = useState(RESEND_SECONDS);
-  const inputRefs = useRef<TextInput[]>([]);
-  const shakeX = useSharedValue(0);
+  const [currentDevOtp, setCurrentDevOtp] = useState(devOtp ?? '');
 
-  // Countdown timer
   useEffect(() => {
     if (countdown <= 0) return;
-    const timer = setInterval(() => setCountdown((c) => c - 1), 1000);
-    return () => clearInterval(timer);
+    const t = setTimeout(() => setCountdown((c) => c - 1), 1000);
+    return () => clearTimeout(t);
   }, [countdown]);
 
   const verifyOtp = useMutation({
-    mutationFn: async (code: string) =>
-      authApi.verifyOtp({ phone: phone ?? '', otp: code }),
+    mutationFn: (code: string) => authApi.verifyOtp({ phone, otp: code }),
     onSuccess: async ({ data }) => {
       const { user, accessToken, refreshToken, isNewUser } = data.data;
       await login(user, { accessToken, refreshToken });
-      if (isNewUser || !user.name) {
-        router.replace('/(auth)/register');
-      } else {
-        router.replace('/(onboarding)');
-      }
+      // A returning rider goes home. This went to the intro carousel, so they
+      // swiped through it on every sign-in.
+      router.replace(isNewUser || !user.name ? '/(auth)/register' : '/(tabs)/home');
     },
-    onError: () => {
-      // Shake animation on wrong code
-      shakeX.value = withSequence(
-        withTiming(-10, { duration: 60 }),
-        withTiming(10, { duration: 60 }),
-        withTiming(-8, { duration: 60 }),
-        withTiming(8, { duration: 60 }),
-        withTiming(-4, { duration: 60 }),
-        withTiming(0, { duration: 60 })
-      );
-      setOtp(Array(OTP_LENGTH).fill(''));
-      setActiveIndex(0);
-      setTimeout(() => inputRefs.current[0]?.focus(), 100);
+    onError: (err) => {
+      setError(describeError(err, 'That code didn’t work. Try again.').message);
+      otpRef.current?.shake();
+      otpRef.current?.clear();
+      setTimeout(() => otpRef.current?.focus(), 120);
     },
   });
 
-  const [currentDevOtp, setCurrentDevOtp] = useState(devOtp ?? '');
-
   const resendOtp = useMutation({
-    mutationFn: () => authApi.sendOtp({ phone: phone ?? '' }),
+    mutationFn: () => authApi.sendOtp({ phone }),
     onSuccess: (res) => {
       const newDevOtp = (res as any)?.data?.data?._dev_otp;
       if (newDevOtp) setCurrentDevOtp(newDevOtp);
-      setOtp(Array(OTP_LENGTH).fill(''));
-      setActiveIndex(0);
+      setError('');
+      otpRef.current?.clear();
       setCountdown(RESEND_SECONDS);
-      setTimeout(() => inputRefs.current[0]?.focus(), 100);
+      otpRef.current?.focus();
     },
     onError: (err: any) => {
       const status = err?.response?.status ?? err?.status;
       if (status === 429) {
         setCountdown(RESEND_SECONDS);
-        notify('Too many attempts', 'Please wait 60 seconds before requesting a new code.');
+        notify('Too many attempts', 'Wait a minute before asking for a new code.');
       } else {
-        notify('Failed to Resend', 'Could not resend the code. Please try again.');
+        notify('Couldn’t resend', describeError(err, 'Please try again.').message);
       }
     },
   });
 
-  const handleKeyPress = useCallback(
-    (index: number, key: string) => {
-      if (key === 'Backspace') {
-        if (otp[index]) {
-          const newOtp = [...otp];
-          newOtp[index] = '';
-          setOtp(newOtp);
-        } else if (index > 0) {
-          const newOtp = [...otp];
-          newOtp[index - 1] = '';
-          setOtp(newOtp);
-          setActiveIndex(index - 1);
-          inputRefs.current[index - 1]?.focus();
-        }
-      }
-    },
-    [otp]
-  );
-
-  const handleChange = useCallback(
-    (index: number, value: string) => {
-      const digit = value.slice(-1);
-      if (!/^\d$/.test(digit)) return;
-
-      const newOtp = [...otp];
-      newOtp[index] = digit;
-      setOtp(newOtp);
-
-      if (index < OTP_LENGTH - 1) {
-        setActiveIndex(index + 1);
-        inputRefs.current[index + 1]?.focus();
-      } else {
-        // Auto-submit when last digit entered
-        const code = newOtp.join('');
-        if (code.length === OTP_LENGTH) {
-          verifyOtp.mutate(code);
-        }
-      }
-    },
-    [otp, verifyOtp]
-  );
-
-  const shakeStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: shakeX.value }],
-  }));
-
-  const isComplete = otp.every((d) => d !== '');
-
   return (
     <SafeAreaView style={styles.safe}>
-      {/* Back button */}
-      <Entrance animation="slideDown" delay={0} style={styles.backButton}>
-        <Pressable onPress={() => goBack()} hitSlop={12} accessibilityRole="button" accessibilityLabel="Go back">
-          <Text variant="bodyMedium" color={colors.onSurfaceVariant}>← Back</Text>
-        </Pressable>
-      </Entrance>
+      <Pressable onPress={() => goBack()} hitSlop={12} accessibilityRole="button" accessibilityLabel="Go back" style={styles.back}>
+        <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
+      </Pressable>
 
-      <KeyboardAwareScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={{ flex: 1 }}
-        keyboardShouldPersistTaps="handled"
-      >
       <View style={styles.container}>
-        {/* Headline */}
         <Entrance animation="slideUp" delay={50}>
-          <Text variant="headlineLarge" style={styles.headline}>
-            Enter the code
-          </Text>
+          <Text variant="headlineLarge" style={styles.headline}>Enter the code</Text>
           <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.subtext}>
-            Sent to {maskPhone(phone ?? '')}
+            Sent by SMS to {formatPhone(phone)}
           </Text>
-          <Pressable onPress={() => goBack()} accessibilityRole="button" accessibilityLabel="Change phone number">
-            <Text variant="label" color={colors.primary} style={{ marginTop: spacing.xs }}>
-              Change number
-            </Text>
+          <Pressable onPress={() => goBack()} accessibilityRole="button" accessibilityLabel="Change phone number" hitSlop={8}>
+            <Text variant="label" color={colors.primary} style={{ marginTop: spacing.xs }}>Change number</Text>
           </Pressable>
           {!!currentDevOtp && (
             <View style={styles.devBanner}>
@@ -184,208 +96,57 @@ export default function OtpScreen() {
           )}
         </Entrance>
 
-        {/* OTP boxes */}
-        <Entrance animation="slideUp" delay={100}>
-          <Animated.View style={[styles.otpRow, shakeStyle]}>
-            {Array.from({ length: OTP_LENGTH }).map((_, i) => (
-              <OtpCell
-                key={i}
-                index={i}
-                value={otp[i]}
-                isActive={activeIndex === i}
-                isSuccess={isComplete && !verifyOtp.isError && verifyOtp.isSuccess}
-                inputRef={(ref) => { if (ref) inputRefs.current[i] = ref; }}
-                onChange={(val) => handleChange(i, val)}
-                onKeyPress={(key) => handleKeyPress(i, key)}
-                onFocus={() => setActiveIndex(i)}
-              />
-            ))}
-          </Animated.View>
-        </Entrance>
+        <View style={styles.otp}>
+          <OTPInput
+            ref={otpRef}
+            length={OTP_LENGTH}
+            hasError={!!error}
+            onErrorReset={() => setError('')}
+            onComplete={(code) => !verifyOtp.isPending && verifyOtp.mutate(code)}
+          />
+        </View>
 
-        {/* Error */}
-        {verifyOtp.isError && (
-          <Entrance animation="fadeIn" style={styles.errorContainer}>
-            <Text variant="caption" color={colors.error} style={{ textAlign: 'center' }}>
-              Invalid code. Please try again.
-            </Text>
-          </Entrance>
-        )}
+        {error ? (
+          <Text variant="caption" color={colors.error} style={styles.center}>{error}</Text>
+        ) : verifyOtp.isPending ? (
+          <Text variant="bodySmall" color={colors.onSurfaceVariant} style={styles.center}>Checking…</Text>
+        ) : null}
 
-        {/* Loading indicator */}
-        {verifyOtp.isPending && (
-          <Entrance animation="fadeIn" style={styles.verifyingRow}>
-            <Text variant="bodySmall" color={colors.onSurfaceVariant}>
-              Verifying...
-            </Text>
-          </Entrance>
-        )}
-
-        {/* Resend */}
-        <Entrance animation="fadeIn" delay={150} duration={400} style={styles.resendContainer}>
-
+        <View style={styles.resend}>
           {countdown > 0 ? (
             <Text variant="bodySmall" color={colors.onSurfaceVariant}>
-              Resend code in{' '}
-              <Text variant="bodySmall" color={colors.primary}>
-                {countdown}s
-              </Text>
+              Resend code in <Text variant="bodySmall" color={colors.onSurface}>{countdown}s</Text>
             </Text>
           ) : (
-            <Pressable onPress={() => resendOtp.mutate()} disabled={resendOtp.isPending} accessibilityRole="button" accessibilityLabel="Resend verification code">
-              <Text variant="label" color={colors.primary}>
-                {resendOtp.isPending ? 'Sending...' : 'Resend code'}
-              </Text>
+            <Pressable onPress={() => resendOtp.mutate()} disabled={resendOtp.isPending} accessibilityRole="button" accessibilityLabel="Resend verification code" hitSlop={8}>
+              <Text variant="label" color={colors.primary}>{resendOtp.isPending ? 'Sending…' : 'Resend code'}</Text>
             </Pressable>
           )}
-        </Entrance>
+        </View>
       </View>
-      </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 }
 
-// Individual OTP cell component
-interface OtpCellProps {
-  index: number;
-  value: string;
-  isActive: boolean;
-  isSuccess: boolean;
-  inputRef: (ref: TextInput | null) => void;
-  onChange: (val: string) => void;
-  onKeyPress: (key: string) => void;
-  onFocus: () => void;
-}
-
-function OtpCell({ value, isActive, isSuccess, inputRef, onChange, onKeyPress, onFocus }: OtpCellProps) {
-  const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
-  const scale = useSharedValue(1);
-
-  useEffect(() => {
-    if (value) {
-      scale.value = withSequence(
-        withSpring(1.08, springs.micro),
-        withSpring(1, springs.micro)
-      );
-    }
-  }, [value, scale]);
-
-  const cellStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }));
-
-  return (
-    <Animated.View
-      style={[
-        styles.cell,
-        isActive && styles.cellActive,
-        value && styles.cellFilled,
-        isSuccess && styles.cellSuccess,
-        cellStyle,
-      ]}
-    >
-      <TextInput maxFontSizeMultiplier={1.4}
-        ref={inputRef}
-        style={styles.cellInput}
-        value={value}
-        onChangeText={onChange}
-        onKeyPress={({ nativeEvent }) => onKeyPress(nativeEvent.key)}
-        onFocus={onFocus}
-        keyboardType="number-pad"
-        maxLength={1}
-        textAlign="center"
-        selectionColor={colors.primary}
-        caretHidden
-      />
-    </Animated.View>
-  );
-}
-
-const makeStyles = (colors: Colors) => StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: 'transparent',
-  },
-  backButton: {
-    paddingHorizontal: spacing['2xl'],
-    paddingTop: spacing.base,
-  },
-  container: {
-    flex: 1,
-    paddingHorizontal: spacing['2xl'],
-    paddingTop: spacing['3xl'],
-  },
-  headline: {
-    letterSpacing: -1,
-  },
-  subtext: {
-    marginTop: spacing.sm,
-  },
-  devBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: spacing.base,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    backgroundColor: withOpacity(colors.primary, 0.08),
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: withOpacity(colors.primary, 0.2),
-    alignSelf: 'flex-start',
-  },
-  otpRow: {
-    flexDirection: 'row',
-    gap: spacing.md,
-    marginTop: spacing['3xl'],
-    marginBottom: spacing.xl,
-    justifyContent: 'center',
-  },
-  cell: {
-    width: 48,
-    height: 60,
-    borderRadius: radii.lg,
-    borderWidth: 1.5,
-    borderColor: colors.outline,
-    backgroundColor: colors.surfaceContainer,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cellActive: {
-    borderColor: colors.primary,
-    borderWidth: 2,
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  cellFilled: {
-    borderColor: colors.primary,
-    backgroundColor: colors.surfaceContainerHigh,
-  },
-  cellSuccess: {
-    borderColor: colors.primary,
-    backgroundColor: withOpacity(colors.primary, 0.15),
-  },
-  cellInput: {
-    fontFamily: fonts.displayBold,
-    fontSize: fontSizes.titleLarge,
-    lineHeight: Math.round(fontSizes.titleLarge * 1.3),
-    color: colors.onSurface,
-    width: '100%',
-    height: '100%',
-    textAlign: 'center',
-  },
-  errorContainer: {
-    marginBottom: spacing.md,
-  },
-  verifyingRow: {
-    alignItems: 'center',
-    marginBottom: spacing.md,
-  },
-  resendContainer: {
-    alignItems: 'center',
-    marginTop: spacing.sm,
-  },
-});
+const makeStyles = (colors: Colors) =>
+  StyleSheet.create({
+    // Transparent like the rest of the auth flow — the root AppBackground shows through.
+    safe: { flex: 1, backgroundColor: 'transparent' },
+    back: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', marginLeft: spacing.sm, marginTop: spacing.xs },
+    container: { flex: 1, paddingHorizontal: spacing['2xl'], paddingTop: spacing.xl },
+    headline: { letterSpacing: -1 },
+    subtext: { marginTop: spacing.sm },
+    devBanner: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginTop: spacing.base,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: spacing.xs,
+      backgroundColor: `${colors.primary}14`,
+      borderRadius: radii.md,
+      alignSelf: 'flex-start',
+    },
+    otp: { marginTop: spacing['3xl'], marginBottom: spacing.lg },
+    center: { textAlign: 'center', marginBottom: spacing.md },
+    resend: { alignItems: 'center', marginTop: spacing.sm },
+  });

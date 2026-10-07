@@ -1,215 +1,106 @@
 import React, { useMemo } from 'react';
-import { View, StyleSheet, ScrollView, Pressable } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { MotiView, goBack } from '@eyego/ui';
+import { View, StyleSheet, RefreshControl } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
-import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
-import { Text, AppBackground } from '@eyego/ui';
+import { fonts } from '@eyego/config';
+import { Text, Screen, ListSection, ListRow, SkeletonRows, QueryBoundary, goDeeper } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
-import { useDriverStore } from '../../stores/driver.store';
 
+const TIER_LABEL: Record<string, string> = { ECO: 'Eco', COMFORT: 'Comfort', PREMIUM: 'Premium' };
+
+/**
+ * VEHICLE (rival spec §18) — what riders see at the kerb: colour, make, model,
+ * plate. Read-only; changes go through support, and the page says so with a
+ * row that gets you there instead of a dead-end hint.
+ */
 export default function MyVehicleScreen() {
   const colors = useColors();
-  const theme = useDriverStore(s => s.theme);
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const router = useRouter();
 
-  const { data: profile, isLoading } = useQuery({
+  const me = useQuery({
     queryKey: ['driver', 'me'],
     queryFn: () => driverApi.getMe(),
-    select: (r) => {
-      const data = (r.data as any).data;
-      // Backend wraps driver data in { driver: ... } — unwrap it
-      return data?.driver ?? data;
-    },
+    // The server wraps the profile in { driver } — unwrap it.
+    select: (r) => (r.data as any).data?.driver ?? (r.data as any).data,
   });
-
-  const vehicle = (profile as any)?.vehicles?.[0] ?? null;
+  const vehicle = me.data?.vehicles?.[0] ?? null;
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <AppBackground isDark={theme !== 'light'} />
-      <MotiView
-        from={{ opacity: 0, translateX: -6 }}
-        animate={{ opacity: 1, translateX: 0 }}
-        transition={{ type: 'spring', ...springs.standard }}
-        style={styles.backRow}
+    <Screen
+      title="Vehicle"
+      refreshControl={<RefreshControl refreshing={me.isRefetching} onRefresh={() => me.refetch()} tintColor={colors.primary} />}
+    >
+      <QueryBoundary
+        loading={me.isLoading}
+        error={me.isError && !me.data}
+        onRetry={() => me.refetch()}
+        skeleton={<SkeletonRows count={5} />}
       >
-        <Pressable onPress={() => goBack()} hitSlop={12} accessibilityRole="button">
-          <Text variant="bodyMedium" color={colors.onSurfaceVariant}>← Back</Text>
-        </Pressable>
-      </MotiView>
-
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <MotiView
-          from={{ opacity: 0, translateY: -6 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', ...springs.standard, delay: 40 }}
-        >
-          <Text variant="headlineLarge" style={styles.headline}>My Vehicle</Text>
-          <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.subtext}>
-            Vehicle details assigned to your account.
-          </Text>
-        </MotiView>
-
-        {isLoading ? (
-          <View style={styles.skeletonWrapper}>
-            {[200, 160, 120].map((w, i) => (
-              <MotiView
-                key={i}
-                from={{ opacity: 0.3 }}
-                animate={{ opacity: 0.7 }}
-                transition={{ type: 'timing', duration: 800, loop: true, delay: i * 150 }}
-                style={[styles.skeleton, { width: w }]}
-              />
-            ))}
-          </View>
-        ) : vehicle ? (
-          <MotiView
-            from={{ opacity: 0, translateY: 14 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', ...springs.standard, delay: 100 }}
-            style={styles.vehicleCard}
-          >
-            <View style={styles.vehicleIconRow}>
-              <View style={styles.vehicleIconBg}>
-                <Ionicons name="bus-outline" size={36} color={colors.primary} />
+        {vehicle ? (
+          <>
+            <View style={styles.hero}>
+              <View style={styles.heroIcon}>
+                <Ionicons name="bus-outline" size={30} color={colors.primary} />
               </View>
-              <View style={styles.tierBadge}>
-                <Text style={styles.tierText}>{vehicle.tier ?? 'ECO'}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.heroTitle} numberOfLines={2}>
+                  {[vehicle.colour, vehicle.make, vehicle.model].filter(Boolean).join(' ')}
+                </Text>
+                <View style={styles.plate}>
+                  <Text style={styles.plateText}>{vehicle.plateNumber}</Text>
+                </View>
               </View>
             </View>
 
-            <VehicleRow icon="car-outline" label="Make / Model" value={`${vehicle.make ?? '—'} ${vehicle.model ?? ''}`} colors={colors} />
-            <View style={styles.divider} />
-            <VehicleRow icon="color-palette-outline" label="Colour" value={vehicle.colour ?? '—'} colors={colors} />
-            <View style={styles.divider} />
-            <VehicleRow icon="keypad-outline" label="License Plate" value={vehicle.plateNumber ?? '—'} colors={colors} />
-            <View style={styles.divider} />
-            {/* `seaterCount` is the column name. This read `seatCapacity`, which
-                does not exist on the payload, so every vehicle displayed the
-                fallback "14 seats" regardless of what was registered. */}
-            <VehicleRow icon="people-outline" label="Capacity" value={`${vehicle.seaterCount ?? '—'} seats`} colors={colors} />
-            <View style={styles.divider} />
-            <VehicleRow
-              icon={vehicle.isVerified ? 'shield-checkmark-outline' : 'time-outline'}
-              label="Verification"
-              value={vehicle.isVerified ? 'Verified' : 'Pending'}
-              valueColor={vehicle.isVerified ? colors.primary : '#F59E0B'}
-              colors={colors}
-            />
-          </MotiView>
+            <ListSection title="Details">
+              <ListRow icon="calendar-outline" title="Year" value={vehicle.year ? String(vehicle.year) : '—'} />
+              <ListRow icon="people-outline" title="Passenger seats" value={vehicle.seaterCount ? String(vehicle.seaterCount) : '—'} />
+              <ListRow icon="layers-outline" title="Class" value={TIER_LABEL[vehicle.tier] ?? vehicle.tier ?? '—'} />
+              <ListRow
+                icon={vehicle.isVerified ? 'shield-checkmark-outline' : 'time-outline'}
+                title="Inspection"
+                value={vehicle.isVerified ? 'Verified' : 'In review'}
+                valueColor={vehicle.isVerified ? colors.statusSuccess : colors.statusWarning}
+              />
+            </ListSection>
+          </>
         ) : (
-          <MotiView
-            from={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ type: 'spring', ...springs.standard, delay: 100 }}
-            style={styles.emptyCard}
-          >
-            <Ionicons name="car-outline" size={48} color={colors.onSurfaceVariant} />
-            <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={{ textAlign: 'center', marginTop: spacing.md }}>
-              No vehicle assigned yet.
-            </Text>
-            <Text variant="caption" color={colors.onSurfaceVariant} style={{ textAlign: 'center', marginTop: spacing.xs }}>
-              Contact EyeGo support to have your vehicle added.
-            </Text>
-          </MotiView>
+          <ListSection footer="You need a vehicle on file to go online.">
+            <ListRow icon="add-circle-outline" title="Add your vehicle" subtitle="Make, model, plate and class" onPress={() => goDeeper('/(onboarding)')} />
+          </ListSection>
         )}
 
-        <MotiView
-          from={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ type: 'timing', duration: 400, delay: 200 }}
-          style={styles.supportHint}
-        >
-          <Ionicons name="information-circle-outline" size={14} color={colors.onSurfaceVariant} />
-          <Text variant="caption" color={colors.onSurfaceVariant}>
-            To update vehicle details, contact EyeGo support.
-          </Text>
-        </MotiView>
-      </ScrollView>
-    </SafeAreaView>
+        {vehicle ? (
+          <ListSection footer="Vehicle details are checked against your registration, so changes go through the EyeGo team.">
+            <ListRow icon="chatbubble-ellipses-outline" title="Change vehicle details" onPress={() => goDeeper('/(profile)/help')} />
+          </ListSection>
+        ) : null}
+      </QueryBoundary>
+    </Screen>
   );
 }
 
-function VehicleRow({
-  icon, label, value, valueColor, colors,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-  value: string;
-  valueColor?: string;
-  colors: DriverColors;
-}) {
-  return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.base }}>
-      <Ionicons name={icon} size={18} color={colors.onSurfaceVariant} />
-      <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={{ flex: 1 }}>{label}</Text>
-      <Text style={{ fontFamily: fonts.semiBold, fontSize: fontSizes.bodyMedium, color: valueColor ?? colors.onSurface }}>
-        {value}
-      </Text>
-    </View>
-  );
-}
-
-const makeStyles = (colors: DriverColors) =>
+const makeStyles = (c: DriverColors) =>
   StyleSheet.create({
-    safe: { flex: 1, backgroundColor: 'transparent' },
-    backRow: { paddingHorizontal: spacing['2xl'], paddingTop: spacing.base },
-    scroll: { paddingHorizontal: spacing['2xl'], paddingTop: spacing.xl, paddingBottom: spacing['3xl'] },
-    headline: { letterSpacing: -1 },
-    subtext: { marginTop: spacing.xs, marginBottom: spacing['2xl'] },
-    skeletonWrapper: { gap: spacing.lg, marginTop: spacing.xl },
-    skeleton: { height: 20, borderRadius: 10, backgroundColor: colors.surfaceContainerHigh },
-    vehicleCard: {
-      backgroundColor: colors.surfaceContainer,
-      borderRadius: radii['2xl'],
-      borderWidth: 1,
-      borderColor: colors.outline,
-      padding: spacing.xl,
-    },
-    vehicleIconRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      marginBottom: spacing.xl,
-    },
-    vehicleIconBg: {
-      width: 72,
-      height: 72,
-      borderRadius: radii.xl,
-      backgroundColor: `${colors.primary}14`,
-      borderWidth: 1,
-      borderColor: `${colors.primary}33`,
+    hero: { flexDirection: 'row', alignItems: 'center', gap: 16, paddingHorizontal: 20, paddingTop: 8 },
+    heroIcon: {
+      width: 60,
+      height: 60,
+      borderRadius: 16,
+      backgroundColor: c.surfaceContainer,
       alignItems: 'center',
       justifyContent: 'center',
     },
-    tierBadge: {
-      backgroundColor: `${colors.primary}22`,
-      borderWidth: 1,
-      borderColor: `${colors.primary}55`,
-      borderRadius: radii.full,
-      paddingHorizontal: spacing.md,
-      paddingVertical: spacing.xs,
+    heroTitle: { fontFamily: fonts.displayBold, fontSize: 20, lineHeight: 26, color: c.onSurface },
+    plate: {
+      alignSelf: 'flex-start',
+      marginTop: 8,
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      borderRadius: 6,
+      borderWidth: 1.5,
+      borderColor: c.onSurface,
     },
-    tierText: { fontFamily: fonts.semiBold, fontSize: 12, lineHeight: 16, color: colors.primary, letterSpacing: 1 },
-    divider: { height: 1, backgroundColor: colors.outlineVariant },
-    emptyCard: {
-      backgroundColor: colors.surfaceContainer,
-      borderRadius: radii['2xl'],
-      borderWidth: 1,
-      borderColor: colors.outline,
-      padding: spacing['3xl'],
-      alignItems: 'center',
-    },
-    supportHint: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.xs,
-      marginTop: spacing.xl,
-      justifyContent: 'center',
-    },
+    plateText: { fontFamily: fonts.semiBold, fontSize: 14, lineHeight: 18, letterSpacing: 1.2, color: c.onSurface },
   });

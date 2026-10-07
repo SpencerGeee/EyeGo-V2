@@ -13,7 +13,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
 // Seats are counted as PEOPLE, never as booking rows — see `takenSeats`.
-import { bookedSeats, seatsOf } from '@eyego/utils';
+import { bookedSeats, seatsOf, ghanaLocalDigits } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { Text, Button, Entrance, AppBackground, goBack, notify } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
@@ -364,12 +364,12 @@ export default function AddPassengerScreen() {
                   <TextInput maxFontSizeMultiplier={1.4}
                     style={styles.phoneInput}
                     value={phone}
-                    onChangeText={(t) => setPhone(t.replace(/\D/g, '').slice(0, 9))}
+                    onChangeText={(t) => setPhone(ghanaLocalDigits(t))}
                     keyboardType="number-pad"
                     placeholder="24X XXX XXXX"
                     placeholderTextColor={colors.onSurfaceVariant}
                     selectionColor={colors.primary}
-                    maxLength={9}
+                    accessibilityLabel="Passenger phone number"
                     autoFocus
                   />
                 </View>

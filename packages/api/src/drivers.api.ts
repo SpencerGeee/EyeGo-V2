@@ -81,14 +81,23 @@ export interface DriverVerificationInput {
   };
 }
 
+export type DriverLevel = 'BRONZE' | 'SILVER' | 'GOLD' | 'PLATINUM';
+
 export interface DriverPerformance {
-  acceptanceRate: number;
-  completionRate: number;
-  cancellationRate: number;
+  /** null until the driver has been offered anything this week. */
+  acceptanceRate: number | null;
+  /** Last 7 days; null when no trip finished (completed or driver-cancelled). */
+  completionRate: number | null;
+  cancellationRate: number | null;
   onlineHoursThisWeek: number;
   tripsThisWeek: number;
   earningsThisWeek: number;
-  level: 'BRONZE' | 'SILVER' | 'GOLD' | 'PLATINUM';
+  level: DriverLevel;
+  completedTrips: number;
+  /** null at the top tier. Thresholds live server-side only. */
+  nextLevel: DriverLevel | null;
+  tripsToNextLevel: number;
+  /** Weekly goal in TRIPS (not money). */
   weeklyGoal: number;
   weeklyGoalProgress: number;
 }
@@ -609,7 +618,11 @@ export const driverApi = {
       totalEarningsPesewas: number;
       totalTrips: number;
       totalTips: number;
+      /** Quest bonuses in the period. */
+      totalBonuses?: number;
+      /** Commission only, as a positive number. */
       totalDeductions: number;
+      /** Fares + tips + bonuses − commission. Withdrawals are not deductions. */
       netEarnings: number;
       averagePerTripPesewas: number;
       /**
@@ -702,5 +715,7 @@ export interface DriverSupportTicket {
   priority: string;
   createdAt: string;
   updatedAt: string;
-  messages: Array<{ id: string; text: string; senderRole: string; createdAt: string }>;
+  /** false = a rider's ticket about one of this driver's trips. */
+  filedByMe?: boolean;
+  messages: Array<{ id: string; text: string; senderRole: string; createdAt: string; fromMe?: boolean }>;
 }

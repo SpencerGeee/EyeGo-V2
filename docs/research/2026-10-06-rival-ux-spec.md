@@ -67,3 +67,80 @@
 
 ## Gaps
 No primary source covers searching-screen animation, boost-chip UI, Bolt's on-demand no-driver copy, Bolt's saved-place editor, missed-offer history or wallet loading. Yango Ghana help pages blocked us (403).
+
+---
+
+# Part 2 — every other page (added 2026-10-07)
+
+Same tags. Help centres describe what is ON a page well and how it LOOKS poorly, so layout notes are mostly [I]. Each entry ends with the EyeGo target, built with the shared page kit (ScreenHeader · ListSection · ListRow · ScreenState) under "Onyx + restraint": one glow per screen at most.
+
+## 0. The page template (applies everywhere)
+- [I] Uber/Bolt secondary pages: back arrow top-left, large left-aligned title that shrinks into the bar on scroll, flat rows (leading icon · title · grey subtitle · trailing value or chevron) separated by hairlines, small bold section labels, destructive actions last and red. No cards around lists, no decoration.
+- **EyeGo**: exactly that. Loading = skeleton rows matching the real layout; empty = icon + one sentence + one action; error = message + Retry, never a blank page or a GH₵0.00 placeholder.
+
+## 6. Rider — Account tab
+- [C] Wallet, Activity, Help, Settings, Family and Privacy Checkup all hang off **Account** ([Uber](https://www.uber.com/us/en/ride/how-it-works/family-profiles/), [Uber security](https://medium.com/@ubersecurity/introducing-ubers-privacy-checkup-and-more-ac2d07b43131)); Activity is reached by tapping Account → Activity ([Tailride](https://tailride.so/blog/how-to-get-a-receipt-from-uber)).
+- [I] Header = name, photo, rating; a row of three big tiles (Help · Wallet · Activity); then a plain list.
+- **EyeGo**: header (avatar, name, ★ rating, Edit). Tiles: **Wallet** (live balance) · **Activity** · **Help**. Sections: *Rides* (Saved places, Scheduled rides, Promotions, Business) · *Money* (Payment methods, Send money, Scan & pay) · **Settings ›**. Log out last.
+
+## 7. Rider — Settings hub
+- [C] Privacy controls live together under Settings (location, notifications, account deletion) and a Privacy Centre (download / explore your data) ([Uber newsroom](https://www.uber.com/newsroom/your-privacy-settings-all-in-one-place-and-easier-to-use-2), [VentureBeat](https://venturebeat.com/mobile/uber-simplifies-privacy-controls-to-better-manage-what-data-is-shared)).
+- [C] **Safety Preferences**: one page for audio recording, PIN verification, Share My Trip and RideCheck, each set to always / at night / by place ([Daily Hive](https://dailyhive.com/vancouver/uber-ride-hailing-app-safety-preferences)).
+- [C] Home/Work and extra shortcuts are edited under Settings ([Guiding Tech](https://www.guidingtech.com/delete-saved-places-uber)).
+- **EyeGo** (replaces settings + privacy + safety splits): *Account* (name, phone, email → Edit profile) · *Saved places* · *Appearance* (Dark / Light / System) · *Notifications* · *Privacy* (location, data) · *Safety* (trusted contacts, safety preferences) · *Legal* (Terms, Privacy policy) · **Delete account** (red, last). One delete flow only.
+
+## 8. Rider — Wallet & payment methods
+- [C] Account → Wallet → *Payment Methods* list → **Add Payment Method**; *Add funds* → amount → method → Purchase, balance updates at once; optional auto-refill below a threshold ([Ridester](https://www.ridester.com/how-to-use-uber-cash/), [Uber](https://www.uber.com/co/en/ride/how-it-works/uber-cash/)).
+- **EyeGo**: balance hero (the page's one glow) + **Top up**; *Payment methods* rows with a check on the default + "Add payment method"; *Send money* and *Scan & pay* as rows; transactions grouped by day, signed amounts, pending/failed in grey. Cached balance + "Updated 2 min ago" (§4).
+
+## 9. Rider — Activity & trip receipt
+- [C] Tapping a trip shows date/time, pickup and drop-off, full fare breakdown (base, taxes, tolls); the receipt sits below the map and the rating; resend receipt by email, get help, or dispute from the trip; history filterable by date or by Personal/Business ([Tailride](https://tailride.so/blog/how-to-get-a-receipt-from-uber)).
+- [I] List rows carry a small static route map, place name, date, price.
+- **EyeGo**: *Upcoming* (scheduled + booked seats) then *Past* grouped by month; row = route thumbnail · destination · date · GH₵ · status chip if not completed. Detail: static map header → date/time → driver + vehicle → route timeline → fare breakdown → payment → **Get help** · **Receipt** · **Rebook**.
+
+## 10. Rider — Help
+- [C] Articles plus "send a message" to support ([Uber GH](https://www.uber.com/en-GH/blog/in-app-support-help-at-the-tap-of-a-button-5/)); driver Help has search on top and topic lists ([RSD](https://www.ridesharingdriver.com/every-feature-in-uber-driver-app/)).
+- **EyeGo**: search field top → "Your last trip" row with Get help → topics → *Your conversations* (tickets with status).
+
+## 11. Rider — Safety (profile + in-trip)
+- [C] In-trip shield opens the toolkit: contact a safety agent (call or silent text), Emergency button showing live location + trip details for the dispatcher, Share My Trip with trusted contacts, RideCheck on long unexpected stops ([Uber safety](https://www.uber.com/au/en-au/ride/safety)).
+- **EyeGo**: profile/safety = Safety preferences (toggles with *always / at night*) + Trusted contacts + PIN verification. In-trip SOS keeps its red emergency bar; location + plate shown big enough to read aloud.
+
+## 12. Rider — Notifications, Promotions, Scheduled rides
+- [I] Inbox lists newest first with an unread dot; promotions sit in the Wallet with a code field; reserved rides appear under Activity → Upcoming.
+- **EyeGo**: Notifications grouped *Today / Earlier*, unread dot, tap → the thing it's about. Promotions: code field top, active promos with expiry, used ones collapsed. Scheduled rides = the same rows as Activity → Upcoming.
+
+## 13. Rider — Driver-created trips (browse)
+- [C] **Uber Shuttle**: choose Shuttle, enter pickup + drop-off, see the routes between them, pick a route then a boarding time, up to 5 seats, book up to a week ahead and until 2 min before departure, then track the bus live ([Uber help via search](https://help.uber.com/en/riders/article/airport-shuttle-faq?nodeId=303ceaf8-e1db-4adf-a44d-1e774d768bcd), [Uber](https://www.uber.com/us/en/ride/uber-shuttle)).
+- [I] Explore surfaces put the map full-screen with the list in a draggable sheet; pins cluster when zoomed out.
+- **EyeGo**: full map + sheet (peek/half/full); "Where to?" field narrows to trips heading there; sort Soonest / Nearest pickup / Cheapest; rows = walk time to pickup · live countdown · destination · driver ★ + vehicle · seat dots · GH₵/seat; *Leaving soon* strip pinned on top with one-tap Reserve; seat counts update live; empty state offers **Notify me** for that destination, Request now, Schedule.
+
+## 14. Rider — Sign-in & onboarding
+- [I] Phone → OTP (auto-read, resend timer) → name → terms; one field per screen, keyboard-pinned Continue.
+- **EyeGo**: same; no decoration beyond the logo; errors inline under the field.
+
+## 15. Driver — Home
+- [C] Big **Go** button; map with demand shading, surge areas and airport queues; Trip Planner tab (promotions, ride-type preferences); destination filter ([RSD](https://www.ridesharingdriver.com/every-feature-in-uber-driver-app/)).
+- **EyeGo**: already built; restraint pass only — today's earnings pill top, Go button the single glow.
+
+## 16. Driver — Earnings
+- [C] Daily earnings, time online, trips completed and expected deposit for the week; trip list where each trip opens details + Help (fare issue, rider behaviour, lost item, accident); *More ways to earn* (promotions); tap balance → itemised transactions; progress trackers toward promotions with expiry; cash out from Earnings ([RSD](https://www.ridesharingdriver.com/every-feature-in-uber-driver-app/), [Uber](https://www.uber.com/us/en/newsroom/refining-the-earnings-experience-2/)).
+- **EyeGo**: week switcher + daily bars → totals row (online time · trips · GH₵) → **Withdraw** → *Weekly goal* (moved from Performance) → *More ways to earn* (quests) → trips list.
+
+## 17. Driver — Ratings & performance (merge of performance + ratings)
+- [C] Uber Pro shows points/tier, star rating, cancellation rate and benefits, plus higher-tier benefits; tiers by points over a 3-month period plus quality bars (≥4.85★, ≤4% cancellation) ([Uber Pro](https://www.uber.com/at/en/drive/uber-pro/), [TripLog](https://triplog.net/blog/uber-pro-explained-everything-drivers-need-to-know)).
+- [C] Acceptance rate = last 100 exclusive requests; cancellation = cancels ÷ accepted; tap a rate to see how many requests it's based on ([Uber](https://www.uber.com/blog/understanding-acceptance-and-cancellation-rates)). Rating page: distribution graph of the last 500 ratings, feedback from sub-4★ trips, compliments and achievements ([RSD](https://www.ridesharingdriver.com/every-feature-in-uber-driver-app/)).
+- **EyeGo**: big ★ rating (the one glow) → three rates (rating · acceptance · cancellation), each tappable with "Based on your last N" → 1–5★ distribution bars → compliments → tier card with points to next tier and what it unlocks.
+
+## 18. Driver — Account, documents, vehicle, payout, settings, help
+- [C] Account holds Vehicles (add vehicle), Documents (tap to re-upload; expiry dates with colour-coded warnings), Payment (active payout method, edit), Tax info, Insurance ([RSD](https://www.ridesharingdriver.com/every-feature-in-uber-driver-app/)); Bolt asks for an expiry date on each document upload ([Bolt FAQ](https://bolt.eu/en-sa/driver/guide/faq/)).
+- [C] Settings: Sounds & voice, Navigation (in-app vs Google Maps/Waze, voice on/off), Accessibility (screen flash / vibration for requests), Communication (call or chat), Night mode, Follow my ride, Emergency contact, Speed limit alerts ([RSD](https://www.ridesharingdriver.com/every-feature-in-uber-driver-app/)).
+- [C] Help: search + topics *Trips · Account & app · Earnings · Guides* + chat with support ([RSD](https://www.ridesharingdriver.com/every-feature-in-uber-driver-app/)).
+- **EyeGo**: Account = *Vehicle* · *Documents* (each row shows status + expiry; amber ≤30 days, red expired) · *Payout account* · **Ratings & performance ›** · **Settings ›** · Help. Settings sections: Navigation app · Requests (sound, vibration) · Communication · Appearance · Safety (emergency contact) · Legal · Delete account (red, last).
+
+## 19. Driver — Inbox & trip history
+- [C] Inbox = account notices, feature news, promotions ([RSD](https://www.ridesharingdriver.com/every-feature-in-uber-driver-app/)).
+- **EyeGo**: Notifications grouped *Today / Earlier*; Trips tab rows = date · route · seats filled · GH₵ earned → detail with **Get help**.
+
+## Part 2 gaps
+Uber's rider Account tile row and the visual style of section headers are [I]: the redesign page returned HTTP 406 and help pages describe content, not layout. Bolt's driver settings layout is undocumented beyond the paths above. Verify [I] layouts on a phone.

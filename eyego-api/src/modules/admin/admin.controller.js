@@ -9,8 +9,13 @@ const { ok, created } = require('../../utils/response');
 const logger = require('../../utils/logger');
 
 const reviewDriverDocument = async (req, res) => {
-  const { approve, rejectionReason } = req.body;
-  const result = await driversService.reviewDocument(req.params.id, req.params.type, { approve: !!approve, rejectionReason });
+  const { approve, rejectionReason, expiresOn } = req.body;
+  const result = await driversService.reviewDocument(req.params.id, req.params.type, {
+    approve: !!approve,
+    rejectionReason,
+    expiresOn,
+    reviewedById: req.admin?.id,
+  });
   ok(res, { review: result }, approve ? 'Document approved' : 'Document rejected');
 };
 

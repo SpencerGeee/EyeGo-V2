@@ -1,55 +1,71 @@
-import React, { useMemo, useState, useEffect, useCallback } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { View, StyleSheet, Pressable, TextInput, Alert, Linking, Modal, FlatList } from 'react-native';
-import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import * as Contacts from 'expo-contacts';
 import * as Location from 'expo-location';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { MotiView, goBack, notify, callNumber } from '@eyego/ui';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
-import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
-import { Text, Button, AppBackground } from '@eyego/ui';
+import { describeError } from '@eyego/utils';
+import { fonts, radii } from '@eyego/config';
+import { Text, Button, Screen, ListSection, ListRow, goDeeper, notify, callNumber } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { usePlatformConfig } from '../../hooks/usePlatformConfig';
 import { useDriverStore } from '../../stores/driver.store';
 import { offlineQueue } from '../../utils/offlineQueue';
 
-const SAFETY_TIPS = [
-  { icon: 'lock-closed-outline' as const,     tip: 'Keep your doors locked until a passenger shows their verified QR code.' },
-  { icon: 'eye-outline' as const,              tip: 'Verify passenger identity matches the booking name before departure.' },
-  { icon: 'phone-portrait-outline' as const,  tip: 'Keep your phone charged and visible on its mount at all times.' },
-  { icon: 'shield-outline' as const,          tip: 'Trust your instincts — you have the right to cancel any trip that makes you uncomfortable.' },
-  { icon: 'map-outline' as const,             tip: 'Always follow the designated route. Notify EyeGo if asked to deviate.' },
+const TIPS: { icon: keyof typeof Ionicons.glyphMap; title: string; detail: string }[] = [
+  { icon: 'person-circle-outline', title: 'Confirm the rider', detail: 'Check the name and boarding code match the booking before you set off.' },
+  { icon: 'lock-closed-outline', title: 'Doors stay locked', detail: 'Keep them locked until the rider is confirmed.' },
+  { icon: 'phone-portrait-outline', title: 'Phone on the mount', detail: 'Charged and visible, so navigation and SOS are one tap away.' },
+  { icon: 'hand-left-outline', title: 'You can say no', detail: 'Cancel any trip that makes you uncomfortable, then tell us why.' },
+  { icon: 'map-outline', title: 'Stay on the route', detail: 'If a rider asks for a big detour, let EyeGo know.' },
 ];
 
+type Contact = { name: string; phone: string; relationship: string };
+
+/**
+ * SAFETY (rival spec §18) — the emergency button first, then the person we
+ * contact, then guidance. The support number used to be a made-up
+ * "+233 30 200 0000"; it now comes from the console, and the row hides when
+ * none is set.
+ */
 export default function SafetyScreen() {
-  // One emergency number for both apps, editable in the console without a
-  // release. Falls back to Ghana’s unified line, so it is never empty even
-  // before the first config fetch answers.
-  const { emergencyNumber } = usePlatformConfig();
+  const { emergencyNumber, supportPhone } = usePlatformConfig();
   const colors = useColors();
-  const theme = useDriverStore(s => s.theme);
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const router = useRouter();
   const qc = useQueryClient();
-  const driver = useDriverStore((s) => s.driver);
+  const storeDriver = useDriverStore((s) => s.driver);
   const updateDriver = useDriverStore((s) => s.updateDriver);
   const activeTripId = useDriverStore((s) => s.activeTripId);
 
-  const existing = driver?.emergencyContact;
-  const [name, setName] = useState(existing?.name ?? '');
-  const [phone, setPhone] = useState(existing?.phone ?? '');
-  const [relationship, setRelationship] = useState(existing?.relationship ?? '');
-  const [editing, setEditing] = useState(!existing);
-  const [showContactPicker, setShowContactPicker] = useState(false);
+  // The server copy wins — the store only knew what this phone had saved.
+  const me = useQuery({
+    queryKey: ['driver', 'me'],
+    queryFn: () => driverApi.getMe(),
+    select: (r) => (r.data as any).data?.driver ?? (r.data as any).data,
+  });
+  const existing: Contact | null = me.data?.emergencyContact ?? storeDriver?.emergencyContact ?? null;
+
+  const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [relationship, setRelationship] = useState('');
+  const [editing, setEditing] = useState(false);
+  const [picker, setPicker] = useState(false);
   const [contactList, setContactList] = useState<Contacts.Contact[]>([]);
 
-  const handlePickContact = async () => {
+  useEffect(() => {
+    if (existing && !editing) {
+      setName(existing.name ?? '');
+      setPhone(existing.phone ?? '');
+      setRelationship(existing.relationship ?? '');
+    }
+  }, [existing?.name, existing?.phone, existing?.relationship, editing]);
+
+  const pickContact = async () => {
     const { status } = await Contacts.requestPermissionsAsync();
     if (status !== 'granted') {
-      notify('Permission required', 'Please allow access to contacts in Settings.');
+      notify('Contacts are off', 'Allow access to contacts in Settings, or type the details in.');
       return;
     }
     const { data } = await Contacts.getContactsAsync({
@@ -57,370 +73,169 @@ export default function SafetyScreen() {
       sort: Contacts.SortTypes.FirstName,
     });
     setContactList(data.filter((c) => c.name && c.phoneNumbers?.length));
-    setShowContactPicker(true);
+    setPicker(true);
   };
 
-  const selectContact = (contact: Contacts.Contact) => {
-    setName(contact.name ?? '');
-    setPhone(contact.phoneNumbers?.[0]?.number?.replace(/\s/g, '') ?? '');
-    setShowContactPicker(false);
-  };
-
-  useEffect(() => {
-    if (existing) {
-      setName(existing.name);
-      setPhone(existing.phone);
-      setRelationship(existing.relationship);
-    }
-  }, [existing]);
-
-  const saveContact = useMutation({
-    mutationFn: () => driverApi.updateEmergencyContact({ name: name.trim(), phone: phone.trim(), relationship: relationship.trim() }),
-    onSuccess: () => {
-      updateDriver({ emergencyContact: { name: name.trim(), phone: phone.trim(), relationship: relationship.trim() } });
+  const save = useMutation({
+    mutationFn: (c: Contact) => driverApi.updateEmergencyContact(c),
+    onSuccess: (_r, c) => {
+      updateDriver({ emergencyContact: c });
       setEditing(false);
       qc.invalidateQueries({ queryKey: ['driver', 'me'] });
+      notify('Emergency contact saved', undefined, { tone: 'success' });
     },
-    onError: (err) => notify('Could not save that setting', (err as Error).message),
+    onError: (err) => {
+      const { title, message } = describeError(err, 'Could not save your emergency contact.');
+      notify(title, message);
+    },
   });
 
-  const renderContactItem = useCallback(({ item }: { item: Contacts.Contact }) => (
-    <Pressable
-      onPress={() => selectContact(item)}
-      style={{ padding: spacing['2xl'], borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }}
-     accessibilityRole="button">
-      <Text variant="bodyMedium">{item.name}</Text>
-      <Text variant="caption" color={colors.onSurfaceVariant}>{item.phoneNumbers?.[0]?.number ?? ''}</Text>
-    </Pressable>
-  ), [selectContact, colors]);
+  const digits = phone.replace(/[^\d+]/g, '');
+  const canSave = name.trim().length > 1 && digits.replace(/\D/g, '').length >= 9 && relationship.trim().length > 0;
 
-  const canSave = name.trim().length > 1 && phone.trim().length >= 9 && relationship.trim().length > 0;
+  const sos = () =>
+    Alert.alert('Call emergency services?', `This calls ${emergencyNumber}. Are you in immediate danger?`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: `Call ${emergencyNumber}`,
+        style: 'destructive',
+        onPress: async () => {
+          if (activeTripId) {
+            let pos: Location.LocationObject | null = null;
+            try { pos = await Location.getLastKnownPositionAsync(); } catch { /* send without coords */ }
+            const payload = { latitude: pos?.coords.latitude, longitude: pos?.coords.longitude, timestamp: new Date().toISOString() };
+            try {
+              await driverApi.emergencyAlert(activeTripId, payload);
+            } catch {
+              // Never block the call — but the alert must still reach dispatch.
+              offlineQueue.enqueue('SOS', `/driver/trips/${activeTripId}/emergency`, 'POST', payload);
+            }
+          }
+          void callNumber(emergencyNumber, { label: 'the emergency services' });
+        },
+      },
+    ]);
+
+  const showForm = editing || !existing;
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <AppBackground isDark={theme !== 'light'} />
-      <MotiView
-        from={{ opacity: 0, translateX: -6 }}
-        animate={{ opacity: 1, translateX: 0 }}
-        transition={{ type: 'spring', ...springs.standard }}
-        style={styles.backRow}
-      >
-        <Pressable onPress={() => goBack()} hitSlop={12} accessibilityRole="button">
-          <Text variant="bodyMedium" color={colors.onSurfaceVariant}>← Back</Text>
-        </Pressable>
-      </MotiView>
-
-      <KeyboardAwareScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" bottomOffset={24}>
-        <MotiView from={{ opacity: 0, translateY: -6 }} animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', ...springs.standard, delay: 40 }}>
-          <Text variant="headlineLarge" style={styles.headline}>Safety</Text>
-          <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={{ marginTop: spacing.xs }}>
-            Emergency tools and safe-driving guidelines.
-          </Text>
-        </MotiView>
-
-        {/* SOS / Emergency call */}
-        <MotiView from={{ opacity: 0, translateY: 12 }} animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', ...springs.standard, delay: 80 }}
-          style={styles.sosCard}>
-          <View style={styles.sosGlow} />
-          <Ionicons name="warning" size={28} color={colors.error} />
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.cardTitle, { color: colors.error }]}>Emergency SOS</Text>
-            <Text variant="caption" color={colors.onSurfaceVariant}>
-              Calls {emergencyNumber} (emergency services){activeTripId ? ' and shares your live location with your emergency contact' : ''}.
-            </Text>
-          </View>
-          <Pressable
-            style={styles.sosBtn}
-            onPress={() => Alert.alert(
-              'Emergency SOS',
-              `This will call the emergency services on ${emergencyNumber}. Are you in immediate danger?`,
-              [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                  text: `Call ${emergencyNumber}`,
-                  style: 'destructive',
-                  onPress: async () => {
-                    if (activeTripId) {
-                      let pos: Awaited<ReturnType<typeof Location.getLastKnownPositionAsync>> = null;
-                      try { pos = await Location.getLastKnownPositionAsync(); } catch { /* no position — send alert without coords */ }
-                      const payload = {
-                        latitude: pos?.coords.latitude,
-                        longitude: pos?.coords.longitude,
-                        timestamp: new Date().toISOString(),
-                      };
-                      try {
-                        await driverApi.emergencyAlert(activeTripId, payload);
-                      } catch {
-                        // Never block the actual emergency call — but the alert
-                        // must still reach dispatch, so queue it for retry.
-                        offlineQueue.enqueue('SOS', `/driver/trips/${activeTripId}/emergency`, 'POST', payload);
-                      }
-                    }
-                    void callNumber(emergencyNumber, { label: 'the emergency services' });
-                  },
-                },
-              ]
-            )}
-           accessibilityRole="button">
-            <Text style={styles.sosBtnText}>SOS</Text>
-          </Pressable>
-        </MotiView>
-
-        {/* Emergency contact */}
-        <MotiView from={{ opacity: 0, translateY: 12 }} animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', ...springs.standard, delay: 120 }}
-          style={styles.card}>
-          <View style={styles.cardHeader}>
-            <Text style={styles.cardTitle}>Emergency Contact</Text>
-            {!editing && existing && (
-              <Pressable onPress={() => setEditing(true)} style={styles.editBtn} accessibilityRole="button">
-                <Ionicons name="create-outline" size={16} color={colors.primary} />
-                <Text style={styles.editBtnText}>Edit</Text>
-              </Pressable>
-            )}
-          </View>
-
-          {!editing && existing ? (
-            <View style={styles.contactDisplay}>
-              <View style={styles.contactAvatar}>
-                <Text style={styles.contactInitial}>{existing.name[0]?.toUpperCase()}</Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.contactName}>{existing.name}</Text>
-                <Text variant="caption" color={colors.onSurfaceVariant}>{existing.relationship}</Text>
-                <Text variant="caption" color={colors.onSurfaceVariant}>{existing.phone}</Text>
-              </View>
-              <Pressable onPress={() => Linking.openURL(`tel:${existing.phone}`)} accessibilityRole="button" accessibilityLabel="Call this emergency contact">
-                <View style={styles.callBtn}>
-                  <Ionicons name="call-outline" size={16} color={colors.primary} />
-                </View>
-              </Pressable>
-            </View>
-          ) : (
-            <View style={{ gap: spacing.md }}>
-              <Pressable
-                onPress={handlePickContact}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.sm, backgroundColor: colors.primary + '15', borderRadius: radii.md, alignSelf: 'flex-start', marginBottom: spacing.sm }}
-               accessibilityRole="button">
-                <Ionicons name="people-outline" size={16} color={colors.primary} />
-                <Text variant="label" color={colors.primary}>Pick from Contacts</Text>
-              </Pressable>
-              <View>
-                <Text variant="caption" color={colors.onSurfaceVariant} style={styles.inputLabel}>Full Name</Text>
-                <TextInput maxFontSizeMultiplier={1.4}
-                  style={styles.input}
-                  value={name}
-                  onChangeText={setName}
-                  placeholder="e.g. Ama Owusu"
-                  placeholderTextColor={colors.onSurfaceVariant}
-                  selectionColor={colors.primary}
-                />
-              </View>
-              <View>
-                <Text variant="caption" color={colors.onSurfaceVariant} style={styles.inputLabel}>Phone Number</Text>
-                <TextInput maxFontSizeMultiplier={1.4}
-                  style={styles.input}
-                  value={phone}
-                  onChangeText={setPhone}
-                  placeholder="+233 XX XXX XXXX"
-                  placeholderTextColor={colors.onSurfaceVariant}
-                  keyboardType="phone-pad"
-                  selectionColor={colors.primary}
-                />
-              </View>
-              <View>
-                <Text variant="caption" color={colors.onSurfaceVariant} style={styles.inputLabel}>Relationship</Text>
-                <TextInput maxFontSizeMultiplier={1.4}
-                  style={styles.input}
-                  value={relationship}
-                  onChangeText={setRelationship}
-                  placeholder="e.g. Spouse, Parent, Sibling"
-                  placeholderTextColor={colors.onSurfaceVariant}
-                  selectionColor={colors.primary}
-                />
-              </View>
-              <Button
-                label="Save Contact"
-                onPress={() => saveContact.mutate()}
-                loading={saveContact.isPending}
-                disabled={!canSave || saveContact.isPending}
-                size="md"
-              />
-              {editing && existing && (
-                <Button
-                  label="Cancel"
-                  variant="ghost"
-                  onPress={() => setEditing(false)}
-                  size="md"
-                />
-              )}
-            </View>
-          )}
-        </MotiView>
-
-        {/* Safety tips */}
-        <MotiView from={{ opacity: 0, translateY: 12 }} animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', ...springs.standard, delay: 160 }}
-          style={styles.card}>
-          <Text style={styles.cardTitle}>Safety Tips</Text>
-          {SAFETY_TIPS.map((tip, i) => (
-            <MotiView
-              key={i}
-              from={{ opacity: 0, translateX: -8 }}
-              animate={{ opacity: 1, translateX: 0 }}
-              transition={{ type: 'spring', ...springs.standard, delay: 180 + i * 60 }}
-              style={[styles.tipRow, i < SAFETY_TIPS.length - 1 && { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }]}
-            >
-              <View style={styles.tipIcon}>
-                <Ionicons name={tip.icon} size={16} color={colors.primary} />
-              </View>
-              <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={{ flex: 1, lineHeight: 21 }}>
-                {tip.tip}
-              </Text>
-            </MotiView>
-          ))}
-        </MotiView>
-
-        {/* Support */}
-        <MotiView from={{ opacity: 0, translateY: 12 }} animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', ...springs.standard, delay: 200 }}>
-          <Pressable
-            style={styles.supportRow}
-            onPress={() => Linking.openURL('tel:+233302000000')}
-           accessibilityRole="button">
-            <View style={styles.tipIcon}>
-              <Ionicons name="headset-outline" size={18} color={colors.primary} />
-            </View>
+    <>
+      <Screen title="Safety" keyboard>
+        <View style={styles.sosWrap}>
+          <Pressable style={styles.sos} onPress={sos} accessibilityRole="button" accessibilityLabel={`Emergency. Call ${emergencyNumber}`}>
+            <Ionicons name="warning" size={22} color="#fff" />
             <View style={{ flex: 1 }}>
-              <Text style={styles.contactName}>24/7 Driver Support</Text>
-              <Text variant="caption" color={colors.onSurfaceVariant}>+233 30 200 0000</Text>
+              <Text style={styles.sosTitle}>Emergency · {emergencyNumber}</Text>
+              <Text style={styles.sosSub}>
+                {activeTripId ? 'Calls for help and alerts EyeGo with your location' : 'Calls the emergency services'}
+              </Text>
             </View>
-            <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
           </Pressable>
-        </MotiView>
-      </KeyboardAwareScrollView>
+        </View>
 
-      {/* Contact Picker Modal */}
-      <Modal visible={showContactPicker} animationType="slide" presentationStyle="pageSheet">
-        <SafeAreaView style={{ flex: 1, backgroundColor: colors.backgroundDeep }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: spacing['2xl'] }}>
-            <Text variant="titleMedium">Select Emergency Contact</Text>
-            <Pressable onPress={() => setShowContactPicker(false)} accessibilityRole="button" accessibilityLabel="Close the contact picker">
+        {showForm ? (
+          <View style={styles.form}>
+            <View style={styles.formHead}>
+              <Text variant="labelCaps">Emergency contact</Text>
+              <Pressable onPress={pickContact} hitSlop={8} accessibilityRole="button" style={styles.pickBtn}>
+                <Ionicons name="people-outline" size={16} color={colors.primary} />
+                <Text style={styles.pickText}>From contacts</Text>
+              </Pressable>
+            </View>
+            <TextInput maxFontSizeMultiplier={1.4} style={styles.input} value={name} onChangeText={setName} placeholder="Full name" placeholderTextColor={colors.onSurfaceVariant} autoCapitalize="words" accessibilityLabel="Contact name" />
+            <TextInput maxFontSizeMultiplier={1.4} style={styles.input} value={phone} onChangeText={setPhone} placeholder="Phone number" placeholderTextColor={colors.onSurfaceVariant} keyboardType="phone-pad" accessibilityLabel="Contact phone number" />
+            <TextInput maxFontSizeMultiplier={1.4} style={styles.input} value={relationship} onChangeText={setRelationship} placeholder="Relationship, e.g. Sister" placeholderTextColor={colors.onSurfaceVariant} autoCapitalize="sentences" accessibilityLabel="Relationship" />
+            <Button
+              label="Save contact"
+              onPress={() => save.mutate({ name: name.trim(), phone: digits, relationship: relationship.trim() })}
+              loading={save.isPending}
+              disabled={!canSave || save.isPending}
+            />
+            {existing ? <Button label="Cancel" variant="ghost" onPress={() => setEditing(false)} /> : null}
+            <Text style={styles.note}>We contact them if you trigger an emergency during a trip.</Text>
+          </View>
+        ) : (
+          <ListSection title="Emergency contact" footer="We contact them if you trigger an emergency during a trip.">
+            <ListRow
+              leading={
+                <View style={styles.avatar}>
+                  <Text style={styles.avatarText}>{existing!.name?.[0]?.toUpperCase() ?? '?'}</Text>
+                </View>
+              }
+              title={existing!.name}
+              subtitle={[existing!.relationship, existing!.phone].filter(Boolean).join(' · ')}
+              right={
+                <Pressable onPress={() => Linking.openURL(`tel:${existing!.phone}`)} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Call ${existing!.name}`} style={styles.callBtn}>
+                  <Ionicons name="call" size={16} color={colors.primary} />
+                </Pressable>
+              }
+            />
+            <ListRow icon="create-outline" title="Change emergency contact" onPress={() => setEditing(true)} />
+          </ListSection>
+        )}
+
+        <ListSection title="Staying safe">
+          {TIPS.map((t) => (
+            <ListRow key={t.title} icon={t.icon} title={t.title} subtitle={t.detail} subtitleLines={3} />
+          ))}
+        </ListSection>
+
+        <ListSection title="Support">
+          {supportPhone ? (
+            <ListRow icon="headset-outline" title="Call EyeGo support" value={supportPhone} onPress={() => Linking.openURL(`tel:${supportPhone.replace(/\s/g, '')}`)} />
+          ) : null}
+          <ListRow icon="flag-outline" title="Report a safety issue" onPress={() => goDeeper('/(profile)/help')} />
+        </ListSection>
+      </Screen>
+
+      <Modal visible={picker} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setPicker(false)}>
+        <SafeAreaView style={styles.modal}>
+          <View style={styles.modalBar}>
+            <Text style={styles.modalTitle}>Choose a contact</Text>
+            <Pressable onPress={() => setPicker(false)} hitSlop={12} accessibilityRole="button" accessibilityLabel="Close">
               <Ionicons name="close" size={24} color={colors.onSurface} />
             </Pressable>
           </View>
           <FlatList
             data={contactList}
-            keyExtractor={(item, index) => item.name ?? String(index)}
-            renderItem={renderContactItem}
+            keyExtractor={(item, i) => (item as any).id ?? `${item.name}-${i}`}
+            renderItem={({ item }) => (
+              <ListRow
+                title={item.name ?? ''}
+                subtitle={item.phoneNumbers?.[0]?.number ?? ''}
+                chevron={false}
+                onPress={() => {
+                  setName(item.name ?? '');
+                  setPhone(item.phoneNumbers?.[0]?.number?.replace(/\s/g, '') ?? '');
+                  setPicker(false);
+                }}
+              />
+            )}
+            ListEmptyComponent={<Text style={styles.empty}>No contacts with a phone number.</Text>}
           />
         </SafeAreaView>
       </Modal>
-    </SafeAreaView>
+    </>
   );
 }
 
-const makeStyles = (colors: DriverColors) =>
+const makeStyles = (c: DriverColors) =>
   StyleSheet.create({
-    safe: { flex: 1, backgroundColor: 'transparent' },
-    backRow: { paddingHorizontal: spacing['2xl'], paddingTop: spacing.base },
-    scroll: { paddingHorizontal: spacing['2xl'], paddingTop: spacing.xl, paddingBottom: spacing['3xl'], gap: spacing.xl },
-    headline: { letterSpacing: -1 },
-    sosCard: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.md,
-      backgroundColor: `${colors.error}14`,
-      borderRadius: radii['2xl'],
-      borderWidth: 1,
-      borderColor: `${colors.error}44`,
-      padding: spacing.xl,
-      overflow: 'hidden',
-    },
-    sosGlow: {
-      position: 'absolute',
-      width: 120,
-      height: 120,
-      borderRadius: 60,
-      backgroundColor: colors.error,
-      opacity: 0.07,
-      right: -20,
-    },
-    sosBtn: {
-      backgroundColor: colors.error,
-      borderRadius: radii.lg,
-      width: 52,
-      height: 52,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    sosBtnText: { fontFamily: fonts.displayBold, fontSize: 14, lineHeight: 18, color: '#fff', letterSpacing: 0.5 },
-    card: {
-      backgroundColor: colors.surfaceContainer,
-      borderRadius: radii['2xl'],
-      borderWidth: 1,
-      borderColor: colors.outline,
-      padding: spacing.xl,
-    },
-    cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md },
-    cardTitle: { fontFamily: fonts.displaySemiBold, fontSize: fontSizes.titleSmall, lineHeight: Math.round(fontSizes.titleSmall * 1.3), color: colors.onSurface },
-    editBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-    editBtnText: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodySmall ?? 12, lineHeight: Math.round((fontSizes.bodySmall ?? 12) * 1.3), color: colors.primary },
-    contactDisplay: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-    contactAvatar: {
-      width: 44,
-      height: 44,
-      borderRadius: 22,
-      backgroundColor: `${colors.primary}22`,
-      borderWidth: 1,
-      borderColor: `${colors.primary}44`,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    contactInitial: { fontFamily: fonts.displayBold, fontSize: 18, lineHeight: 23, color: colors.primary },
-    contactName: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodyMedium, lineHeight: Math.round(fontSizes.bodyMedium * 1.3), color: colors.onSurface },
-    callBtn: {
-      width: 36,
-      height: 36,
-      borderRadius: 18,
-      backgroundColor: `${colors.primary}18`,
-      borderWidth: 1,
-      borderColor: `${colors.primary}44`,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    inputLabel: { marginBottom: spacing.xs },
-    input: {
-      height: 48,
-      backgroundColor: colors.surfaceContainerHigh,
-      borderRadius: radii.lg,
-      borderWidth: 1,
-      borderColor: colors.outline,
-      paddingHorizontal: spacing.base,
-      fontFamily: fonts.medium,
-      fontSize: fontSizes.bodyMedium,
-      lineHeight: Math.round(fontSizes.bodyMedium * 1.4),
-      color: colors.onSurface,
-    },
-    tipRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md, paddingVertical: spacing.md },
-    tipIcon: {
-      width: 32,
-      height: 32,
-      borderRadius: 10,
-      backgroundColor: `${colors.primary}14`,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    supportRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.md,
-      backgroundColor: colors.surfaceContainer,
-      borderRadius: radii.xl,
-      borderWidth: 1,
-      borderColor: colors.outline,
-      padding: spacing.base,
-    },
+    sosWrap: { paddingHorizontal: 20, marginTop: 8 },
+    sos: { flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: c.error, borderRadius: radii.xl, paddingHorizontal: 18, paddingVertical: 16 },
+    sosTitle: { fontFamily: fonts.semiBold, fontSize: 17, lineHeight: 22, color: '#fff' },
+    sosSub: { fontFamily: fonts.regular, fontSize: 13, lineHeight: 18, color: 'rgba(255,255,255,0.85)', marginTop: 2 },
+    form: { marginTop: 24, paddingHorizontal: 20, gap: 12 },
+    formHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    pickBtn: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    pickText: { fontFamily: fonts.semiBold, fontSize: 14, lineHeight: 18, color: c.primary },
+    input: { fontFamily: fonts.medium, fontSize: 16, color: c.onSurface, backgroundColor: c.surfaceContainer, borderRadius: radii.lg, paddingHorizontal: 16, height: 52 },
+    note: { fontFamily: fonts.regular, fontSize: 13, lineHeight: 18, color: c.onSurfaceVariant },
+    avatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: c.surfaceContainerHigh, alignItems: 'center', justifyContent: 'center' },
+    avatarText: { fontFamily: fonts.semiBold, fontSize: 15, lineHeight: 20, color: c.onSurface },
+    callBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: c.surfaceContainerHigh, alignItems: 'center', justifyContent: 'center' },
+    modal: { flex: 1, backgroundColor: c.background },
+    modalBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16 },
+    modalTitle: { fontFamily: fonts.displayBold, fontSize: 20, lineHeight: 26, color: c.onSurface },
+    empty: { padding: 20, fontFamily: fonts.regular, fontSize: 15, color: c.onSurfaceVariant, textAlign: 'center' },
   });

@@ -56,7 +56,7 @@ export type { Notification as AppNotification } from './notifications.api';
 export { configApi, PLATFORM_CONFIG_FALLBACK, CLIENT_GATE_FALLBACK } from './config.api';
 export type { PlatformConfig, PlatformTier, ClientGate } from './config.api';
 export { driverApi, MOMO_NETWORKS, VEHICLE_TIERS, MIN_SEATER_COUNT, MAX_SEATER_COUNT } from './drivers.api';
-export type { DriverProfile, DriverTrip, CreateTripPayload, DriverPerformance, DriverRatings, DriverDocument, PendingTripRequest, UpcomingScheduledTrip, MomoNetwork, DriverVerificationInput, VehicleTier } from './drivers.api';
+export type { DriverProfile, DriverTrip, CreateTripPayload, DriverPerformance, DriverLevel, DriverRatings, DriverSupportTicket, DriverDocument, PendingTripRequest, UpcomingScheduledTrip, MomoNetwork, DriverVerificationInput, VehicleTier } from './drivers.api';
 export { walletApi } from './wallet.api';
 export type { WalletBalance, WalletTransaction, TopUpRequest } from './wallet.api';
 export { supportTicketsApi } from './support.api';

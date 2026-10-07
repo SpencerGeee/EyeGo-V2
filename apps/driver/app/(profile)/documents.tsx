@@ -1,17 +1,16 @@
-import React, { useMemo, useState } from 'react';
-import { View, StyleSheet, ScrollView, Pressable } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { MotiView, goBack, notify } from '@eyego/ui';
+import React, { useState } from 'react';
+import { Alert, RefreshControl } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import * as ImagePicker from 'expo-image-picker';
 import { driverApi } from '@eyego/api';
 import type { DriverDocument } from '@eyego/api';
-import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
-import { Text, AppBackground } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
+import { Screen, ListSection, ListRow, SkeletonRows, QueryBoundary, notify } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
+
+const DAY_MS = 86_400_000;
+const EXPIRY_WARN_DAYS = 30;
 
 const DOCUMENT_CONFIG: {
   type: DriverDocument['type'];
@@ -19,85 +18,58 @@ const DOCUMENT_CONFIG: {
   description: string;
   icon: keyof typeof Ionicons.glyphMap;
 }[] = [
-  { type: 'DRIVERS_LICENSE', label: "Driver's License",  description: 'Valid national driver\'s license',           icon: 'card-outline' },
-  { type: 'GHANA_CARD',      label: 'National ID / Ghana Card', description: 'Valid Ghana Card or national ID',     icon: 'id-card-outline' },
-  { type: 'PROFILE_PHOTO',   label: 'Profile Photo',     description: 'Clear photo of your face for passenger ID', icon: 'person-circle-outline' },
+  { type: 'DRIVERS_LICENSE', label: "Driver's licence", description: "Valid national driver's licence", icon: 'card-outline' },
+  { type: 'GHANA_CARD', label: 'Ghana Card', description: 'Valid Ghana Card or national ID', icon: 'id-card-outline' },
+  { type: 'PROFILE_PHOTO', label: 'Profile photo', description: 'Clear photo of your face for passenger ID', icon: 'person-circle-outline' },
 ];
 
-const STATUS_CONFIG: Record<DriverDocument['status'], { label: string; color: string; icon: keyof typeof Ionicons.glyphMap }> = {
-  VERIFIED:  { label: 'Verified',  color: '#22C55E', icon: 'checkmark-circle' },
-  PENDING:   { label: 'Pending',   color: '#F59E0B', icon: 'time' },
-  REJECTED:  { label: 'Rejected',  color: '#F87171', icon: 'close-circle' },
-  EXPIRED:   { label: 'Expired',   color: '#F87171', icon: 'warning' },
-  MISSING:   { label: 'Missing',   color: '#94A3B8', icon: 'cloud-upload-outline' },
-};
+type Tone = 'ok' | 'warn' | 'bad' | 'muted';
 
-function DocumentRow({
-  config,
-  doc,
-  onUpload,
-  uploading,
-  colors,
-}: {
-  config: typeof DOCUMENT_CONFIG[number];
-  doc?: DriverDocument;
-  onUpload: (type: DriverDocument['type']) => void;
-  uploading: boolean;
-  colors: DriverColors;
-}) {
+/** What the row says on the right, and whether the driver can (re)upload. */
+function stateOf(doc: DriverDocument | undefined): { label: string; tone: Tone; actionable: boolean; detail?: string } {
   const status = doc?.status ?? 'MISSING';
-  const cfg = STATUS_CONFIG[status];
-
-  return (
-    <View style={[styles(colors).docRow]}>
-      <View style={[styles(colors).docIconBg, { backgroundColor: `${colors.primary}14` }]}>
-        <Ionicons name={config.icon} size={22} color={colors.primary} />
-      </View>
-      <View style={{ flex: 1, gap: 3 }}>
-        <Text style={styles(colors).docLabel}>{config.label}</Text>
-        <Text variant="caption" color={colors.onSurfaceVariant}>{config.description}</Text>
-        {doc?.expiresAt && (
-          <Text variant="caption" color={status === 'EXPIRED' ? colors.error : colors.onSurfaceVariant}>
-            {status === 'EXPIRED' ? 'Expired' : 'Expires'}: {new Date(doc.expiresAt).toLocaleDateString()}
-          </Text>
-        )}
-        {doc?.rejectionReason && status === 'REJECTED' && (
-          <Text variant="caption" color={colors.error}>{doc.rejectionReason}</Text>
-        )}
-      </View>
-      <View style={{ alignItems: 'flex-end', gap: spacing.sm }}>
-        <View style={[styles(colors).statusBadge, { backgroundColor: `${cfg.color}20`, borderColor: `${cfg.color}55` }]}>
-          <Ionicons name={cfg.icon} size={12} color={cfg.color} />
-          <Text style={[styles(colors).statusText, { color: cfg.color }]}>{cfg.label}</Text>
-        </View>
-        {(status === 'MISSING' || status === 'REJECTED' || status === 'EXPIRED') && (
-          <Pressable
-            style={[styles(colors).uploadBtn, { opacity: uploading ? 0.5 : 1 }]}
-            onPress={() => onUpload(config.type)}
-            disabled={uploading}
-           accessibilityRole="button">
-            <Ionicons name="cloud-upload-outline" size={13} color={colors.primary} />
-            <Text style={styles(colors).uploadText}>Upload</Text>
-          </Pressable>
-        )}
-      </View>
-    </View>
-  );
+  const daysLeft = doc?.expiresAt ? Math.ceil((new Date(doc.expiresAt).getTime() - Date.now()) / DAY_MS) : null;
+  const expiry = doc?.expiresAt ? new Date(doc.expiresAt).toLocaleDateString('en-GH', { day: 'numeric', month: 'short', year: 'numeric' }) : null;
+  switch (status) {
+    case 'MISSING':
+      return { label: 'Upload', tone: 'bad', actionable: true };
+    case 'REJECTED':
+      return { label: 'Rejected', tone: 'bad', actionable: true, detail: doc?.rejectionReason ?? 'Upload a clearer photo' };
+    case 'EXPIRED':
+      return { label: 'Expired', tone: 'bad', actionable: true, detail: expiry ? `Expired ${expiry}` : undefined };
+    case 'PENDING':
+      return { label: 'In review', tone: 'warn', actionable: false, detail: 'Usually 1–2 business days' };
+    case 'VERIFIED':
+      if (daysLeft != null && daysLeft <= EXPIRY_WARN_DAYS) {
+        return { label: `${daysLeft} day${daysLeft === 1 ? '' : 's'} left`, tone: 'warn', actionable: true, detail: `Expires ${expiry} — upload the renewed one` };
+      }
+      return { label: 'Verified', tone: 'ok', actionable: false, detail: expiry ? `Expires ${expiry}` : undefined };
+  }
 }
 
+const toneColor = (t: Tone, c: DriverColors) =>
+  t === 'ok' ? c.statusSuccess : t === 'warn' ? c.statusWarning : t === 'bad' ? c.error : c.onSurfaceVariant;
+
+/**
+ * DOCUMENTS (rival spec §18) — each row shows its status and expiry; amber
+ * inside 30 days, red when expired or rejected.
+ *
+ * A verified document inside its 30-day window can now be re-uploaded. Before,
+ * Upload only appeared once a document had already EXPIRED — the driver got
+ * the warning push and then had no way to act on it until it was too late.
+ */
 export default function DocumentsScreen() {
   const colors = useColors();
-  const theme = useDriverStore(s => s.theme);
-  const router = useRouter();
   const qc = useQueryClient();
   const updateDriver = useDriverStore((s) => s.updateDriver);
   const [uploadingType, setUploadingType] = useState<string | null>(null);
 
-  const { data: documents, isLoading } = useQuery({
+  const docsQ = useQuery({
     queryKey: ['driver', 'documents'],
     queryFn: () => driverApi.getDocuments(),
     select: (r) => r.data.data ?? [],
   });
+  const documents = docsQ.data;
 
   const upload = useMutation({
     mutationFn: async ({ type, uri }: { type: DriverDocument['type']; uri: string }) => {
@@ -113,22 +85,9 @@ export default function DocumentsScreen() {
         const result = response?.data?.data as Record<string, unknown> | undefined;
         const url: string | undefined = [result?.profilePhotoUrl, result?.documentUrl, result?.url]
           .find((v): v is string => typeof v === 'string');
-        if (url) {
-          updateDriver({ profilePhoto: url, avatarUrl: url });
-        }
+        if (url) updateDriver({ profilePhoto: url, avatarUrl: url });
       }
-      /**
-       * A PROFILE PHOTO IS NOT A DOCUMENT UNDER REVIEW.
-       *
-       * BUGFIX ("when I upload the profile photo at the documents page, it tells
-       * me it's been submitted and that it would take 1–2 business days"). Every
-       * upload got the KYC copy, so changing your own avatar read as though it
-       * had been queued behind a human — on the one item here that is not
-       * verified by anybody and takes effect immediately.
-       *
-       * The server now says which it is (`requiresReview`), so this reads the
-       * answer rather than assuming.
-       */
+      // A profile photo is not reviewed — the server says which it is.
       const payload = response?.data?.data as { requiresReview?: boolean } | undefined;
       const needsReview = payload?.requiresReview ?? type !== 'PROFILE_PHOTO';
       notify(
@@ -136,20 +95,38 @@ export default function DocumentsScreen() {
         needsReview
           ? 'Your document has been submitted for review. Verification usually takes 1–2 business days.'
           : 'Your profile photo is live — passengers will see it on your next trip.',
+        { tone: 'success' },
       );
     },
-    onError: (err) => notify('Upload Failed', (err as Error).message),
+    onError: (err) => notify('Upload failed', (err as Error).message),
     onSettled: () => setUploadingType(null),
   });
+
+  /**
+   * Renewing a still-valid licence sends it back to review, and go-online needs
+   * it VERIFIED — so an early renewal takes the driver offline until approved.
+   * Say so before they do it.
+   */
+  const onRowPress = (type: DriverDocument['type'], doc: DriverDocument | undefined) => {
+    if (doc?.status !== 'VERIFIED') return handleUpload(type);
+    Alert.alert(
+      'Upload your renewed licence?',
+      'It goes back to review (usually 1–2 business days), and you can’t go online until it’s approved. Upload it close to the expiry date to stay on the road.',
+      [
+        { text: 'Not now', style: 'cancel' },
+        { text: 'Upload', onPress: () => handleUpload(type) },
+      ],
+    );
+  };
 
   const handleUpload = async (type: DriverDocument['type']) => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      notify('Permission Required', 'Please allow access to your photo library to upload documents.');
+      notify('Permission required', 'Allow access to your photos to upload documents.');
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       quality: 0.85,
       allowsEditing: true,
     });
@@ -158,124 +135,41 @@ export default function DocumentsScreen() {
     upload.mutate({ type, uri: result.assets[0].uri });
   };
 
-  const getDoc = (type: DriverDocument['type']) =>
-    documents?.find((d) => d.type === type);
-
-  const verifiedCount = documents?.filter((d) => d.status === 'VERIFIED').length ?? 0;
-  const totalDocs = DOCUMENT_CONFIG.length;
+  const verified = DOCUMENT_CONFIG.filter((c) => documents?.find((d) => d.type === c.type)?.status === 'VERIFIED').length;
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: 'transparent' }}>
-      <AppBackground isDark={theme !== 'light'} />
-      <MotiView
-        from={{ opacity: 0, translateX: -6 }}
-        animate={{ opacity: 1, translateX: 0 }}
-        transition={{ type: 'spring', ...springs.standard }}
-        style={{ paddingHorizontal: spacing['2xl'], paddingTop: spacing.base }}
+    <Screen
+      title="Documents"
+      subtitle={documents ? `${verified} of ${DOCUMENT_CONFIG.length} verified` : undefined}
+      refreshControl={<RefreshControl refreshing={docsQ.isRefetching} onRefresh={() => docsQ.refetch()} tintColor={colors.primary} />}
+    >
+      <QueryBoundary
+        loading={docsQ.isLoading}
+        error={docsQ.isError && !documents}
+        onRetry={() => docsQ.refetch()}
+        skeleton={<SkeletonRows count={3} />}
       >
-        <Pressable onPress={() => goBack()} hitSlop={12} accessibilityRole="button">
-          <Text variant="bodyMedium" color={colors.onSurfaceVariant}>← Back</Text>
-        </Pressable>
-      </MotiView>
-
-      <ScrollView contentContainerStyle={{ paddingHorizontal: spacing['2xl'], paddingTop: spacing.xl, paddingBottom: spacing['3xl'], gap: spacing.xl }} showsVerticalScrollIndicator={false}>
-        <MotiView from={{ opacity: 0, translateY: -6 }} animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', ...springs.standard, delay: 40 }}>
-          <Text variant="headlineLarge" style={{ letterSpacing: -1, marginBottom: spacing.xs }}>Documents</Text>
-          <Text variant="bodyMedium" color={colors.onSurfaceVariant}>
-            {verifiedCount}/{totalDocs} documents verified
-          </Text>
-        </MotiView>
-
-        {/* Progress bar */}
-        <MotiView from={{ opacity: 0, translateY: 8 }} animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', ...springs.standard, delay: 80 }}
-          style={{ backgroundColor: colors.surfaceContainerHighest, borderRadius: 6, height: 10, overflow: 'hidden' }}>
-          <MotiView
-            from={{ width: '0%' }}
-            animate={{ width: `${(verifiedCount / totalDocs) * 100}%` }}
-            transition={{ type: 'timing', duration: 1000, delay: 300 }}
-            style={{ height: '100%', backgroundColor: '#22C55E', borderRadius: 6 }}
-          />
-        </MotiView>
-
-        {/* Documents list */}
-        <MotiView from={{ opacity: 0, translateY: 12 }} animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', ...springs.standard, delay: 120 }}
-          style={{ backgroundColor: colors.surfaceContainer, borderRadius: radii['2xl'], borderWidth: 1, borderColor: colors.outline, overflow: 'hidden' }}>
-          {isLoading
-            ? [0, 1, 2, 3].map((i) => (
-                <MotiView key={i} from={{ opacity: 0.3 }} animate={{ opacity: 0.7 }}
-                  transition={{ type: 'timing', duration: 800, loop: true, delay: i * 100 }}
-                  style={{ height: 80, backgroundColor: colors.surfaceContainerHigh, margin: spacing.md, borderRadius: radii.lg }} />
-              ))
-            : DOCUMENT_CONFIG.map((cfg, i) => (
-                <View key={cfg.type} style={i < DOCUMENT_CONFIG.length - 1 ? { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant } : undefined}>
-                  <DocumentRow
-                    config={cfg}
-                    doc={getDoc(cfg.type)}
-                    onUpload={handleUpload}
-                    uploading={uploadingType === cfg.type}
-                    colors={colors}
-                  />
-                </View>
-              ))}
-        </MotiView>
-
-        {/* Info note */}
-        <MotiView from={{ opacity: 0 }} animate={{ opacity: 1 }}
-          transition={{ type: 'timing', duration: 400, delay: 200 }}
-          style={{ flexDirection: 'row', gap: spacing.md, backgroundColor: `${colors.primary}14`, borderRadius: radii.xl, borderWidth: 1, borderColor: `${colors.primary}33`, padding: spacing.base }}>
-          <Ionicons name="information-circle-outline" size={18} color={colors.primary} style={{ marginTop: 2 }} />
-          <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ flex: 1, lineHeight: 20 }}>
-            Your licence and Ghana Card are verified by the EyeGo team within 1–2 business days, and both must be verified to unlock full trip access. Your profile photo is not reviewed — it goes live as soon as you upload it.
-          </Text>
-        </MotiView>
-      </ScrollView>
-    </SafeAreaView>
+        <ListSection footer="Your licence and Ghana Card are checked by the EyeGo team within 1–2 business days; both must be verified for full trip access. Your profile photo isn’t reviewed — it goes live when you upload it.">
+          {DOCUMENT_CONFIG.map((cfg) => {
+            const doc = documents?.find((d) => d.type === cfg.type);
+            const st = stateOf(doc);
+            const busy = uploadingType === cfg.type;
+            return (
+              <ListRow
+                key={cfg.type}
+                icon={cfg.icon}
+                title={cfg.label}
+                subtitle={busy ? 'Uploading…' : st.detail ?? cfg.description}
+                value={st.label}
+                valueColor={toneColor(st.tone, colors)}
+                onPress={st.actionable && !busy ? () => onRowPress(cfg.type, doc) : undefined}
+                disabled={busy}
+                accessibilityHint={st.actionable ? 'Choose a photo to upload' : undefined}
+              />
+            );
+          })}
+        </ListSection>
+      </QueryBoundary>
+    </Screen>
   );
 }
-
-const styles = (colors: DriverColors) => StyleSheet.create({
-  docRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    padding: spacing.base,
-    gap: spacing.md,
-  },
-  docIconBg: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  docLabel: {
-    fontFamily: fonts.semiBold,
-    fontSize: fontSizes.bodyMedium,
-    lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
-    color: colors.onSurface,
-  },
-  statusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 3,
-    borderRadius: radii.full,
-    borderWidth: 1,
-  },
-  statusText: { fontFamily: fonts.semiBold, fontSize: 11, lineHeight: 14 },
-  uploadBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: `${colors.primary}18`,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: `${colors.primary}44`,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
-  },
-  uploadText: { fontFamily: fonts.semiBold, fontSize: 11, lineHeight: 14, color: colors.primary },
-});

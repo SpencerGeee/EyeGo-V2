@@ -107,7 +107,7 @@ export function DocumentReview({
                   <div className="flex flex-wrap items-center gap-2 mt-2">
                     {doc.status !== 'VERIFIED' ? (
                       <ActionButton
-                        action={() => reviewDriverDocument(driverId, doc.type, true)}
+                        action={(expiresOn) => reviewDriverDocument(driverId, doc.type, true, undefined, expiresOn)}
                         label="Approve"
                         icon="check"
                         variant="primary"
@@ -115,6 +115,18 @@ export function DocumentReview({
                           title: `Approve this ${label.toLowerCase()}?`,
                           body: 'Confirm the document is legible, unexpired and matches this driver.',
                           confirmLabel: 'Approve document',
+                          // The licence is the one that lapses: its date drives the
+                          // 30/7-day warnings and the go-online expiry gate.
+                          ...(doc.type === 'DRIVERS_LICENSE'
+                            ? {
+                                reason: {
+                                  label: 'Expiry date on the licence',
+                                  type: 'date' as const,
+                                  required: true,
+                                  hint: 'The driver is warned 30 and 7 days before, and cannot go online after it.',
+                                },
+                              }
+                            : {}),
                         }}
                       />
                     ) : null}
