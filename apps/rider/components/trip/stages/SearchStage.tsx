@@ -749,8 +749,10 @@ function SearchStageImpl() {
                 styles={styles}
                 colors={colors}
                 icon="home"
-                title={homePlace ? homePlace.label : 'Add home address'}
-                subtitle={homePlace?.address}
+                // The slot names the row, never the stored label — see the
+                // Work row below for the "Accra" this replaced.
+                title={homePlace ? 'Home' : 'Add home address'}
+                subtitle={homePlace ? shortAddress(homePlace.address, 3) ?? homePlace.address : undefined}
                 isPrompt={!homePlace}
                 onPress={() => (homePlace ? commitSaved(homePlace) : openSavedPlaces())}
               />
@@ -761,8 +763,12 @@ function SearchStageImpl() {
                 styles={styles}
                 colors={colors}
                 icon="briefcase"
-                title={workPlace ? workPlace.label : 'Add work address'}
-                subtitle={workPlace?.address}
+                // BUGFIX ("my new Work address shows as Accra, not Work like
+                // Home does"). The title was the stored label, and a Work place
+                // saved through the old typed-address form carried the
+                // geocoder's town name as its label. A shortcut is its slot.
+                title={workPlace ? 'Work' : 'Add work address'}
+                subtitle={workPlace ? shortAddress(workPlace.address, 3) ?? workPlace.address : undefined}
                 isPrompt={!workPlace}
                 onPress={() => (workPlace ? commitSaved(workPlace) : openSavedPlaces())}
               />

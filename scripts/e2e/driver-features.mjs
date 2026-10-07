@@ -413,8 +413,21 @@ async function main() {
   }
 
   section('account deletion');
-  await check('driver deletes their account', async () => {
-    await DEL('/driver/me', { token: ctx.stranger.token });
+  // dev-activate seeds the go-online minimum, so this driver holds a balance.
+  await check('deleting with earnings in the wallet asks first', async () => {
+    const { status, body } = await req('DELETE', '/driver/me', { token: ctx.stranger.token, raw: true });
+    if (status !== 409 || body?.code !== 'WALLET_NOT_EMPTY') throw new Error(`${status} ${body?.code}: ${body?.message}`);
+    return body.message;
+  });
+
+  await check('a refused deletion does not sign the driver out', async () => {
+    const { status } = await req('GET', '/driver/me', { token: ctx.stranger.token, raw: true });
+    if (status !== 200) throw new Error(`GET /driver/me → ${status} — the 409 burnt the access token`);
+    return '200';
+  });
+
+  await check('driver deletes their account once they confirm the balance', async () => {
+    await DEL('/driver/me', { token: ctx.stranger.token, body: { acknowledgeBalance: true } });
     return '';
   });
 

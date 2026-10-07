@@ -3,6 +3,7 @@
 const prisma = require('../../config/database');
 const cloudinary = require('../../services/cloudinary.service');
 const { NotFoundError, ForbiddenError, AppError } = require('../../utils/errors');
+const { formatGhs } = require('../../utils/money');
 const { assertAssetUrl } = require('../../utils/asset-url');
 // Owns the whole reputation model (rating window, reliability, reports, and the
 // loyalty discount pricing reads). See services/standing.service.js.
@@ -262,9 +263,49 @@ async function updateFcmToken(userId, fcmToken) {
  * for the life of its refresh token, because the refresh path never re-read the
  * row it was issuing for.
  */
-async function deactivateAccount(userId) {
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+async function deactivateAccount(userId, { acknowledgeBalance = false } = {}) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, walletBalancePesewas: true },
+  });
   if (!user) throw new NotFoundError('User');
+
+  /**
+   * NOT WITH A RIDE RUNNING, AND NOT WITH MONEY IN THE WALLET.
+   *
+   * Deletion anonymised the account and stopped there: a search kept asking
+   * drivers on behalf of "[Deleted Account]", a booked seat stayed held, and a
+   * wallet balance was stranded on an account nobody could sign into again.
+   */
+  const TERMINAL = require('../../services/trip-state.service').TERMINAL_STATUSES;
+  const live = await prisma.booking.count({
+    where: {
+      userId,
+      status: { notIn: ['CANCELLED', 'REFUNDED', 'EXPIRED', 'COMPLETED', 'NO_SHOW'] },
+      trip: { status: { notIn: TERMINAL } },
+    },
+  });
+  if (live > 0) {
+    throw new AppError(
+      'You have a ride booked or in progress. Finish or cancel it before deleting your account.',
+      409,
+      'ACTIVE_RIDE',
+    );
+  }
+  /**
+   * A balance WARNS, it does not wall. A rider wallet has no withdrawal, so a
+   * leftover GH₵3.50 can never be spent to exactly zero — a hard block made
+   * deletion impossible, which the stores do not allow. The client confirms
+   * and resends with `acknowledgeBalance`; the row (and its balance) is kept,
+   * so support can still settle it.
+   */
+  if (user.walletBalancePesewas > 0 && !acknowledgeBalance) {
+    throw new AppError(
+      `You still have ${formatGhs(user.walletBalancePesewas)} in your EyeGo wallet. You can't use it once your account is deleted — spend it or send it to someone first, or delete anyway.`,
+      409,
+      'WALLET_NOT_EMPTY',
+    );
+  }
 
   return prisma.$transaction(async (tx) => {
     const updated = await tx.user.update({

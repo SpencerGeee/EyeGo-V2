@@ -138,10 +138,16 @@ async function issueRefund(bookingId, { amountPesewas, reason, destination = DES
   // ── WALLET: money moves now, inside one transaction with its ledger row ────
   if (destination === DESTINATIONS.WALLET) {
     const refund = await prisma.$transaction(async (tx) => {
+      // To whoever paid — a group host for a covered seat, not the guest in it.
+      const payerId = await require('../modules/cancellation/cancellation.service').payerOf(
+        tx,
+        bookingId,
+        booking.userId,
+      );
       const created = await tx.refund.create({
         data: {
           bookingId,
-          userId: booking.userId,
+          userId: payerId,
           amountPesewas: requested,
           reason: String(reason).trim(),
           destination,
@@ -152,7 +158,7 @@ async function issueRefund(bookingId, { amountPesewas, reason, destination = DES
       });
 
       await riderWallet.record({
-        userId: booking.userId,
+        userId: payerId,
         type: riderWallet.TYPES.REFUND,
         amountPesewas: requested,
         description: `Refund — ${String(reason).trim()}`,

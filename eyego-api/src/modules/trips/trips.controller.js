@@ -129,10 +129,12 @@ const emergencyAlert = async (req, res) => {
 
   // Fire-and-forget all downstream work
   setImmediate(async () => {
+    // OUTSIDE the try: it was declared inside it, so the catch below — the one
+    // line that records a failed SOS — threw "logger is not defined" instead.
+    const logger = require('../../utils/logger');
     try {
       const prisma = require('../../config/database');
       const pushService = require('../../services/push.service');
-      const logger = require('../../utils/logger');
 
       const lat = latitude ? parseFloat(latitude) : null;
       const lng = longitude ? parseFloat(longitude) : null;

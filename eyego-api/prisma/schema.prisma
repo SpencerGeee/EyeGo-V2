@@ -660,6 +660,11 @@ model Booking {
   // every unconverted site a loud failure instead of a silent overcharge.
   fareAmountPesewas       Int
   commissionAmountPesewas Int
+  /// What the PLATFORM owes the driver on this seat because a promo discount
+  /// was bigger than its commission. Commission is floored at 0 (money schemas
+  /// reject negatives), so the excess is carried here and credited to the
+  /// driver at settlement — the platform funds its own promos.
+  promoSubsidyPesewas     Int     @default(0)
   paymentMethod       String
   paymentStatus       String @default("PENDING")
   paystackRef         String?
@@ -1301,6 +1306,9 @@ model Promotion {
   active          Boolean   @default(true)
   usageCount      Int       @default(0)
   maxRedemptions  Int?
+  /// How many bookings ONE rider may use this code on. 1 = once per rider
+  /// (the default); null = reusable without a per-rider limit.
+  perUserLimit    Int?      @default(1)
   expiry          DateTime
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt

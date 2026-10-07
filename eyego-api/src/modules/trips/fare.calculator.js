@@ -688,9 +688,21 @@ function pinnedRatesFor(trip) {
   };
 }
 
+/**
+ * The commission rate a booking on this trip is charged at: the trip's own
+ * pinned rate (the price lock), else the LIVE setting. Several booking paths
+ * read `env.PLATFORM_COMMISSION` — the boot-time snapshot — so after an admin
+ * changed the rate, seat commissions disagreed with the trip's pinned rate and
+ * with what the fare card had told the driver.
+ */
+function commissionRateFor(trip) {
+  return trip?.commissionRate != null ? trip.commissionRate : cfg('PLATFORM_COMMISSION');
+}
+
 module.exports = {
   calculateSegmentFareByRatio,
   pinnedRatesFor,
+  commissionRateFor,
   calculateFare,
   calculateRideFare,
   estimateFare,

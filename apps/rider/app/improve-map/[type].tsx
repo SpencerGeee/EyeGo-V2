@@ -10,12 +10,12 @@ import * as Location from 'expo-location';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { mapReportsApi, type MapReportType } from '@eyego/api';
 import { spacing, radii, fonts, fontSizes, withOpacity } from '@eyego/config';
-import { Text, Pressable, Button, AppBackground, backgroundScrollPauseProps, GlowSearchInput, goDeeper, goBack, notify } from '@eyego/ui';
+import { Text, Pressable, Button, AppBackground, backgroundScrollPauseProps, goDeeper, goBack, notify } from '@eyego/ui';
 
 import { useColors, Colors } from '../../utils/useColors';
 import { useThemeStore } from '../../stores/theme.store';
 import { useToastStore } from '../../stores/toast.store';
-import { reverseGeocode, searchPlaces, type GeocodeResult } from '../../utils/geocoding';
+import { reverseGeocode } from '../../utils/geocoding';
 import { consumePickedPlace } from '../../utils/placePickerResult';
 
 /**
@@ -165,8 +165,8 @@ export default function MapReportFormScreen() {
     { uri: string; url: string | null; failed?: boolean }[]
   >([]);
   const [payload, setPayload] = useState<Record<string, string | number>>({});
-  const [suggestions, setSuggestions] = useState<GeocodeResult[]>([]);
-  const searchTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Set only while THIS screen has the picker open — the result slot is shared. */
+  const pickingRef = React.useRef(false);
 
   /**
    * The per-type fields, from the server that validates them.
@@ -216,29 +216,29 @@ export default function MapReportFormScreen() {
   // A location confirmed on the shared map picker.
   useFocusEffect(
     useCallback(() => {
+      if (!pickingRef.current) return;
+      pickingRef.current = false;
       const picked = consumePickedPlace();
       if (picked) {
         setCoords({ lat: picked.latitude, lng: picked.longitude });
         setAddress(picked.fullAddress);
-        setSuggestions([]);
       }
     }, []),
   );
 
-  const searchAddress = (q: string) => {
-    setAddress(q);
-    if (searchTimer.current) clearTimeout(searchTimer.current);
-    if (q.trim().length < 3) {
-      setSuggestions([]);
-      return;
-    }
-    searchTimer.current = setTimeout(async () => {
-      try {
-        setSuggestions(await searchPlaces(q, 5, coords ? { latitude: coords.lat, longitude: coords.lng } : null));
-      } catch {
-        setSuggestions([]);
-      }
-    }, 300);
+  /** The place is marked on the map — search lives inside the picker. */
+  const openPicker = () => {
+    pickingRef.current = true;
+    goDeeper({
+      pathname: '/profile/place-picker',
+      params: {
+        title: coords ? 'Adjust the pin' : 'Where is it?',
+        // Seeded, so "adjust" starts from the pin the rider already set.
+        ...(coords
+          ? { initialLat: String(coords.lat), initialLng: String(coords.lng), initialLabel: name || address, initialAddress: address }
+          : { focusSearch: '1' }),
+      },
+    } as never);
   };
 
   /**
@@ -397,60 +397,27 @@ export default function MapReportFormScreen() {
         <View style={styles.tipRow}>
           <Ionicons name="bulb-outline" size={15} color={colors.primary} />
           <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ flex: 1 }}>
-            Can’t find it? Search the nearest landmark — a junction, school or filling
-            station — then use “{coords ? 'Adjust the pin' : 'Pick the spot on the map'}” to
-            move the pin the last few metres.
+            Can’t find it? In the map, search the nearest landmark — a junction, school
+            or filling station — then drag the pin the last few metres.
           </Text>
         </View>
-        <GlowSearchInput placeholder="Search an address or place" value={address} onChangeText={searchAddress} />
-        {suggestions.length > 0 && (
-          <View style={styles.suggestBox}>
-            {suggestions.map((s, i) => (
-              <Pressable
-                key={s.placeId || i}
-                onPress={() => {
-                  setAddress(s.fullAddress);
-                  setCoords({ lat: s.latitude, lng: s.longitude });
-                  setSuggestions([]);
-                }}
-                style={[styles.suggestRow, i < suggestions.length - 1 && styles.suggestRowBorder]}
-               accessibilityRole="button">
-                <Ionicons name="location-outline" size={16} color={colors.onSurfaceVariant} />
-                <Text variant="bodySmall" color={colors.onSurface} style={{ flex: 1 }} numberOfLines={2}>
-                  {s.fullAddress}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        )}
+        {/* A field that opens the map, not a text box — same as saved places. */}
         <Pressable
-          style={styles.mapBtn}
-          onPress={() =>
-            goDeeper({
-              pathname: '/profile/place-picker',
-              params: {
-                title: coords ? 'Adjust the pin' : 'Where is it?',
-                // Seeded, so "adjust" starts from the pin the rider already set
-                // rather than throwing it away and going back to GPS.
-                ...(coords
-                  ? {
-                      initialLat: String(coords.lat),
-                      initialLng: String(coords.lng),
-                      initialLabel: name || address,
-                      initialAddress: address,
-                    }
-                  : {}),
-              },
-            } as never)
-          }
+          style={[styles.mapField, coords && { borderColor: withOpacity(colors.primary, 0.45) }]}
+          onPress={openPicker}
           accessibilityRole="button"
-          accessibilityLabel="Pick the spot on the map"
+          accessibilityLabel={coords ? `Location: ${address || 'pin set'}. Adjust it on the map` : 'Mark the spot on the map'}
         >
-          <Ionicons name="map-outline" size={18} color={colors.primary} />
-          <Text variant="bodyMedium" color={colors.primary}>
-            {coords ? 'Adjust the pin' : 'Pick the spot on the map'}
-          </Text>
-          {coords && <Ionicons name="checkmark-circle" size={16} color={colors.primary} />}
+          <Ionicons name={coords ? 'location' : 'map-outline'} size={20} color={colors.primary} />
+          <View style={{ flex: 1 }}>
+            <Text variant="bodyMedium" color={coords ? colors.onSurface : colors.onSurfaceVariant} numberOfLines={2}>
+              {coords ? address || 'Pin set' : 'Mark the spot on the map'}
+            </Text>
+            <Text variant="caption" color={colors.onSurfaceVariant}>
+              {coords ? 'Tap to adjust the pin' : 'Search or drop a pin'}
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceVariant} />
         </Pressable>
 
         {/* ── Name, for the types that have one ── */}
@@ -667,22 +634,17 @@ const makeStyles = (colors: Colors) =>
       fontSize: fontSizes.bodyMedium,
     },
     noteInput: { minHeight: 96, textAlignVertical: 'top' },
-    suggestBox: {
-      marginTop: spacing.xs,
-      backgroundColor: colors.surfaceCard,
+    mapField: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.md,
+      minHeight: 64,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
       borderRadius: radii.lg,
       borderWidth: 1,
       borderColor: colors.rimLight,
-      overflow: 'hidden',
-    },
-    suggestRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md },
-    suggestRowBorder: { borderBottomWidth: 1, borderBottomColor: colors.rimLightSubtle },
-    mapBtn: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.sm,
-      marginTop: spacing.sm,
-      paddingVertical: spacing.md,
+      backgroundColor: colors.surfaceCard,
     },
     chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     chip: {

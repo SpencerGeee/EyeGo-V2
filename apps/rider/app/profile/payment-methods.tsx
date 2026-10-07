@@ -17,7 +17,9 @@ export default function PaymentMethodsScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
 
-  const { data: methods = [], isLoading } = useQuery({
+  // `isPending`: a retry after a failure is not "loading" to v5, so the old
+  // `isLoading` dropped straight to "No cards yet" while a card was on file.
+  const { data: methods = [], isPending: isLoading, isError, refetch } = useQuery({
     queryKey: ['payment-methods'],
     queryFn: () => walletApi.getPaymentMethods(),
   });
@@ -68,6 +70,20 @@ export default function PaymentMethodsScreen() {
                   </View>
                 </React.Fragment>
               ))}
+            </View>
+          ) : isError && methods.length === 0 ? (
+            // A failed read is not "you have no cards" — say which it is.
+            <View style={styles.emptyState}>
+              <View style={styles.emptyIconWrap}>
+                <Ionicons name="cloud-offline-outline" size={36} color={colors.onSurfaceVariant} />
+              </View>
+              <Text variant="titleSmall" style={{ color: colors.onSurface, marginTop: spacing.lg }}>
+                Couldn’t load your payment methods
+              </Text>
+              <Text variant="bodySmall" color={colors.onSurfaceVariant} style={styles.emptyCaption}>
+                Check your connection — nothing on your account has changed.
+              </Text>
+              <Button label="Try again" variant="secondary" onPress={() => void refetch()} style={{ marginTop: spacing.lg }} />
             </View>
           ) : methods.length === 0 ? (
             <View style={styles.emptyState}>

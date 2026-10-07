@@ -54,6 +54,8 @@ const SUITES = [
   ['release-surfaces.mjs', 'the release gate, consent, receipts, SOS, payments, the admin door'],
   ['rider-edges.mjs', 'the rider paths that are not the happy one'],
   ['dispatch-payload.mjs', 'the offer contract — every field the driver card reads'],
+  ['search-actions.mjs', 'boost the fare (all of it to the driver) and nudge the pickup while searching'],
+  ['money-flows.mjs', 'P2P, refunds exactly once, platform-funded promos, ledger reconciliation'],
   ['wallet-commission.mjs', 'the cash float: warned at the offer, charged at boarding'],
   ['lifecycle-edges.mjs', 'cancellations, races, no-shows, terminal states'],
   ['silent-failures.mjs', 'writes that do not write, and 200s that mean nothing'],

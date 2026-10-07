@@ -428,16 +428,17 @@ const getFareEstimate = async (req, res) => {
 
 // ── Account Deletion ──────────────────────────────────────────────────
 /**
- * Blacklist first, delete second — same reasoning as the rider's deleteMe.
+ * Delete, then blacklist — same reasoning as the rider's deleteMe.
  * `authenticateDriver` checks the JWT signature and the blacklist, never
  * whether the driver still exists, so without this the access token kept
  * working after the account was gone: still able to go online, still able to
- * accept a dispatch offer.
+ * accept a dispatch offer. Deletion goes first because it can refuse.
  */
 const deleteMe = async (req, res) => {
+  const acknowledgeBalance = req.body?.acknowledgeBalance === true;
+  await driversService.deleteMe(req.user.userId, { acknowledgeBalance });
   const token = req.headers.authorization?.split(' ')[1];
   if (token) await blacklistToken(token);
-  await driversService.deleteMe(req.user.userId);
   ok(res, null, 'Account deleted');
 };
 
@@ -487,12 +488,13 @@ const emergencyAlert = async (req, res) => {
   ok(res, { alertReceived: true }, 'Emergency alert dispatched');
 
   setImmediate(async () => {
+    // Outside the try, so the catch that records a failed SOS can use it.
+    const logger = require('../../utils/logger');
     try {
       const prisma = require('../../config/database');
       const pushService = require('../../services/push.service');
       const smsService = require('../../services/sms.service');
       const redis = require('../../config/redis');
-      const logger = require('../../utils/logger');
 
       const lat = latitude ? parseFloat(latitude) : null;
       const lng = longitude ? parseFloat(longitude) : null;

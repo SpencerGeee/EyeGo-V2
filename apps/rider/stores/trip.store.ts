@@ -58,6 +58,14 @@ interface TripStoreState {
      * animation that happens to loop. Null until the first progress frame.
      */
     radiusKm: number | null;
+    /**
+     * Nobody is in range yet — the cascade has parked and is re-scanning
+     * (`WAITING_FOR_SUPPLY`). The single most common searching state in a quiet
+     * area, and the one the screen used to say nothing about.
+     */
+    waiting?: boolean;
+    /** When the search gives up, on the server clock. Null if not known yet. */
+    searchExpiresAtServerMs?: number | null;
   } | null;
 
   /**
@@ -381,9 +389,11 @@ export const useTripStore = create<TripStoreState>((set, get) => ({
                 // found somebody. Keep the last one so the ring does not
                 // collapse to nothing between candidates.
                 radiusKm: (p as any).radiusKm ?? get().dispatch?.radiusKm ?? null,
+                waiting: false,
+                searchExpiresAtServerMs: get().dispatch?.searchExpiresAtServerMs ?? null,
               },
             });
-          } else if (p.phase === 'SEARCHING' || p.phase === 'WIDENING') {
+          } else if (p.phase === 'SEARCHING' || p.phase === 'WIDENING' || p.phase === 'WAITING_FOR_SUPPLY') {
             set((s) => ({
               dispatch: {
                 driverId: null, driverLat: null, driverLng: null,
@@ -393,6 +403,13 @@ export const useTripStore = create<TripStoreState>((set, get) => ({
                 // WIDENING is the whole reason this is on the wire: the ring
                 // grows because the SEARCH grew, not because a timer fired.
                 radiusKm: (p as any).radiusKm ?? s.dispatch?.radiusKm ?? null,
+                // WAITING_FOR_SUPPLY was dropped on the floor, so "nobody is
+                // online near you" looked exactly like "asking drivers".
+                waiting: p.phase === 'WAITING_FOR_SUPPLY',
+                searchExpiresAtServerMs:
+                  Number.isFinite((p as any).searchTimeoutSeconds) && !s.dispatch?.searchExpiresAtServerMs
+                    ? event.serverNowMs + (p as any).searchTimeoutSeconds * 1000
+                    : s.dispatch?.searchExpiresAtServerMs ?? null,
               },
             }));
           }
@@ -459,7 +476,28 @@ export const useTripStore = create<TripStoreState>((set, get) => ({
 
   hydrate: async () => {
     try {
-      const { trip, dispatch, serverNowMs } = await ridesApi.active();
+      let { trip, dispatch, serverNowMs } = await ridesApi.active();
+      /**
+       * A TRIP WE ARE WATCHING THAT IS NO LONGER LIVE IS STILL A TRIP.
+       *
+       * `/rides/active` only answers for live rides, so a search that ended
+       * while the app sat in the switcher came back as `trip: null` — and null
+       * does not say "it ended", it says "there is nothing". The request stage
+       * rendered that as "Sending your request" for ever: the dead page. Ask for
+       * the watched trip itself and let its final status do the talking.
+       */
+      if (!trip && watchedTripId) {
+        try {
+          const replay = await ridesApi.events(watchedTripId, 0);
+          if (replay?.snapshot) {
+            trip = replay.snapshot;
+            dispatch = null;
+            serverNowMs = replay.serverNowMs ?? serverNowMs;
+          }
+        } catch {
+          // Unreachable: keep the active answer.
+        }
+      }
       set((prev) => ({
         // THE FOREGROUND PATH RUNS THE SAME RULES AS THE SOCKET PATH.
         //
@@ -473,21 +511,32 @@ export const useTripStore = create<TripStoreState>((set, get) => ({
         // What makes a cold start mid-trip open with a drawn route instead of
         // two bare pins and a wait for the driver's next GPS fix.
         path: trip?.path ?? null,
-        dispatch: dispatch?.currentDriverId
-          ? {
-              driverId: dispatch.currentDriverId,
-              driverLat: null,
-              driverLng: null,
-              attempt: dispatch.attempt,
-              totalCandidates: dispatch.totalCandidates,
-              expiresAtServerMs: dispatch.expiresAtServerMs,
-              etaSeconds: null,
-              // A cold start mid-search has no progress frame to read the
-              // radius from; the ring picks it up on the next one. Null is
-              // honest here — the map simply draws no ring for a beat.
-              radiusKm: (dispatch as any).radiusKm ?? null,
-            }
-          : null,
+        /**
+         * A LIVE SEARCH HYDRATES AS A LIVE SEARCH — held offer or not.
+         *
+         * BUGFIX ("the waiting-to-be-matched page is dead"). This required
+         * `currentDriverId`, so re-opening a search with nobody in range — the
+         * normal state in a quiet area, and on one phone running both apps —
+         * hydrated to `dispatch: null`: no ring, no copy, a pin on an empty
+         * map until the next progress frame, which a parked cascade may not
+         * send for minutes. The server now returns the radius and the
+         * waiting flag with the state (getCascadeState).
+         */
+        dispatch:
+          dispatch && !(dispatch as any).done
+            ? {
+                driverId: dispatch.currentDriverId ?? null,
+                driverLat: null,
+                driverLng: null,
+                attempt: dispatch.attempt,
+                totalCandidates: dispatch.totalCandidates,
+                expiresAtServerMs: dispatch.currentDriverId ? dispatch.expiresAtServerMs : null,
+                etaSeconds: null,
+                radiusKm: (dispatch as any).radiusKm ?? null,
+                waiting: (dispatch as any).waiting === true,
+                searchExpiresAtServerMs: (dispatch as any).searchExpiresAtServerMs ?? null,
+              }
+            : null,
       }));
       if (trip) get().watch(trip.tripId);
       return { trip, ok: true };

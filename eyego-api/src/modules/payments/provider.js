@@ -120,6 +120,10 @@ const mock = {
     return { status: true, message: 'Transfer queued', data: { reference: reference || mockRef(), status: 'success', amount: amountPesewas } };
   },
 
+  async verifyTransfer(reference) {
+    return { status: true, message: 'Transfer retrieved', data: { reference, status: 'success' } };
+  },
+
   async createTransferRecipient() {
     return { status: true, message: 'Recipient created', data: { recipient_code: `RCP_${crypto.randomBytes(6).toString('hex')}` } };
   },
@@ -219,6 +223,7 @@ module.exports = {
   /** Money back to the original payment method. Accepted now, settles later. */
   refundTransaction: guard('refundTransaction'),
   initiateTransfer: guard('initiateTransfer'),
+  verifyTransfer: guard('verifyTransfer'),
   createTransferRecipient: guard('createTransferRecipient'),
   resolvePayoutBankCode: guard('resolvePayoutBankCode'),
 };

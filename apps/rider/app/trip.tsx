@@ -469,6 +469,17 @@ export default function TripScreen() {
   const unwatch = useTripStore((s) => s.unwatch);
   useEffect(() => {
     if (!isTerminal(tripStatus) || handedOff.current || !snapshot) return;
+    /**
+     * NOBODY FOUND IS ANSWERED WHERE IT HAPPENED.
+     *
+     * FEATURE ("the waiting-to-be-matched page … make it complete like Uber and
+     * Bolt"; no-drivers choice: "the map stays, with Try again, Schedule this
+     * ride, and a seat on a group bus"). Retiring the surface here threw the
+     * rider to Home mid-thought and explained it with a sheet. The request
+     * stage now owns this ending: it keeps the map and offers the next move,
+     * and it releases the trip itself on whichever exit the rider takes.
+     */
+    if ((tripStatus === 'NO_DRIVERS_FOUND' || tripStatus === 'EXPIRED') && stage === 'request') return;
     handedOff.current = true;
     setSurfaceRetired(true);
     // Stop the channel BEFORE navigating: a socket still applying events to a
@@ -536,7 +547,7 @@ export default function TripScreen() {
       });
       router.replace('/(tabs)/home' as Href);
     }
-  }, [tripStatus, snapshot, unwatch, router]);
+  }, [tripStatus, snapshot, unwatch, router, stage]);
 
   /**
    * CATCH UP THE MOMENT THE APP COMES BACK.

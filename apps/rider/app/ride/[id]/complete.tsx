@@ -12,6 +12,7 @@ import { MotiView, goDeeper, goBack, goOut } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useShallow } from 'zustand/react/shallow';
 import { useRideStore } from '../../../stores/ride.store';
+import { SaveDestinationCard } from '../../../components/trip/SaveDestinationCard';
 import { fonts, fontSizes, spacing, radii, withOpacity, springs } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
 import { formatGhs, formatDistance, formatDuration, originLabel, destinationLabel } from '@eyego/utils';
@@ -653,6 +654,15 @@ export default function TripCompleteScreen() {
           transition={{ type: 'spring', ...springs.standard, delay: 400 }}
           style={styles.ctaSection}
         >
+          {/* Uber's "save this destination" — the rider was just there. */}
+          {!isViewOnly && Number.isFinite((snapshot as any)?.dropoff?.lat) && (snapshot as any)?.dropoff?.address ? (
+            <SaveDestinationCard
+              address={(snapshot as any).dropoff.address}
+              lat={(snapshot as any).dropoff.lat}
+              lng={(snapshot as any).dropoff.lng}
+            />
+          ) : null}
+
           {/*
             RATE, OR SHOW WHAT WAS ALREADY SAID — never both, never a blank form
             over an existing verdict. See `myRating` above.

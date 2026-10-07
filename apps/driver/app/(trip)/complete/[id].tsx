@@ -2,13 +2,13 @@ import React, { useMemo, useEffect } from 'react';
 import { formatGhs, originLabel, destinationLabel, seatsOf } from '@eyego/utils';
 import type { Trip, Booking, TripBooking } from '@eyego/types';
 import type { DriverTrip } from '@eyego/api';
-import { View, StyleSheet, ScrollView, Pressable } from 'react-native';
+import { View, StyleSheet, ScrollView, Pressable, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button, Entrance, AnimatedCheckmark, AnimatedFareText, Skeleton, GradientGlowBorder, GlassSurface, AppBackground, bookingStatusLabel, goDeeper, goBack } from '@eyego/ui';
+import { Text, Button, Entrance, AnimatedCheckmark, AnimatedFareText, Skeleton, GradientGlowBorder, GlassSurface, AppBackground, bookingStatusLabel, goDeeper, goBack, goOut } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { useDriverStore } from '../../../stores/driver.store';
@@ -81,11 +81,14 @@ export default function TripCompleteScreen() {
    * offline, straight after completion, still has something to render from
    * cache rather than flashing an empty summary.
    */
-  const { data: fetchedTrip } = useQuery({
+  const { data: fetchedTrip, isError: detailFailed } = useQuery({
     queryKey: ['driver', 'trip', 'detail', id],
     queryFn: () => driverApi.getTripById(id!),
     select: (r: any) => r.data?.data?.trip ?? null,
     enabled: !!id && typeof id === 'string',
+    // A 404 is an answer — the detail endpoint is scoped to the trip's own
+    // driver, so it means "not yours". Retrying it only holds the screen open.
+    retry: (n, err: any) => err?.response?.status !== 404 && n < 2,
   });
 
   const { data: trips } = useQuery({
@@ -288,7 +291,33 @@ export default function TripCompleteScreen() {
    * one status that renders optimistically is "we have not loaded it yet",
    * because the driver has usually just come here off their own swipe.
    */
-  const tripStatus = (completedTrip as { status?: string } | undefined)?.status ?? null;
+  /**
+   * ── AND IT IS ONLY EVER A RECEIPT FOR *THIS DRIVER'S* FINISHED TRIP ──────
+   *
+   * BUGFIX (third report of the same shape: "I never even accepted the trip
+   * and the driver app showed the trip complete page with the earnings"). The
+   * guard above still rendered the checkmark for every status it did not list
+   * — SEARCHING, MATCHING, DRIVER_EN_ROUTE — and for "nothing loaded", which is
+   * also what a trip that is not this driver's looks like: the detail endpoint
+   * is scoped to the trip's own driver and answers 404, the cached list has no
+   * row for it, and the screen painted "Trip Complete!" over nothing, forever.
+   *
+   * The status is read from the DETAIL fetch only; the cached list is a fallback
+   * for the numbers, never for the verdict. The celebration renders when:
+   *   - the server says COMPLETED (and, the endpoint being owner-scoped, mine), or
+   *   - this driver just completed it themselves — `active/[id]` is the only
+   *     caller that passes `earnings` — and the detail has not landed yet.
+   * Anything else leaves: a live trip belongs on the home surface, and a trip
+   * that is not mine has no receipt here at all.
+   */
+  const tripStatus = (fetchedTrip as { status?: string } | null | undefined)?.status ?? null;
+  const fromOwnCompletion = earningsParam != null;
+  const LIVE = ['REQUESTED', 'MATCHING', 'REASSIGNING', 'SCHEDULED', 'FILLING', 'CONFIRMED', 'DRIVER_ASSIGNED', 'DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP', 'IN_PROGRESS'];
+  const notMine = detailFailed && !fromOwnCompletion;
+  const stillLive = tripStatus != null && LIVE.includes(tripStatus);
+  useEffect(() => {
+    if (notMine || stillLive) goOut('/(tabs)/home');
+  }, [notMine, stillLive]);
   const NON_SETTLING: Record<string, { title: string; body: string; icon: keyof typeof Ionicons.glyphMap }> = {
     CANCELLED: {
       title: 'Trip cancelled',
@@ -328,9 +357,20 @@ export default function TripCompleteScreen() {
             </Text>
           </Entrance>
           <Entrance animation="slideDown" delay={360} style={styles.ctaWrapper}>
-            <Button label="Back to Home" onPress={() => router.replace('/(tabs)/home')} />
+            <Button label="Back to Home" onPress={() => goOut('/(tabs)/home')} />
           </Entrance>
         </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
+  // Not a verdict yet (and not our own swipe), or on the way out: a quiet
+  // holding frame, never a checkmark nobody has earned.
+  if (notMine || stillLive || (tripStatus !== 'COMPLETED' && !fromOwnCompletion)) {
+    return (
+      <SafeAreaView style={[styles.safe, { justifyContent: 'center', alignItems: 'center' }]}>
+        <AppBackground isDark={theme !== 'light'} />
+        <ActivityIndicator color={colors.primary} />
       </SafeAreaView>
     );
   }
@@ -523,14 +563,16 @@ export default function TripCompleteScreen() {
               Your ratings for this trip are saved.
             </Text>
           )}
+          {/* `goOut`, not `replace`: replacing this screen with `(tabs)` stacked a
+              SECOND tabs navigator on the first — two home surfaces mounted. */}
           <Button
             label="Back to Home"
-            onPress={() => router.replace('/(tabs)/home')}
+            onPress={() => goOut('/(tabs)/home')}
           />
           <Button
             label="View Earnings"
             variant="secondary"
-            onPress={() => router.replace('/(tabs)/earnings')}
+            onPress={() => goOut('/(tabs)/earnings')}
           />
         </Entrance>
       </ScrollView>

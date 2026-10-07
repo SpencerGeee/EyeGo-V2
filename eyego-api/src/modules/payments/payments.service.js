@@ -19,6 +19,34 @@ const MOMO_METHODS = ['MOMO', 'MOMO_MTN', 'MOMO_TELECEL', 'MOMO_AIRTELTIGO'];
 //   • Card  → Paystack hosted checkout; client opens authorizationUrl → PENDING
 //   • Wallet→ synchronous balance debit inside confirmPayment → SUCCESS
 //   • Cash  → no gateway; seat confirmed now, rider pays driver on board → SUCCESS
+const riderWallet = require('../../services/rider-wallet.service');
+
+/**
+ * A rider top-up the gateway confirmed: claim the intent, credit through the
+ * ledger. Shared by the app's verify and the webhook, which used to carry two
+ * copies of a bare balance increment with no ledger row.
+ */
+async function creditRiderTopUp(txn, userId, reference) {
+  await prisma.$transaction(async (tx) => {
+    const claimed = await tx.paymentTransaction.updateMany({
+      where: { id: txn.id, status: 'INTENT' },
+      data: { status: 'SUCCESS' },
+    });
+    if (claimed.count === 0) return;
+    await riderWallet.record({
+      userId,
+      type: riderWallet.TYPES.TOPUP,
+      amountPesewas: txn.amountPesewas,
+      description: 'Wallet top-up',
+      paystackRef: reference,
+      tx,
+    });
+  });
+}
+
+/** How long a pending charge may be handed back instead of starting a new one. */
+const INTENT_REUSE_MS = 3 * 60 * 1000;
+
 async function initiatePayment({ userId, bookingId, phone, savedCardId, method: requestedMethod }) {
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
@@ -106,17 +134,31 @@ async function initiatePayment({ userId, bookingId, phone, savedCardId, method: 
   }
 
   try {
+    /**
+     * Reuse a charge only while it can still complete. A MoMo prompt that was
+     * declined or timed out left its INTENT row behind for ever, and this handed
+     * that dead reference back on every retry — the rider could never pay. A
+     * stale intent is set aside; if it does land late after all, confirmPayment
+     * returns it to the wallet as a duplicate. Tip intents are not fares.
+     */
+    const notTip = { OR: [{ gatewayResponse: null }, { gatewayResponse: { not: 'TIP' } }] };
     const existingIntent = await prisma.paymentTransaction.findFirst({
-      where: { bookingId, status: 'INTENT' },
+      where: { bookingId, status: 'INTENT', ...notTip },
       orderBy: { createdAt: 'desc' },
     });
-    if (existingIntent) {
+    if (existingIntent && Date.now() - existingIntent.createdAt.getTime() < INTENT_REUSE_MS) {
       return {
         reference: existingIntent.paystackRef,
         status: 'PENDING',
         method,
         requiresVerification: true,
       };
+    }
+    if (existingIntent) {
+      await prisma.paymentTransaction.updateMany({
+        where: { bookingId, status: 'INTENT', ...notTip },
+        data: { status: 'ABANDONED' },
+      });
     }
 
     // ── Asynchronous methods: Paystack mobile money or hosted card checkout ──
@@ -187,10 +229,26 @@ async function initiatePayment({ userId, bookingId, phone, savedCardId, method: 
 async function verifyPayment(reference, requestingUserId) {
   const result = await paystack.verifyTransaction(reference);
   if (result.data?.status !== 'success') {
+    // A charge that is over and did not succeed is closed, so the next tap on
+    // Pay starts a new one instead of re-polling a dead prompt.
+    if (['failed', 'abandoned', 'reversed'].includes(String(result.data?.status ?? '').toLowerCase())) {
+      await prisma.paymentTransaction.updateMany({
+        where: { paystackRef: reference, status: 'INTENT' },
+        data: { status: 'FAILED' },
+      });
+    }
     throw new PaymentError(`Payment not successful: ${result.data?.gateway_response}`);
   }
 
   const metadata = result.data.metadata;
+
+  if (metadata?.type === 'TIP') {
+    if (requestingUserId && metadata.userId && metadata.userId !== requestingUserId) {
+      throw Object.assign(new Error('Forbidden'), { statusCode: 403 });
+    }
+    await settleTip(reference);
+    return { type: 'TIP', status: 'SUCCESS' };
+  }
 
   if (metadata?.type === 'WALLET_TOPUP') {
     if (metadata?.userId) {
@@ -200,54 +258,18 @@ async function verifyPayment(reference, requestingUserId) {
       const txn = await prisma.paymentTransaction.findFirst({
         where: { paystackRef: reference, status: 'INTENT' },
       });
-      if (txn) {
-        await prisma.$transaction(async (tx) => {
-          const updatedTxn = await tx.paymentTransaction.updateMany({
-            where: { id: txn.id, status: 'INTENT' },
-            data: { status: 'SUCCESS' },
-          });
-          if (updatedTxn.count > 0) {
-            await tx.user.update({
-              where: { id: metadata.userId },
-              data: { walletBalancePesewas: { increment: txn.amountPesewas } },
-            });
-          }
-        });
-      }
+      if (txn) await creditRiderTopUp(txn, metadata.userId, reference);
     } else if (metadata?.driverId) {
       if (requestingUserId && metadata.driverId !== requestingUserId) {
         throw Object.assign(new Error('Forbidden'), { statusCode: 403 });
       }
-      const driver = await prisma.driver.findUnique({ where: { id: metadata.driverId } });
-      if (driver) {
-        await prisma.$transaction(async (tx) => {
-          const existing = await tx.walletTransaction.findFirst({
-            where: { paystackRef: reference, type: 'TOP_UP' }
-          });
-          if (!existing) {
-            // Paystack reports `data.amount` in the currency's SUBUNIT — pesewas
-            // for GHS. This used to be divided by 100 to reach the cedis the
-            // wallet was stored in; the wallet is pesewas now, so the gateway's
-            // number is already the right one and the division is gone.
-            const toppedUpPesewas = assertPesewas(result.data.amount, 'Paystack top-up amount');
-            await tx.driver.update({
-              where: { id: metadata.driverId },
-              data: { walletBalancePesewas: { increment: toppedUpPesewas } },
-            });
-            await tx.walletTransaction.create({
-              data: {
-                driverId: metadata.driverId,
-                type: 'TOP_UP',
-                amountPesewas: toppedUpPesewas,
-                description: 'Wallet top-up via MoMo',
-                balanceBeforePesewas: driver.walletBalancePesewas,
-                balanceAfterPesewas: driver.walletBalancePesewas + toppedUpPesewas,
-                paystackRef: reference,
-              },
-            });
-          }
-        });
-      }
+      // Paystack's `data.amount` is the SUBUNIT — pesewas for GHS. Through the
+      // one credit path (deduped on the reference, balance read in the tx).
+      await require('../wallet/wallet.service').creditTopUp(
+        metadata.driverId,
+        reference,
+        assertPesewas(result.data.amount, 'Paystack top-up amount'),
+      );
     }
     return { type: 'WALLET_TOPUP', status: 'SUCCESS' };
   }
@@ -277,7 +299,37 @@ async function confirmPayment(bookingId, reference, { cashOnBoard = false, isSyn
       include: { trip: { include: { route: true, group: true } } },
     });
     if (!booking) throw new NotFoundError('Booking');
-    if (booking.paymentStatus === 'PAID' || booking.paymentStatus === 'CASH_PENDING') return booking; // idempotent
+    if (booking.paymentStatus === 'PAID' || booking.paymentStatus === 'CASH_PENDING') {
+      /**
+       * A SECOND SUCCESSFUL CHARGE FOR A PAID BOOKING — a retried MoMo prompt
+       * where both went through. It was silently kept. Returned to the wallet,
+       * once (the row's status flip is the lock).
+       */
+      if (!isSync && reference && booking.paystackRef && reference !== booking.paystackRef) {
+        const dup = await tx.paymentTransaction.findFirst({
+          where: { paystackRef: reference, status: { in: ['INTENT', 'ABANDONED', 'FAILED'] } },
+          select: { id: true, amountPesewas: true, userId: true },
+        });
+        if (dup) {
+          const claimed = await tx.paymentTransaction.updateMany({
+            where: { id: dup.id, status: { in: ['INTENT', 'ABANDONED', 'FAILED'] } },
+            data: { status: 'REFUNDED', gatewayResponse: 'Duplicate payment refunded to wallet' },
+          });
+          if (claimed.count > 0) {
+            await riderWallet.record({
+              userId: dup.userId,
+              type: riderWallet.TYPES.REFUND,
+              amountPesewas: dup.amountPesewas,
+              description: 'Duplicate payment refunded',
+              bookingId,
+              paystackRef: reference,
+              tx,
+            });
+          }
+        }
+      }
+      return booking; // idempotent
+    }
 
     // BUGFIX ("Pay in cash → Payment failed", including the group host's
     // pay-for-everyone flow): cash bookings are CONFIRMED at creation with
@@ -312,13 +364,40 @@ async function confirmPayment(bookingId, reference, { cashOnBoard = false, isSyn
         );
       }
 
-      logger.info(`Booking failed (${reason}), triggering refund`, { bookingId, reference });
+      /**
+       * ONCE PER CHARGE, FOR WHAT WAS CHARGED.
+       *
+       * The webhook and the app's own verify both arrive here for the same
+       * reference, and REFUNDED rows are not what the webhook's SUCCESS dedupe
+       * looks for — so both used to refund, and the wallet was credited twice.
+       * Claiming the charge's INTENT row is the lock: whoever flips it refunds.
+       * And the amount is the INTENT's, i.e. what the gateway actually took — a
+       * group host's charge covers every sibling seat, not just their own.
+       */
+      const intent = await tx.paymentTransaction.findFirst({
+        where: { paystackRef: reference, status: 'INTENT' },
+        select: { id: true, amountPesewas: true },
+      });
+      if (intent) {
+        const claimed = await tx.paymentTransaction.updateMany({
+          where: { id: intent.id, status: 'INTENT' },
+          data: { status: 'SETTLED' },
+        });
+        if (claimed.count === 0) return booking;
+      } else if (
+        await tx.paymentTransaction.findFirst({ where: { paystackRef: reference, status: 'REFUNDED' }, select: { id: true } })
+      ) {
+        return booking;
+      }
+      const chargedPesewas = intent?.amountPesewas ?? booking.fareAmountPesewas;
+
+      logger.info(`Booking failed (${reason}), triggering refund`, { bookingId, reference, chargedPesewas });
 
       await tx.paymentTransaction.create({
         data: {
           bookingId,
           userId: booking.userId,
-          amountPesewas: booking.fareAmountPesewas,
+          amountPesewas: chargedPesewas,
           status: 'REFUNDED',
           paystackRef: reference,
           gatewayResponse: `Refunded to wallet due to ${reason}`,
@@ -327,9 +406,14 @@ async function confirmPayment(bookingId, reference, { cashOnBoard = false, isSyn
 
       // If they actually paid via an external gateway, refund to their wallet
       if (['MOMO', 'MOMO_MTN', 'MOMO_TELECEL', 'MOMO_AIRTELTIGO', 'CARD'].includes(booking.paymentMethod)) {
-        await tx.user.update({
-          where: { id: booking.userId },
-          data: { walletBalancePesewas: { increment: booking.fareAmountPesewas } },
+        await riderWallet.record({
+          userId: booking.userId,
+          type: riderWallet.TYPES.REFUND,
+          amountPesewas: chargedPesewas,
+          description: reason === 'trip full' ? 'Refund: the trip filled before your payment landed' : 'Refund: your seat hold expired',
+          bookingId,
+          paystackRef: reference,
+          tx,
         });
       }
 
@@ -364,16 +448,25 @@ async function confirmPayment(bookingId, reference, { cashOnBoard = false, isSyn
     // prevents negative balance. Must happen before any status flips so a
     // shortfall aborts the whole settlement instead of partially confirming.
     if (booking.paymentMethod === 'WALLET') {
-      const updated = await tx.user.updateMany({
-        where: { id: booking.userId, walletBalancePesewas: { gte: totalFare } },
-        data: { walletBalancePesewas: { decrement: totalFare } },
-      });
-      if (updated.count === 0) {
+      // The friendly refusal first; the ledger's conditional debit below is the
+      // authority if two payments race for the same balance.
+      const payer = await tx.user.findUnique({ where: { id: booking.userId }, select: { walletBalancePesewas: true } });
+      if (!payer || payer.walletBalancePesewas < totalFare) {
         throw new AppError('Insufficient wallet balance', 402, 'INSUFFICIENT_BALANCE');
       }
+      await riderWallet.record({
+        userId: booking.userId,
+        type: riderWallet.TYPES.RIDE_PAYMENT,
+        amountPesewas: -totalFare,
+        description: siblingBookings.length ? `Ride payment (${bookingsToSettle.length} seats)` : 'Ride payment',
+        bookingId,
+        paystackRef: reference,
+        tx,
+      });
     }
 
     let settledCount = 0;
+    let settledFarePesewas = 0;
     for (const b of bookingsToSettle) {
       // Optimistic concurrency control to prevent race conditions
       const updatedBooking = await tx.booking.updateMany({
@@ -394,6 +487,7 @@ async function confirmPayment(bookingId, reference, { cashOnBoard = false, isSyn
       if (updatedBooking.count === 0) continue; // another transaction beat us to this one
 
       settledCount += 1;
+      settledFarePesewas += b.fareAmountPesewas;
       await tx.paymentTransaction.create({
         data: {
           bookingId: b.id,
@@ -411,6 +505,50 @@ async function confirmPayment(bookingId, reference, { cashOnBoard = false, isSyn
     if (settledCount === 0) {
       // Someone else already settled this exact booking concurrently
       return tx.booking.findUnique({ where: { id: bookingId } });
+    }
+
+    /**
+     * CLOSE THE CHARGE, AND GIVE BACK WHAT WAS NOT SPENT.
+     *
+     * The INTENT row stayed INTENT for ever, so the rider's wallet history
+     * listed every card/MoMo trip as "pending" next to its real line. And a
+     * group host is charged for every sibling seat held at the moment they
+     * tapped Pay; a sibling whose hold lapsed before the money landed was not
+     * settled here, and the difference was simply kept.
+     */
+    if (!cashOnBoard && booking.paymentMethod !== 'WALLET') {
+      const intent = await tx.paymentTransaction.findFirst({
+        where: { paystackRef: reference, status: 'INTENT' },
+        select: { id: true, amountPesewas: true },
+      });
+      if (intent) {
+        const claimed = await tx.paymentTransaction.updateMany({
+          where: { id: intent.id, status: 'INTENT' },
+          data: { status: 'SETTLED' },
+        });
+        const excess = intent.amountPesewas - settledFarePesewas;
+        if (claimed.count > 0 && excess > 0) {
+          await riderWallet.record({
+            userId: booking.userId,
+            type: riderWallet.TYPES.REFUND,
+            amountPesewas: excess,
+            description: 'Refund: seats released before your group payment settled',
+            bookingId,
+            paystackRef: reference,
+            tx,
+          });
+          await tx.paymentTransaction.create({
+            data: {
+              bookingId,
+              userId: booking.userId,
+              amountPesewas: excess,
+              status: 'REFUNDED',
+              paystackRef: `${reference}_excess`,
+              gatewayResponse: 'Refunded to wallet: seats released before your payment settled',
+            },
+          });
+        }
+      }
     }
 
     // Increment confirmed seats once per booking actually settled
@@ -522,6 +660,68 @@ async function notifyEmergencyContactIfShareTripEnabled(bookingId) {
   ).catch(() => {});
 }
 
+/**
+ * A TIP THE GATEWAY CONFIRMED: 100 % TO THE DRIVER, ONCE.
+ *
+ * Nothing used to do this. The rider's MoMo was charged, the driver was pushed
+ * "sent you a tip!" before the money had even moved, and no TIP wallet row was
+ * ever written — so driver earnings, which read TIP rows, were always short.
+ * Claiming the INTENT row is the lock; the push goes out only once credited.
+ */
+async function settleTip(reference) {
+  const credited = await prisma.$transaction(async (tx) => {
+    const intent = await tx.paymentTransaction.findFirst({
+      where: { paystackRef: reference, gatewayResponse: 'TIP' },
+      select: {
+        id: true,
+        amountPesewas: true,
+        booking: { select: { tripId: true, trip: { select: { driverId: true } }, user: { select: { name: true } } } },
+      },
+    });
+    const driverId = intent?.booking?.trip?.driverId;
+    if (!intent || !driverId) return null;
+    const claimed = await tx.paymentTransaction.updateMany({
+      where: { id: intent.id, status: 'INTENT' },
+      data: { status: 'SUCCESS' },
+    });
+    if (claimed.count === 0) return null;
+    const { walletBalancePesewas: after, fcmToken } = await tx.driver.update({
+      where: { id: driverId },
+      data: { walletBalancePesewas: { increment: intent.amountPesewas } },
+      select: { walletBalancePesewas: true, fcmToken: true },
+    });
+    await tx.walletTransaction.create({
+      data: {
+        driverId,
+        type: 'TIP',
+        amountPesewas: intent.amountPesewas,
+        description: 'Tip from your rider',
+        balanceBeforePesewas: after - intent.amountPesewas,
+        balanceAfterPesewas: after,
+        paystackRef: reference,
+      },
+    });
+    return {
+      fcmToken,
+      amountPesewas: intent.amountPesewas,
+      tripId: intent.booking.tripId,
+      riderName: intent.booking.user?.name || 'A rider',
+    };
+  });
+
+  if (credited?.fcmToken) {
+    require('../../services/push.service')
+      .sendPush(
+        credited.fcmToken,
+        `💰 ${credited.riderName} sent you a tip!`,
+        `${formatGhs(credited.amountPesewas)} tip received for trip #${credited.tripId.slice(0, 8)}`,
+        { type: 'TIP', amountPesewas: String(credited.amountPesewas) },
+      )
+      .catch(() => {});
+  }
+  return credited;
+}
+
 async function handleWebhook(rawBody, signature) {
   // Verify Paystack signature using a constant-time comparison to avoid
   // leaking information via timing side-channels.
@@ -563,60 +763,28 @@ async function handleWebhook(rawBody, signature) {
         return { received: true };
       }
 
-      // Wallet top-ups are initiated from rider.wallet.routes.js with type='WALLET_TOPUP'
-      if (metadata?.type === 'WALLET_TOPUP') {
+      // Checked BEFORE `bookingId`: a tip carries the booking it is for, and
+      // used to fall into confirmPayment — a no-op on a paid booking — so no
+      // tip ever reached a driver.
+      if (metadata?.type === 'TIP') {
+        await settleTip(reference);
+      } else if (metadata?.type === 'WALLET_TOPUP') {
         if (metadata?.userId) {
           const txn = await prisma.paymentTransaction.findFirst({
             where: { paystackRef: reference, status: 'INTENT' },
           });
-          if (txn) {
-            await prisma.$transaction(async (tx) => {
-              const updatedTxn = await tx.paymentTransaction.updateMany({
-                where: { id: txn.id, status: 'INTENT' },
-                data: { status: 'SUCCESS' },
-              });
-              if (updatedTxn.count > 0) {
-                await tx.user.update({
-                  where: { id: metadata.userId },
-                  data: { walletBalancePesewas: { increment: txn.amountPesewas } },
-                });
-              }
-            });
-          }
+          if (txn) await creditRiderTopUp(txn, metadata.userId, reference);
         } else if (metadata?.driverId) {
-          // Driver wallet top-up
-          const driver = await prisma.driver.findUnique({ where: { id: metadata.driverId } });
-          if (driver) {
-            await prisma.$transaction(async (tx) => {
-              // Check if already processed by looking for a wallet transaction
-              const existing = await tx.walletTransaction.findFirst({
-                where: { paystackRef: reference, type: 'TOP_UP' }
-              });
-              if (!existing) {
-                // `event.data.amount` is already pesewas — see the matching
-                // note on the verify path above.
-                const toppedUpPesewas = assertPesewas(
-                  event.data.amount,
-                  'Paystack webhook top-up amount',
-                );
-                await tx.driver.update({
-                  where: { id: metadata.driverId },
-                  data: { walletBalancePesewas: { increment: toppedUpPesewas } },
-                });
-                await tx.walletTransaction.create({
-                  data: {
-                    driverId: metadata.driverId,
-                    type: 'TOP_UP',
-                    amountPesewas: toppedUpPesewas,
-                    description: 'Wallet top-up via MoMo',
-                    balanceBeforePesewas: driver.walletBalancePesewas,
-                    balanceAfterPesewas: driver.walletBalancePesewas + toppedUpPesewas,
-                    paystackRef: reference,
-                  },
-                });
-              }
-            });
-          }
+          // Driver wallet top-up — through the ONE credit path (dedupe on the
+          // reference, balance read inside the transaction). This used to be a
+          // copy with the balance read outside it, so a webhook racing the
+          // app's own confirm wrote a ledger that did not add up.
+          // `event.data.amount` is already pesewas.
+          await require('../wallet/wallet.service').creditTopUp(
+            metadata.driverId,
+            reference,
+            assertPesewas(event.data.amount, 'Paystack webhook top-up amount'),
+          );
         }
       } else if (metadata?.bookingId) {
         await confirmPayment(metadata.bookingId, reference);
@@ -629,12 +797,24 @@ async function handleWebhook(rawBody, signature) {
   if (event.event === 'transfer.success') {
     const { reference } = event.data;
     await prisma.walletTransaction.updateMany({
-      where: { paystackRef: reference },
+      where: { paystackRef: reference, type: 'WITHDRAWAL' },
       data: { description: 'Withdrawal completed' },
     });
+  }
+
+  /**
+   * A PAYOUT THAT FAILS AFTER IT WAS ACCEPTED. MoMo transfers routinely do
+   * (wrong network, wallet limit). Unhandled, the driver's wallet stayed
+   * debited for money that never arrived. Idempotent: replays are no-ops.
+   */
+  if (event.event === 'transfer.failed' || event.event === 'transfer.reversed') {
+    await require('../wallet/wallet.service').reverseWithdrawal(
+      event.data?.reference,
+      `Withdrawal reversal — transfer ${event.event === 'transfer.failed' ? 'failed' : 'reversed'}`,
+    );
   }
 
   return { received: true };
 }
 
-module.exports = { initiatePayment, verifyPayment, handleWebhook, confirmPayment };
+module.exports = { initiatePayment, verifyPayment, handleWebhook, confirmPayment, settleTip };

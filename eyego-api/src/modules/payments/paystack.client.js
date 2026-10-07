@@ -134,6 +134,16 @@ async function initiateTransfer({ amountPesewas, recipient, reason, reference })
   return data;
 }
 
+/**
+ * Did Paystack receive this transfer, and how did it end? Used when the
+ * initiate call itself failed without a clear answer (timeout, 5xx): the
+ * transfer may still have gone out. 404 = Paystack never saw it.
+ */
+async function verifyTransfer(reference) {
+  const { data } = await paystackHttp.get(`/transfer/verify/${encodeURIComponent(reference)}`);
+  return data;
+}
+
 async function createTransferRecipient({ name, accountNumber, bankCode = '057', recipientType = 'mobile_money' }) {
   // 057 = MTN Ghana MoMo bank code (default, preserved for backward compatibility
   // with callers that don't resolve a real payout account).
@@ -208,6 +218,7 @@ module.exports = {
   verifyTransaction,
   refundTransaction,
   initiateTransfer,
+  verifyTransfer,
   createTransferRecipient,
   resolvePayoutBankCode,
 };

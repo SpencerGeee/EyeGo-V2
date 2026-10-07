@@ -119,23 +119,35 @@ export default function DispatchOfferSheet() {
   }
   const windowMs = windowRef.current?.ms ?? HOLD_WINDOW_FALLBACK_MS;
 
-  const [secondsLeft, setSecondsLeft] = useState(0);
+  const [, setTick] = useState(0);
   const [busy, setBusy] = useState<'accept' | 'decline' | null>(null);
   const [accepted, setAccepted] = useState(false);
 
-  // One interval, alive only while a card is on screen, against SERVER time.
+  /**
+   * DERIVED AT RENDER, NEVER HELD IN STATE.
+   *
+   * BUGFIX ("the driver homepage showed a new pending trip, I tap it, I only
+   * feel the haptic but nothing happens"). This was `useState(0)` filled in by
+   * the interval effect below — but the expiry effect further down runs in the
+   * SAME commit as the card's first frame, still reading that initial 0. Every
+   * card (tapped row AND held offer) therefore "expired" on the frame it opened
+   * and closed itself. Reading the deadline here means no frame can ever see a
+   * number the deadline does not support.
+   */
+  const secondsLeft =
+    tripId && deadlineMs ? Math.max(0, Math.ceil((deadlineMs - serverNow()) / 1000)) : 0;
+
+  // One interval, alive only while a card is on screen. It only re-renders;
+  // the number itself is read from the deadline above, against SERVER time.
   useEffect(() => {
     if (!tripId || !deadlineMs) {
-      setSecondsLeft(0);
       setBusy(null);
       setAccepted(false);
       return;
     }
-    const read = () => Math.max(0, Math.ceil((deadlineMs - serverNow()) / 1000));
-    setSecondsLeft(read());
-    const t = setInterval(() => setSecondsLeft(read()), 500);
+    const t = setInterval(() => setTick((n) => n + 1), 500);
     return () => clearInterval(t);
-  }, [tripId, deadlineMs, serverNow]);
+  }, [tripId, deadlineMs]);
 
   // Announce once per trip — a re-publish after a socket reconnect must not buzz twice.
   const announced = useRef<string | null>(null);
@@ -284,6 +296,8 @@ export default function DispatchOfferSheet() {
         driverEarningsPesewas: held.driverEarningsPesewas,
         farePesewas: held.farePesewas,
         walletRequiredPesewas: held.walletRequiredPesewas ?? null,
+        boostPesewas: held.boostPesewas ?? null,
+        partySize: held.partySize ?? null,
         tier: held.tier,
         etaSeconds: held.etaSeconds,
         expiresAtServerMs: deadlineMs,
@@ -303,6 +317,8 @@ export default function DispatchOfferSheet() {
         driverEarningsPesewas: row!.driverEarningsPesewas,
         farePesewas: row!.farePesewas,
         walletRequiredPesewas: row!.walletRequiredPesewas ?? null,
+        boostPesewas: row!.boostPesewas ?? null,
+        partySize: row!.partySize ?? null,
         tier: row!.tier,
         expiresAtServerMs: deadlineMs,
         kind: row!.status === 'REASSIGNING' ? 'REASSIGNMENT' : 'REQUEST',

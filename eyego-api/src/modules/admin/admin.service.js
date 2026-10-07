@@ -1148,6 +1148,18 @@ async function createPromotion(data) {
     throw new AppError('Redemption limit must be a whole number of 1 or more', 400);
   }
 
+  // Uses per rider: 1 by default (once each), a number for "up to N", or
+  // `reusable: true` / perUserLimit null for no per-rider limit.
+  let perUserLimit = 1;
+  if (data.reusable === true || data.perUserLimit === null) {
+    perUserLimit = null;
+  } else if (data.perUserLimit != null && data.perUserLimit !== '') {
+    perUserLimit = parseInt(data.perUserLimit, 10);
+    if (!Number.isFinite(perUserLimit) || perUserLimit < 1) {
+      throw new AppError('Uses per rider must be a whole number of 1 or more', 400);
+    }
+  }
+
   try {
     return await prisma.promotion.create({
       data: {
@@ -1156,6 +1168,7 @@ async function createPromotion(data) {
         maxDiscountPesewas,
         expiry,
         active: data.active !== false,
+        perUserLimit,
         ...(maxRedemptions != null ? { maxRedemptions } : {}),
       },
     });
@@ -2515,14 +2528,17 @@ async function adjustDriverWallet(driverId, { amountPesewas, reason }, admin) {
     } else {
       await tx.driver.update({ where: { id: driverId }, data: { walletBalancePesewas: { increment: amount } } });
     }
+    // Read back after the move: the pre-check read is outside this transaction,
+    // and an earning landing in between would write a row the chain can't sum.
+    const now = await tx.driver.findUnique({ where: { id: driverId }, select: { walletBalancePesewas: true } });
     return tx.walletTransaction.create({
       data: {
         driverId,
         type: amount > 0 ? 'ADMIN_CREDIT' : 'ADMIN_DEBIT',
         amountPesewas: amount,
         description: `${amount > 0 ? 'Credit' : 'Debit'} by ${admin?.email ?? 'admin'} — ${why}`,
-        balanceBeforePesewas: before,
-        balanceAfterPesewas: after,
+        balanceBeforePesewas: now.walletBalancePesewas - amount,
+        balanceAfterPesewas: now.walletBalancePesewas,
       },
     });
   });

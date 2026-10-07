@@ -54,13 +54,16 @@ const updatePreferences = async (req, res) => {
  * /user/me` followed by `GET /user/me` returned 200.
  *
  * `logout` already solves exactly this, with the same blacklist, so deletion
- * does what logout does and then some. The blacklist call comes first: if it
- * fails we have not yet told the user their account is gone.
+ * does what logout does and then some. Deletion runs FIRST: it can refuse
+ * (live ride, unconfirmed balance), and blacklisting before it signed out a
+ * rider whose deletion was refused. It is idempotent, so if the blacklist
+ * then fails the 500 is fixed by simply retrying.
  */
 const deleteMe = async (req, res) => {
+  const acknowledgeBalance = req.body?.acknowledgeBalance === true;
+  await usersService.deactivateAccount(req.user.userId, { acknowledgeBalance });
   const token = req.headers.authorization?.split(' ')[1];
   if (token) await blacklistToken(token);
-  await usersService.deactivateAccount(req.user.userId);
   ok(res, null, 'Account deactivated');
 };
 

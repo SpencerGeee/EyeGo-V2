@@ -4,8 +4,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { useNetworkStatus } from '../../../hooks/useNetworkStatus';
+import { useWalletBalance } from '../../../hooks/useWalletBalance';
 import { Ionicons } from '@expo/vector-icons';
-import { tripsApi, bookingsApi, paymentsApi, walletApi, apiClient } from '@eyego/api';
+import { tripsApi, bookingsApi, paymentsApi, apiClient } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { formatGhs } from '@eyego/utils';
 import { useColors, Colors } from '../../../utils/useColors';
@@ -86,10 +87,9 @@ export default function ScanPayTripScreen() {
     enabled: !!id,
   });
 
-  const walletQ = useQuery({
-    queryKey: ['wallet', 'balance'],
-    queryFn: async () => (await walletApi.getBalance()).data?.data,
-  });
+  // The shared key's one reader — this used to cache the UNWRAPPED body under
+  // the key three other screens read as a response. See hooks/useWalletBalance.
+  const walletQ = useWalletBalance();
 
   const trip = tripQ.data as any;
   const seat = useMemo(() => firstFreeSeat(seatsQ.data ?? []), [seatsQ.data]);
@@ -108,7 +108,7 @@ export default function ScanPayTripScreen() {
       ? Number(trip.baseFarePesewas)
       : null;
 
-  const balancePesewas = Number(walletQ.data?.balancePesewas ?? 0);
+  const balancePesewas = Number(walletQ.data ?? 0);
   const shortBy = farePesewas != null ? farePesewas - balancePesewas : 0;
   const canAfford = farePesewas != null && balancePesewas >= farePesewas;
   const loading = tripQ.isLoading || seatsQ.isLoading || walletQ.isLoading;

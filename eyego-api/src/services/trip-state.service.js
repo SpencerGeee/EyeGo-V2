@@ -492,6 +492,35 @@ async function applyTransitionTx(tx, tripId, to, opts = {}) {
        * circulation on the driver's map for good.
        */
       if (to !== S.COMPLETED) {
+        /**
+         * AND THE MONEY COMES BACK WITH THEM.
+         *
+         * This released every seat on an undriven ending and returned nothing:
+         * a rider who paid ahead and then hit "no drivers", a request expiry, a
+         * driver who cancelled with redispatch exhausted, or a driver no-show
+         * (which TOLD them "you have been refunded in full") kept the seat
+         * cancelled and the money gone. Refunded here, once, to whoever paid —
+         * the refund primitive claims PAID → REFUNDED, so a caller that also
+         * refunds cannot pay twice. Seats the caller already ended itself
+         * (a rider's own cancellation, with its fee) are not in this set.
+         */
+        const paidSeats = await tx.booking.findMany({
+          where: {
+            tripId,
+            paymentStatus: 'PAID',
+            status: { notIn: ['CANCELLED', 'REFUNDED', 'EXPIRED', 'COMPLETED', 'NO_SHOW'] },
+          },
+        });
+        if (paidSeats.length) {
+          const { refundBookingForDriverCancellation } = require('../modules/cancellation/cancellation.service');
+          const label =
+            to === S.EXPIRED
+              ? 'Refund: no driver took your ride in time'
+              : to === S.NO_DRIVERS_FOUND
+                ? 'Refund: no driver was available'
+                : 'Refund: your ride did not go ahead';
+          for (const b of paidSeats) await refundBookingForDriverCancellation(tx, b, label);
+        }
         await tx.booking.updateMany({
           where: {
             tripId,
@@ -629,16 +658,56 @@ function publishCommitted(result) {
  *
  * Still bumps `version` so it takes a seq and the client's server-wins
  * comparison stays total: every fact a client can observe is ordered.
+ *
+ * `sideEffects(tx, current)` runs INSIDE the same transaction, before the
+ * version bump — for a fact that is also a write (a fare boost, a moved
+ * pickup), so the write and the event the apps replay commit or fail
+ * together. Throw from it to abort; return an object to merge into the payload.
  */
 async function recordEvent(tripId, type, opts = {}) {
-  const { actor = ACTOR.SYSTEM, actorId = null, payload = {}, publish = true } = opts;
+  const { actor = ACTOR.SYSTEM, actorId = null, payload = {}, publish = true, sideEffects = null } = opts;
 
-  const result = await prisma.$transaction(async (tx) => {
+  /**
+   * A LOST SWAP IS RETRIED, SAME AS `applyTransition`.
+   *
+   * BUGFIX (found by scripts/e2e/search-actions.mjs): while a ride is
+   * searching, the cascade records a DISPATCH_PROGRESS fact on every
+   * candidate, so a rider's boost racing one lost the compare-and-swap and was
+   * answered "modified concurrently" — a raw 409 for a tap that did nothing
+   * wrong. The whole transaction rolls back on a lost swap (side effects
+   * included), so running it again is safe and re-reads the fresh state.
+   */
+  let result;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      result = await recordEventTx(tripId, type, { actor, actorId, payload, sideEffects });
+      break;
+    } catch (err) {
+      if (err?.code !== 'VERSION_CONFLICT' || attempt >= TRANSITION_RETRY_DELAYS_MS.length) throw err;
+      await new Promise((r) => setTimeout(r, TRANSITION_RETRY_DELAYS_MS[attempt]));
+    }
+  }
+
+  if (publish) {
+    try {
+      require('./trip-events.publisher').publish(result.trip, result.event);
+    } catch (err) {
+      logger.warn(`trip:event publish failed for ${tripId}: ${err.message}`);
+    }
+  }
+  return result;
+}
+
+function recordEventTx(tripId, type, { actor, actorId, payload, sideEffects }) {
+  return prisma.$transaction(async (tx) => {
     const current = await tx.trip.findUnique({
       where: { id: tripId },
       select: { status: true, version: true },
     });
     if (!current) throw new TransitionError(`Trip ${tripId} not found`, 'TRIP_NOT_FOUND', 404);
+
+    const extra = sideEffects ? await sideEffects(tx, current) : null;
+    const eventPayload = extra ? { ...payload, ...extra } : payload;
 
     const nextVersion = current.version + 1;
     const swap = await tx.trip.updateMany({
@@ -650,7 +719,7 @@ async function recordEvent(tripId, type, opts = {}) {
     }
 
     const event = await tx.tripEvent.create({
-      data: { tripId, seq: nextVersion, type, actor, actorId, payload },
+      data: { tripId, seq: nextVersion, type, actor, actorId, payload: eventPayload },
     });
     // Relations included — see the note in applyTransitionTx. This path carries
     // dispatch progress, so a bare row here blanked the rider's snapshot on
@@ -659,15 +728,6 @@ async function recordEvent(tripId, type, opts = {}) {
     const trip = await tx.trip.findUnique({ where: { id: tripId }, include: TRIP_INCLUDE });
     return { trip, event };
   });
-
-  if (publish) {
-    try {
-      require('./trip-events.publisher').publish(result.trip, result.event);
-    } catch (err) {
-      logger.warn(`trip:event publish failed for ${tripId}: ${err.message}`);
-    }
-  }
-  return result;
 }
 
 /** Events strictly after `sinceSeq`, oldest first — the replay query. */

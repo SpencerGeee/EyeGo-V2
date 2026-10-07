@@ -4,7 +4,7 @@ const { formatGhs, percentOf, assertPesewas } = require('../../utils/money');
 
 const prisma = require('../../config/database');
 const env = require('../../config/env');
-const { calculateFare, estimateFare, haversineKm, normalizeTier, pinnedRatesFor } = require('./fare.calculator');
+const { calculateFare, estimateFare, haversineKm, normalizeTier, pinnedRatesFor, commissionRateFor } = require('./fare.calculator');
 const { availableDriverWhere } = require('../../services/driver-availability');
 const { NotFoundError, ConflictError, ForbiddenError, AppError } = require('../../utils/errors');
 const { v4: uuidv4 } = require('uuid');
@@ -909,9 +909,30 @@ async function clearLiveActivityToken(bookingId) {
   }).catch(() => null); // non-critical — booking may already be gone/reassigned
 }
 
+/**
+ * Settle a trip, retrying a lost compare-and-swap.
+ *
+ * The completion reads the trip's version and swaps it inside one
+ * transaction; any event that commits in between (a boarding announced a beat
+ * late, a link-lost frame) makes the swap fail and the whole transaction roll
+ * back — so a driver's "Complete" tap came back as an error on a trip that
+ * was perfectly completable. Nothing has committed when it throws, and the
+ * function is idempotent on COMPLETED, so running it again is the fix.
+ */
 async function completeTrip(tripId) {
-  const completedRiderTokens = []; // populated inside the tx, pushed to after commit
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await completeTripOnce(tripId);
+    } catch (err) {
+      if (err?.code !== 'VERSION_CONFLICT' || attempt >= 3) throw err;
+      await new Promise((r) => setTimeout(r, 60 * attempt));
+    }
+  }
+}
+
+async function completeTripOnce(tripId) {
   let completionTransition = null; // published after commit, never inside
+  let totalSubsidy = 0; // promo top-up credited to the driver — see below
   // Quest inputs, captured inside the tx and spent after commit. See the
   // post-commit block below for why quests no longer run inside it.
   let questDriverId = null;
@@ -920,7 +941,7 @@ async function completeTrip(tripId) {
   await prisma.$transaction(async (tx) => {
     const trip = await tx.trip.findUnique({
       where: { id: tripId },
-      select: { status: true, driverId: true, departureTime: true, version: true },
+      select: { status: true, driverId: true, departureTime: true, version: true, commissionRate: true },
     });
     if (!trip) throw new NotFoundError('Trip');
     // Idempotency guard: if already completed, return early to prevent double wallet credits
@@ -1051,17 +1072,11 @@ async function completeTrip(tripId) {
         paymentStatus: 'PAID',
       },
       select: {
-        id: true, userId: true, fareAmountPesewas: true, commissionAmountPesewas: true, paymentMethod: true, updatedAt: true,
+        id: true, userId: true, fareAmountPesewas: true, commissionAmountPesewas: true, promoSubsidyPesewas: true,
+        paymentMethod: true, updatedAt: true,
         paymentTxs: { where: { status: 'SUCCESS' }, select: { createdAt: true }, take: 1, orderBy: { createdAt: 'desc' } },
-        user: { select: { fcmToken: true, notificationPrefs: true } },
       },
     });
-
-    for (const b of paidBookings) {
-      if (b.user?.fcmToken) {
-        completedRiderTokens.push({ token: b.user.fcmToken, fareAmountPesewas: b.fareAmountPesewas, notificationPrefs: b.user.notificationPrefs, bookingId: b.id });
-      }
-    }
 
     let totalNetEarnings = 0;
     let totalCommission = 0;
@@ -1079,7 +1094,7 @@ async function completeTrip(tripId) {
         const commission =
           b.commissionAmountPesewas != null
             ? b.commissionAmountPesewas
-            : percentOf(b.fareAmountPesewas, env.PLATFORM_COMMISSION);
+            : percentOf(b.fareAmountPesewas, commissionRateFor(trip));
         const driverEarningsPesewas = b.fareAmountPesewas - commission;
         // CASH bookings already had their commission deducted at boarding
         // (or in the auto-settle step above) and the driver keeps the fare
@@ -1110,14 +1125,13 @@ async function completeTrip(tripId) {
       }
 
       if (totalNetEarnings > 0) {
-        // Credit driver wallet — tx.wallet does not exist; the balance is a scalar on Driver
-        const driverBefore = await tx.driver.findUnique({
-          where: { id: trip.driverId },
-          select: { walletBalancePesewas: true },
-        });
-        await tx.driver.update({
+        // Credit driver wallet — the balance is a scalar on Driver. Before/after
+        // come from the post-increment value (under our row lock), so the ledger
+        // still chains when another wallet movement lands concurrently.
+        const { walletBalancePesewas: after } = await tx.driver.update({
           where: { id: trip.driverId },
           data: { walletBalancePesewas: { increment: totalNetEarnings } },
+          select: { walletBalancePesewas: true },
         });
         await tx.walletTransaction.create({
           data: {
@@ -1125,8 +1139,36 @@ async function completeTrip(tripId) {
             type: 'TRIP_EARNING',
             amountPesewas: totalNetEarnings,
             description: `Trip earnings — ${paidBookings.length} paid seat(s)`,
-            balanceBeforePesewas: driverBefore?.walletBalancePesewas ?? 0,
-            balanceAfterPesewas: (driverBefore?.walletBalancePesewas ?? 0) + totalNetEarnings,
+            balanceBeforePesewas: after - totalNetEarnings,
+            balanceAfterPesewas: after,
+            tripId,
+          },
+        });
+      }
+
+      /**
+       * THE PLATFORM'S SHARE OF A PROMO, PAID TO THE DRIVER.
+       *
+       * A discount bigger than a seat's commission is carried on the booking
+       * (`promoSubsidyPesewas`, see applyPromoCode). Cash or online, the driver
+       * collected or was credited the DISCOUNTED fare — this tops them back up
+       * so no promo ever comes out of a driver's pocket.
+       */
+      totalSubsidy = paidBookings.reduce((n, b) => n + (b.promoSubsidyPesewas || 0), 0);
+      if (totalSubsidy > 0) {
+        const { walletBalancePesewas: after } = await tx.driver.update({
+          where: { id: trip.driverId },
+          data: { walletBalancePesewas: { increment: totalSubsidy } },
+          select: { walletBalancePesewas: true },
+        });
+        await tx.walletTransaction.create({
+          data: {
+            driverId: trip.driverId,
+            type: 'PROMO_SUBSIDY',
+            amountPesewas: totalSubsidy,
+            description: 'Promo discount covered by EyeGo',
+            balanceBeforePesewas: after - totalSubsidy,
+            balanceAfterPesewas: after,
             tripId,
           },
         });
@@ -1178,7 +1220,7 @@ async function completeTrip(tripId) {
     }
 
     questDriverId = trip.driverId ?? null;
-    questEarningsPesewas = totalNetEarnings;
+    questEarningsPesewas = totalNetEarnings + totalSubsidy;
   }, {
     /**
      * THE SETTLEMENT DOES NOT FIT IN PRISMA'S DEFAULT 20 SECONDS.
@@ -1226,28 +1268,14 @@ async function completeTrip(tripId) {
   // COMPLETED event; neither has to infer it from a push notification or a
   // refetch, which is how they used to end up disagreeing about whether the
   // ride was over.
+  //
+  // The rider's "you have arrived" push and the GraphQL TRIP_STATUS publish are
+  // trip-notify's, fired by this transition. They were ALSO sent from here — a
+  // second push per rider, whose copy claimed "You saved GH₵<the fare> vs a
+  // private ride" — and a second subscription event.
   tripState.publishCommitted(completionTransition);
 
-  // notifications.rideComplete was defined but never called — a backgrounded rider
-  // (no live socket connection) never got a "trip complete, rate your ride" push.
-  // savedAmount is a rough shared-vs-private-ride estimate for the notification copy,
-  // not a precise financial figure.
-  for (const { token, fareAmountPesewas, notificationPrefs, bookingId } of completedRiderTokens) {
-    pushService.notifications
-      // `tripId` is the route key for the rider's receipt screen — see the note
-      // on `rideComplete` in push.service.js.
-      .rideComplete(token, fareAmountPesewas, notificationPrefs, bookingId, tripId)
-      .catch(() => {});
-  }
-
-  // Notify GraphQL subscribers of trip completion (fire-and-forget)
-  pubSub.publish(`TRIP_STATUS:${tripId}`, {
-    tripId,
-    status: 'COMPLETED',
-    driverLat: null,
-    driverLng: null,
-    updatedAt: new Date().toISOString(),
-  });
+  return { tripId, totalEarningsPesewas: questEarningsPesewas };
 }
 
 /**
@@ -1426,21 +1454,10 @@ async function driverNoShow(tripId, reportingUserId) {
       data: { status: 'CANCELLED', seatNumber: null },
     });
 
-    // Issue refund records for the bookings whose money actually moved.
-    for (const booking of trip.bookings) {
-      if (booking.paymentStatus === 'PAID' && ['MOMO', 'CARD', 'WALLET'].includes(booking.paymentMethod)) {
-        await tx.paymentTransaction.create({
-          data: {
-            bookingId: booking.id,
-            userId: booking.userId,
-            amountPesewas: booking.fareAmountPesewas,
-            status: 'REFUNDED',
-            paystackRef: booking.paystackRef ?? `noshow_refund_${booking.id}`,
-            gatewayResponse: 'Refunded: driver no-show',
-          },
-        });
-      }
-    }
+    // The refund itself happens in the CANCELLED transition above (trip-state
+    // refunds paid seats on every undriven ending). This loop used to write a
+    // "REFUNDED" record and move no money at all — while the push below told
+    // the rider they had been refunded in full.
 
     logger.info('Driver no-show recorded', {
       tripId, reportingUserId, refunded: refundedTokens.length, unpaid: unpaidTokens.length,
@@ -1816,7 +1833,18 @@ async function processScheduledRideIntents() {
       const staleMs = now.getTime() - intent.scheduledAt.getTime();
       if (staleMs > 60 * 60 * 1000) {
         // Over an hour past its scheduled time with nobody having matched it — give up.
+        // Only reachable when the sweeper missed the window (API down), so the rider
+        // would otherwise just find their ride gone. No money moves: an intent holds none.
         await prisma.scheduledRideIntent.update({ where: { id: intent.id }, data: { status: 'EXPIRED' } });
+        const rider = await prisma.user.findUnique({ where: { id: intent.userId }, select: { fcmToken: true } });
+        if (rider?.fcmToken) {
+          await pushService.sendPush(
+            rider.fcmToken,
+            'Scheduled ride not arranged',
+            `We couldn't arrange your scheduled ${intent.route?.destinationName ?? ''} trip. Book again whenever you're ready.`.replace('  ', ' '),
+            { type: 'SCHEDULE_EXPIRED', intentId: intent.id },
+          ).catch(() => {});
+        }
         continue;
       }
 

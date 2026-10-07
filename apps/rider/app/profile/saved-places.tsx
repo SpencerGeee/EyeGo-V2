@@ -14,8 +14,8 @@ import { userApi, queryKeys, type SavedPlace, type SavedPlaceSlot } from '@eyego
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { useThemeStore } from '../../stores/theme.store';
-import { Text, Button, GlowSearchInput, AppBackground, backgroundScrollPauseProps, Loader, goDeeper, goBack } from '@eyego/ui';
-import { searchPlaces, type GeocodeResult } from '../../utils/geocoding';
+import { Text, Button, AppBackground, backgroundScrollPauseProps, Loader, goDeeper, goBack } from '@eyego/ui';
+import { searchPlaces } from '../../utils/geocoding';
 import { consumePickedPlace } from '../../utils/placePickerResult';
 import { useToastStore } from '../../stores/toast.store';
 import { slotOfPlace } from '../../utils/savedPlaceSlots';
@@ -102,9 +102,8 @@ export default function SavedPlacesScreen() {
   const [newIcon, setNewIcon] = useState<string>('location-outline');
   /** Non-null while editing an existing place rather than adding one. */
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [suggestions, setSuggestions] = useState<GeocodeResult[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Set only while THIS screen has the picker open — see the focus effect. */
+  const pickingRef = useRef(false);
 
   const { data, isLoading } = useQuery({
     queryKey: queryKeys.user.savedPlaces,
@@ -177,15 +176,17 @@ export default function SavedPlacesScreen() {
     onError: () => showToast('Could not remove place', 'error'),
   });
 
-  // Consume a location confirmed on the map picker screen
+  // Consume a location confirmed on the map picker screen — only one THIS
+  // screen asked for. The result slot is shared by every picker caller.
   useFocusEffect(
     useCallback(() => {
+      if (!pickingRef.current) return;
+      pickingRef.current = false;
       const picked = consumePickedPlace();
       if (picked) {
         setIsAdding(true);
         setNewAddress(picked.fullAddress);
         setNewCoords({ lat: picked.latitude, lng: picked.longitude });
-        setSuggestions([]);
         /**
          * THE NAME YOU TYPED SURVIVES THE MAP.
          *
@@ -219,7 +220,30 @@ export default function SavedPlacesScreen() {
     setNewCoords(null);
     setNewSlot(null);
     setNewIcon('location-outline');
-    setSuggestions([]);
+  };
+
+  /**
+   * THE ADDRESS IS PICKED, NEVER TYPED.
+   *
+   * FEATURE ("tapping the field should take me straight to the map picker so the
+   * user can correctly mark a place"). A typed address plus a suggestion list
+   * is how a Work place came to be saved as "Accra": the geocoder's weakest
+   * answer is a town name, and nothing made the rider look at a map. The picker
+   * has search AND the pin, so it is the stricter of the two inputs and the
+   * only one left.
+   */
+  const openPicker = (slot: SavedPlaceSlot | null = newSlot, at: { lat: number; lng: number } | null = newCoords) => {
+    pickingRef.current = true;
+    goDeeper({
+      pathname: '/profile/place-picker',
+      params: {
+        title: slot === 'HOME' ? 'Set your home' : slot === 'WORK' ? 'Set your work' : newName.trim() ? `Where is ${newName.trim()}?` : 'Pick the spot',
+        // Editing opens on the place, rather than throwing its coordinates away.
+        ...(at
+          ? { initialLat: String(at.lat), initialLng: String(at.lng), initialAddress: newAddress }
+          : { focusSearch: '1' }),
+      },
+    } as any);
   };
 
   /** Open the form on an existing place, with everything it already knows. */
@@ -231,45 +255,28 @@ export default function SavedPlacesScreen() {
     setNewCoords({ lat: place.lat, lng: place.lng });
     setNewSlot(place.slot ?? null);
     setNewIcon(safeIconFor(place.icon));
-    setSuggestions([]);
   };
 
-  /** Open the form empty, optionally pre-claiming a shortcut. */
+  /**
+   * Open the form, optionally pre-claiming a shortcut. Home and Work need no
+   * name, so for them the map IS the first step — Uber's "Add Work" order.
+   */
   const startAdding = (slot: SavedPlaceSlot | null = null) => {
     resetForm();
     setIsAdding(true);
     setNewSlot(slot);
     setNewIcon(ICON_FOR_SLOT(slot));
-    if (slot) setNewName(slot === 'HOME' ? 'Home' : 'Work');
+    if (slot) openPicker(slot, null);
   };
 
-  const searchAddress = (query: string) => {
-    setNewAddress(query);
-    setNewCoords(null);
-    if (searchTimeout.current) clearTimeout(searchTimeout.current);
-    if (query.length < 3) { setSuggestions([]); return; }
-    searchTimeout.current = setTimeout(async () => {
-      setIsSearching(true);
-      try {
-        setSuggestions(await searchPlaces(query, 5));
-      } catch {
-        setSuggestions([]);
-      } finally {
-        setIsSearching(false);
-      }
-    }, 300);
-  };
-
-  const selectSuggestion = (s: GeocodeResult) => {
-    setNewAddress(s.fullAddress);
-    setNewCoords({ lat: s.latitude, lng: s.longitude });
-    setSuggestions([]);
-  };
+  /** A shortcut's name IS the shortcut. Only a free place has a free name. */
+  const slotName = (slot: SavedPlaceSlot | null) => (slot === 'HOME' ? 'Home' : slot === 'WORK' ? 'Work' : null);
+  const effectiveName = slotName(newSlot) ?? newName.trim();
 
   const handleSave = () => {
-    if (!newName.trim() || !newAddress.trim() || !newCoords) return;
+    if (!effectiveName || !newAddress.trim() || !newCoords) return;
     const body = {
-      label: newName.trim(),
+      label: effectiveName,
       address: newAddress.trim(),
       lat: newCoords.lat,
       lng: newCoords.lng,
@@ -349,8 +356,10 @@ export default function SavedPlacesScreen() {
                       </View>
                       <View style={styles.placeInfo}>
                         <View style={styles.rowTitle}>
+                          {/* The slot names the row, never the stored label: a Work
+                              place saved under a geocoder's "Accra" still reads Work. */}
                           <Text variant="bodyMedium" color={colors.onSurface}>
-                            {place?.label ?? label}
+                            {label}
                           </Text>
                           <View style={[styles.slotChip, { backgroundColor: withOpacity(colors.primary, 0.14) }]}>
                             <Text variant="caption" style={{ color: colors.primary }}>
@@ -420,17 +429,21 @@ export default function SavedPlacesScreen() {
                 {editingId ? 'Edit place' : 'Add a new place'}
               </Text>
 
-              <View style={styles.inputContainer}>
-                <Text variant="label" color={colors.onSurfaceVariant} style={styles.inputLabel}>NAME</Text>
-                <TextInput maxFontSizeMultiplier={1.4}
-                  style={styles.input}
-                  placeholder="e.g. Cyril's house, Gym, Mum's place"
-                  placeholderTextColor={colors.onSurfaceVariant}
-                  value={newName}
-                  onChangeText={setNewName}
-                  maxLength={60}
-                />
-              </View>
+              {/* Home and Work are named by their shortcut — only a free place
+                  asks for a name. */}
+              {newSlot == null && (
+                <View style={styles.inputContainer}>
+                  <Text variant="label" color={colors.onSurfaceVariant} style={styles.inputLabel}>NAME</Text>
+                  <TextInput maxFontSizeMultiplier={1.4}
+                    style={styles.input}
+                    placeholder="e.g. Cyril's house, Gym, Mum's place"
+                    placeholderTextColor={colors.onSurfaceVariant}
+                    value={newName}
+                    onChangeText={setNewName}
+                    maxLength={60}
+                  />
+                </View>
+              )}
 
               {/*
                 ── THE SHORTCUT IS A CHOICE, NOT SOMETHING WE GUESS ─────────
@@ -455,6 +468,9 @@ export default function SavedPlacesScreen() {
                         key={label}
                         onPress={() => {
                           setNewSlot(slot);
+                          // Leaving a shortcut for a free place: its old name was
+                          // the shortcut's, so ask for a real one.
+                          if (slot == null) setNewName((n) => (n === 'Home' || n === 'Work' ? '' : n));
                           // Only move the icon if the rider has not chosen one.
                           if (!ICON_CHOICES.some((c) => c.name === newIcon && c.name !== ICON_FOR_SLOT(newSlot))) {
                             setNewIcon(ICON_FOR_SLOT(slot));
@@ -528,64 +544,26 @@ export default function SavedPlacesScreen() {
 
               <View style={styles.inputContainer}>
                 <Text variant="label" color={colors.onSurfaceVariant} style={styles.inputLabel}>ADDRESS</Text>
-                <GlowSearchInput
-                  placeholder="Search address"
-                  value={newAddress}
-                  onChangeText={searchAddress}
-                />
-                {suggestions.length > 0 && (
-                  <View style={styles.suggestBox}>
-                    {suggestions.map((s, i) => (
-                      <Pressable
-                        key={s.placeId || i}
-                        onPress={() => selectSuggestion(s)}
-                        style={[styles.suggestRow, i < suggestions.length - 1 && styles.suggestRowBorder]}
-                       accessibilityRole="button">
-                        <Ionicons name="location-outline" size={16} color={colors.onSurfaceVariant} />
-                        <Text variant="bodySmall" color={colors.onSurface} style={{ flex: 1 }} numberOfLines={2}>{s.fullAddress}</Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                )}
-                {isSearching && (
-                  <Text variant="caption" color={colors.onSurfaceVariant} style={{ marginTop: 4 }}>Searching...</Text>
-                )}
-
-                {/* Confirm the exact spot on the map */}
+                {/* A field that opens the map, not a text box. */}
                 <Pressable
-                  style={styles.mapPickBtn}
-                  onPress={() =>
-                    goDeeper({
-                      pathname: '/profile/place-picker',
-                      params: {
-                        title: newName.trim() ? `Where is ${newName.trim()}?` : 'Pick the spot',
-                        // Editing an existing place opens on it, rather than
-                        // throwing its coordinates away and starting from GPS.
-                        ...(newCoords
-                          ? {
-                              initialLat: String(newCoords.lat),
-                              initialLng: String(newCoords.lng),
-                              initialLabel: newName,
-                              initialAddress: newAddress,
-                            }
-                          : {}),
-                      },
-                    } as any)
-                  }
+                  style={[styles.addressField, newCoords && { borderColor: withOpacity(colors.primary, 0.45) }]}
+                  onPress={() => openPicker()}
                   accessibilityRole="button"
-                  accessibilityLabel="Pick location on map"
+                  accessibilityLabel={newCoords ? `Address: ${newAddress}. Change it on the map` : 'Set the address on the map'}
                 >
-                  <Ionicons name="map-outline" size={18} color={colors.primary} />
-                  <Text variant="bodyMedium" color={colors.primary}>
-                    {newCoords ? 'Adjust on map' : 'Pick on map'}
-                  </Text>
-                  {newCoords && <Ionicons name="checkmark-circle" size={16} color={colors.primary} />}
+                  <View style={[styles.addressGlyph, { backgroundColor: withOpacity(colors.primary, 0.12) }]}>
+                    <Ionicons name={newCoords ? 'location' : 'map-outline'} size={18} color={colors.primary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text variant="bodyMedium" color={newCoords ? colors.onSurface : colors.onSurfaceVariant} numberOfLines={2}>
+                      {newCoords ? newAddress : 'Set it on the map'}
+                    </Text>
+                    <Text variant="caption" color={colors.onSurfaceVariant}>
+                      {newCoords ? 'Tap to move the pin' : 'Search or drop a pin on the exact spot'}
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceVariant} />
                 </Pressable>
-                {!newCoords && newAddress.length > 0 && suggestions.length === 0 && !isSearching && (
-                  <Text variant="caption" color={colors.onSurfaceVariant} style={{ marginTop: 4 }}>
-                    Select a suggestion or confirm the spot on the map.
-                  </Text>
-                )}
               </View>
 
               <View style={styles.actionRow}>
@@ -594,7 +572,7 @@ export default function SavedPlacesScreen() {
                   label={editingId ? 'Save changes' : 'Save'}
                   onPress={handleSave}
                   loading={createMutation.isPending || updateMutation.isPending}
-                  disabled={!newName.trim() || !newAddress.trim() || !newCoords}
+                  disabled={!effectiveName || !newAddress.trim() || !newCoords}
                   style={{ flex: 1 }}
                 />
               </View>
@@ -750,36 +728,24 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.rimLightSubtle,
   },
-  suggestBox: {
-    backgroundColor: colors.surfaceContainer,
+  addressField: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    minHeight: 64,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
     borderRadius: radii.lg,
     borderWidth: 1,
-    borderColor: colors.outlineVariant,
-    marginTop: 4,
-    maxHeight: 220,
-    overflow: 'hidden',
+    borderColor: colors.rimLightSubtle,
+    backgroundColor: colors.surfaceInput,
   },
-  suggestRow: {
-    padding: spacing.base,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  suggestRowBorder: {
-    borderBottomWidth: 1,
-    borderBottomColor: colors.outlineVariant,
-  },
-  mapPickBtn: {
-    flexDirection: 'row',
+  addressGlyph: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.sm,
-    marginTop: spacing.md,
-    paddingVertical: spacing.md,
-    borderRadius: radii.lg,
-    borderWidth: 1.5,
-    borderColor: withOpacity(colors.primary, 0.4),
-    backgroundColor: withOpacity(colors.primary, 0.08),
   },
   actionRow: {
     flexDirection: 'row',

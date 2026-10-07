@@ -117,6 +117,27 @@ export const shareLiveTracking = async (
 };
 
 /**
+ * Share a ride that has no driver yet — the same live link, with a message that
+ * does not name one. Used by the "finding your driver" screen.
+ */
+export const shareSearchingTrip = async (shortId: string | null | undefined, destination: string | null) => {
+  try {
+    if (!shortId) {
+      notify('Not ready yet', 'This ride does not have a tracking link yet. Try again in a moment.', { tone: 'info' });
+      return;
+    }
+    const url = trackingUrl(shortId);
+    await Share.share({
+      message: `I'm getting an EyeGo ride${destination ? ` to ${destination}` : ''}. Follow it live here: ${url}`,
+      url, // iOS only
+      title: 'Track my EyeGo Ride',
+    });
+  } catch {
+    notify(null, 'Could not share live tracking link.');
+  }
+};
+
+/**
  * The message body the SAFETY screen sends to a trusted contact.
  *
  * BUGFIX (item 16, second half). This screen used to send a bare location —

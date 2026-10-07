@@ -14,6 +14,7 @@ import { useColors, Colors } from '../../utils/useColors';
 // silently deletes the whole style. See components/trip/stages/SearchStage.tsx.
 import { Text, Button, Pressable, Skeleton, GlassSurface, GradientGlowBorder, PREMIUM_RING_LOCATIONS, goDeeper, goBack, notify , useBiometricGate, BiometricLock } from '@eyego/ui';
 import { formatGhs, pesewasFromCedis, pesewasToDecimalString } from "@eyego/utils";
+import { useWalletBalance } from '../../hooks/useWalletBalance';
 
 // Green-accent variant of the premium ring sweep — two narrow emerald arcs
 // (brand green core) orbiting a near-black ring, matching the house
@@ -32,13 +33,22 @@ export default function WalletScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   const [topUpAmount, setTopUpAmount] = useState('');
 
-  const { data: balanceData, isLoading: balanceLoading } = useQuery({
-    queryKey: queryKeys.wallet.balance(),
-    queryFn: walletApi.getBalance,
-    refetchInterval: 15_000, // 15s — avoids excessive network chatter on a profile screen
-  });
+  // `isPending`, not `isLoading`: a query re-trying after a failure is not
+  // "loading" to v5, and the old check drew GH₵0.00 through every retry.
+  const {
+    data: balancePesewas,
+    isPending: balanceLoading,
+    isError: balanceFailed,
+    refetch: refetchBalance,
+    dataUpdatedAt: balanceUpdatedAt,
+  } = useWalletBalance({ refetchInterval: 15_000 });
 
-  const { data: txData, isLoading: txLoading } = useQuery({
+  const {
+    data: txData,
+    isPending: txLoading,
+    isError: txFailed,
+    refetch: refetchTx,
+  } = useQuery({
     queryKey: queryKeys.wallet.transactions(),
     queryFn: () => walletApi.getTransactions(),
   });
@@ -62,7 +72,7 @@ export default function WalletScreen() {
   }
   const tier = getAccountTier(tripCount, colors.primary);
 
-  const balance = (balanceData as any)?.data?.data?.balancePesewas ?? (balanceData as any)?.data?.balancePesewas ?? 0;
+  const balance = balancePesewas ?? 0;
   const transactions = (txData as any)?.data?.data?.transactions ?? (txData as any)?.data?.transactions ?? [];
 
   const [isVerifyingTopUp, setIsVerifyingTopUp] = useState(false);
@@ -153,12 +163,38 @@ export default function WalletScreen() {
               <Text style={styles.balanceLabel}>AVAILABLE BALANCE</Text>
               {balanceLoading ? (
                 <Skeleton width={180} height={44} borderRadius={8} style={{ marginTop: spacing.sm }} />
+              ) : balancePesewas == null && balanceFailed ? (
+                // "We could not ask" must never read as "you have nothing".
+                <Pressable
+                  onPress={() => void refetchBalance()}
+                  style={styles.retryRow}
+                  accessibilityRole="button"
+                  accessibilityLabel="Retry loading your balance"
+                >
+                  <Ionicons name="refresh" size={16} color={colors.onSurfaceVariant} />
+                  <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Couldn’t load your balance · Retry</Text>
+                </Pressable>
               ) : (
                 <View style={styles.balanceRow}>
                   <Text style={styles.balanceCurrency}>GH₵</Text>
                   <Text style={styles.balanceValue}>{pesewasToDecimalString(balance)}</Text>
                 </View>
               )}
+              {/* A refresh failed but we still hold the last answer: keep it,
+                  and say how old it is — never swap it for a blank or a zero. */}
+              {balanceFailed && balancePesewas != null && balanceUpdatedAt > 0 ? (
+                <Pressable
+                  onPress={() => void refetchBalance()}
+                  style={styles.retryRow}
+                  accessibilityRole="button"
+                  accessibilityLabel="Balance may be out of date. Retry"
+                >
+                  <Ionicons name="refresh" size={13} color={colors.onSurfaceVariant} />
+                  <Text variant="bodySmall" color={colors.onSurfaceVariant}>
+                    As of {Math.max(1, Math.round((Date.now() - balanceUpdatedAt) / 60_000))} min ago · Tap to refresh
+                  </Text>
+                </Pressable>
+              ) : null}
 
               <View style={styles.tierRow}>
                 <Ionicons name={tier.icon} size={14} color={tier.color} />
@@ -214,6 +250,16 @@ export default function WalletScreen() {
                   <Skeleton key={i} height={52} borderRadius={radii.lg} style={{ marginBottom: spacing.sm }} />
                 ))}
               </>
+            ) : txFailed && transactions.length === 0 ? (
+              <Pressable
+                onPress={() => void refetchTx()}
+                style={[styles.retryRow, { justifyContent: 'center', padding: spacing.base }]}
+                accessibilityRole="button"
+                accessibilityLabel="Retry loading your activity"
+              >
+                <Ionicons name="refresh" size={16} color={colors.onSurfaceVariant} />
+                <Text variant="bodySmall" color={colors.onSurfaceVariant}>Couldn’t load your activity · Retry</Text>
+              </Pressable>
             ) : transactions.length === 0 ? (
               <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ textAlign: 'center', padding: spacing.base }}>
                 No transactions yet.
@@ -328,6 +374,8 @@ export default function WalletScreen() {
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
   safe: { flex: 1, backgroundColor: 'transparent' },
+  /** The honest failure state for a number we could not fetch. */
+  retryRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.sm, minHeight: 44 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

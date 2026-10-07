@@ -164,6 +164,40 @@ router.get(
   }),
 );
 
+/** Raise the fare to find a driver faster — +10/20/30 %, all of it to the driver. */
+router.post(
+  '/:id/boost',
+  authenticate,
+  [param('id').isString(), body('percent').isInt({ min: 1, max: 100 })],
+  validate,
+  h(async (req, res) => {
+    res.json({ success: true, data: await rides.boostFare(actorId(req), req.params.id, req.body.percent) });
+  }),
+);
+
+/** Nudge the pickup once, within ~200 m, while no driver has accepted. */
+router.post(
+  '/:id/pickup',
+  authenticate,
+  [
+    param('id').isString(),
+    body('lat').isFloat({ min: -90, max: 90 }),
+    body('lng').isFloat({ min: -180, max: 180 }),
+    body('address').optional().isString().isLength({ max: 240 }),
+  ],
+  validate,
+  h(async (req, res) => {
+    res.json({
+      success: true,
+      data: await rides.movePickup(actorId(req), req.params.id, {
+        lat: Number(req.body.lat),
+        lng: Number(req.body.lng),
+        address: req.body.address,
+      }),
+    });
+  }),
+);
+
 router.post(
   '/:id/cancel',
   authenticate,

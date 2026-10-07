@@ -218,7 +218,7 @@ export default function CreateTripScreen() {
   // select up to 10 seats, review a fare estimate computed for 10, publish, and have
   // the backend silently clamp maxSeats down to 8 with no error shown. Fetch the
   // vehicle's real capacity so the stepper can never suggest more than it can hold.
-  const { data: maxVehicleSeats } = useQuery({
+  const { data: maxVehicleSeats, isFetched: capacityChecked } = useQuery({
     queryKey: ['driver', 'me', 'seaterCount'],
     queryFn: () => driverApi.getMe(),
     select: (r) => {
@@ -249,7 +249,15 @@ export default function CreateTripScreen() {
    * the two ends cannot disagree.
    */
   const capacityKnown = typeof maxVehicleSeats === 'number';
-  const seatCap = capacityKnown ? maxVehicleSeats : seats;
+  /**
+   * BUGFIX ("I decrease from 14 to 12 and can't increase it again, and Continue
+   * won't work"). The unknown-capacity cap was `seats` itself, so every minus
+   * tap LOWERED the ceiling: the stepper only went down, and the step gate
+   * below waited on a number that, for a vehicle row without `seaterCount`,
+   * never arrives. Unknown now means the platform maximum; the server rejects
+   * an over-capacity trip outright, so it stays the authority.
+   */
+  const seatCap = capacityKnown ? maxVehicleSeats : 14;
 
   useEffect(() => {
     if (capacityKnown && seats > seatCap) setSeats(seatCap);
@@ -313,7 +321,7 @@ export default function CreateTripScreen() {
     // `capacityKnown`: publishing a seat count we could not check against the
     // vehicle is what produced a trip whose capacity disagreed with the driver's
     // own choice. The server would now reject it anyway — better to hold here.
-    if (step === 3) return capacityKnown && seats >= 1 && seats <= seatCap;
+    if (step === 3) return capacityChecked && seats >= 1 && seats <= seatCap;
     return true;
   };
 

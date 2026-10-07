@@ -127,13 +127,22 @@ export default function PrivacyScreen() {
   };
 
   const deleteAccountMutation = useMutation({
-    mutationFn: () => userApi.deleteAccount(),
+    mutationFn: (acknowledgeBalance: boolean = false) => userApi.deleteAccount({ acknowledgeBalance }),
     onSuccess: () => {
       logout();
     },
     // Deleting an account is the one flow that must never fail silently —
     // previously a failed request left the rider believing they were deleted.
     onError: (err: any) => {
+      // A wallet balance is a question, not a wall: the server says how much,
+      // the rider decides.
+      if (err?.response?.data?.code === 'WALLET_NOT_EMPTY') {
+        Alert.alert('Money left in your wallet', err.response.data.message, [
+          { text: 'Keep my account', style: 'cancel' },
+          { text: 'Delete anyway', style: 'destructive', onPress: () => deleteAccountMutation.mutate(true) },
+        ]);
+        return;
+      }
       notify(
         'Deletion Failed',
         err?.response?.data?.message ?? err?.message ?? 'Please check your connection and try again.'
@@ -150,7 +159,7 @@ export default function PrivacyScreen() {
         {
           text: 'Delete My Account',
           style: 'destructive',
-          onPress: () => deleteAccountMutation.mutate(),
+          onPress: () => deleteAccountMutation.mutate(false),
         },
       ]
     );

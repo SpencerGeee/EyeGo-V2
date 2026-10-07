@@ -118,6 +118,10 @@ export interface PendingOffer {
    */
   walletRequiredPesewas?: number | null;
   commissionPesewas?: number | null;
+  /** What the rider added to find a driver faster — already inside both figures above, all of it the driver's. */
+  boostPesewas?: number | null;
+  /** How many people are waiting at the pickup. */
+  partySize?: number | null;
   tier: string | null;
   expiresAtServerMs: number;
   etaSeconds: number | null;
@@ -146,6 +150,10 @@ export interface PendingDispatch {
   /** See `PendingOffer.walletRequiredPesewas`. */
   walletRequiredPesewas?: number | null;
   commissionPesewas?: number | null;
+  /** See `PendingOffer.boostPesewas`. */
+  boostPesewas?: number | null;
+  /** See `PendingOffer.partySize`. */
+  partySize?: number | null;
   offeredToMe: boolean;
   expiresAtServerMs: number | null;
   heldByAnother: boolean;
@@ -304,6 +312,30 @@ export const ridesApi = {
     apiClient
       .post(`/rides/${tripId}/cancel`, { reason })
       .then(unwrap<{ tripId: string; status: string; version: number; freeCancel: boolean }>),
+
+  /**
+   * Raise the fare while searching: 10 | 20 | 30 % of the REQUESTED fare,
+   * capped at +50 % in total; all of it goes to the driver. Answers with the
+   * new total — the live snapshot is a room frame and carries no personal fare.
+   */
+  boost: (tripId: string, percent: 10 | 20 | 30) =>
+    apiClient.post(`/rides/${tripId}/boost`, { percent }).then(
+      unwrap<{
+        tripId: string;
+        percent: number;
+        addedPesewas: number;
+        totalBoostPesewas: number;
+        requestedPesewas: number;
+        farePesewas: number;
+        capPesewas: number;
+      }>,
+    ),
+
+  /** Move the pickup once, within ~200 m, while no driver has accepted. */
+  movePickup: (tripId: string, pickup: { lat: number; lng: number; address?: string | null }) =>
+    apiClient
+      .post(`/rides/${tripId}/pickup`, { ...pickup, address: pickup.address ?? undefined })
+      .then(unwrap<{ tripId: string; version: number | null }>),
 
   // ── driver ────────────────────────────────────────────────────────────────
   driverState: () =>

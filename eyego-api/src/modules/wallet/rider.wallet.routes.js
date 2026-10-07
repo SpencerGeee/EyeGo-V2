@@ -10,6 +10,7 @@ const paystack = require('../payments/provider');
 const { AppError } = require('../../utils/errors');
 const { assertPesewas, formatGhs, fromCedis } = require('../../utils/money');
 const pushService = require('../../services/push.service');
+const riderWallet = require('../../services/rider-wallet.service');
 
 const router = Router();
 
@@ -55,7 +56,13 @@ router.get('/transactions', async (req, res) => {
   // status: a top-up and an incoming P2P transfer credit the wallet, an
   // outgoing transfer and a wallet-funded fare debit it, and anything not yet
   // settled is PENDING and moves nothing.
-  const where = { userId: req.user.userId };
+  // Closed charge rows are bookkeeping, not money: a SETTLED intent is already
+  // listed as its real per-seat line, and an ABANDONED/FAILED fare charge took
+  // nothing. Failed TOP-UPS stay — the rider asked to see those.
+  const where = {
+    userId: req.user.userId,
+    OR: [{ status: { notIn: ['SETTLED', 'ABANDONED', 'FAILED'] } }, { gatewayResponse: 'WALLET_TOPUP' }],
+  };
 
   const [txns, total] = await Promise.all([
     prisma.paymentTransaction.findMany({
@@ -88,6 +95,11 @@ router.get('/transactions', async (req, res) => {
     }
     if (gw.startsWith('P2P_SEND')) return { type: 'DEBIT', description: 'Money sent' };
     if (gw.startsWith('P2P_RECEIVE')) return { type: 'CREDIT', description: 'Money received' };
+    if (gw === 'TIP') {
+      return t.status === 'SUCCESS'
+        ? { type: 'EXTERNAL', description: 'Tip for your driver (paid by MoMo)' }
+        : { type: 'PENDING', description: 'Tip for your driver' };
+    }
     if (t.status === 'REFUNDED') return { type: 'CREDIT', description: 'Refund to wallet' };
 
     // A fare. Only wallet-funded fares actually move this balance; card/MoMo
@@ -157,20 +169,32 @@ router.post('/send', idempotency, async (req, res) => {
     // Atomic conditional decrement — the balance check happens as part of the
     // UPDATE itself (not a separate read-then-write), so concurrent sends
     // can never overdraw the sender's wallet. Same pattern as driver withdraw.
-    const debited = await tx.user.updateMany({
-      where: { id: senderId, walletBalancePesewas: { gte: safeAmount } },
-      data: { walletBalancePesewas: { decrement: safeAmount } },
-    });
-    if (debited.count === 0) {
+    //
+    // Through the rider ledger both ways (its debit is the same conditional
+    // update), so the movement is in the wallet's own books — the bare
+    // increments here left `reconcile()` off by every transfer ever sent.
+    const sender = await tx.user.findUnique({ where: { id: senderId }, select: { walletBalancePesewas: true } });
+    if (!sender || sender.walletBalancePesewas < safeAmount) {
       throw new AppError('Insufficient wallet balance', 402, 'INSUFFICIENT_WALLET');
     }
-
-    await tx.user.update({
-      where: { id: recipient.id },
-      data: { walletBalancePesewas: { increment: safeAmount } },
+    const reference = `p2p_${uuidv4().replace(/-/g, '').slice(0, 20)}`;
+    await riderWallet.record({
+      userId: senderId,
+      type: riderWallet.TYPES.SEND,
+      amountPesewas: -safeAmount,
+      description: `Sent to ${recipient.name || 'an EyeGo rider'}`,
+      paystackRef: reference,
+      tx,
+    });
+    await riderWallet.record({
+      userId: recipient.id,
+      type: riderWallet.TYPES.RECEIVE,
+      amountPesewas: safeAmount,
+      description: 'Received from an EyeGo rider',
+      paystackRef: reference,
+      tx,
     });
 
-    const reference = `p2p_${uuidv4().replace(/-/g, '').slice(0, 20)}`;
     await tx.paymentTransaction.create({
       data: { userId: senderId, amountPesewas: safeAmount, status: 'SUCCESS', paystackRef: reference, gatewayResponse: `P2P_SEND:${recipient.id}` },
     });

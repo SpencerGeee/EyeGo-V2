@@ -103,14 +103,22 @@ async function record({
       });
     }
 
+    // The balance AFTER our move, read under the row lock our write holds — the
+    // `before` read above can be stale by the time we write, and two concurrent
+    // movements then logged the same "before" and the rows stopped chaining.
+    const { walletBalancePesewas: settled } = await db.user.findUnique({
+      where: { id: userId },
+      select: { walletBalancePesewas: true },
+    });
+
     return db.riderWalletTransaction.create({
       data: {
         userId,
         type,
         amountPesewas,
         description: String(description).trim(),
-        balanceBeforePesewas: before,
-        balanceAfterPesewas: after,
+        balanceBeforePesewas: settled - amountPesewas,
+        balanceAfterPesewas: settled,
         bookingId,
         refundId,
         paystackRef,

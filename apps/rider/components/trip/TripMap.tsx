@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, StyleSheet, Pressable, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIsFocused } from '@react-navigation/native';
@@ -16,7 +16,7 @@ import {
   type Coord,
 } from '@eyego/maps';
 import { routeLine } from '@eyego/config';
-import { useSheetMetrics } from '@eyego/ui';
+import { useSheetMetrics, PulseRing } from '@eyego/ui';
 import { socketEvents, type TripSnapshot, type TripStatus } from '@eyego/api';
 import { useThemeStore } from '../../stores/theme.store';
 import { useTripFlow } from '../../stores/tripFlow.store';
@@ -1099,15 +1099,29 @@ function TripMapImpl() {
             the road under it. Solid black at full opacity and two points wider
             is what separates the line from the road it is drawn on; every
             mapping app does exactly this. */}
+        {/* While the search runs the route is context, not the subject — the
+            radar is. Subdued until a driver is attached, then full strength. */}
         {routeLine && (
           <MapboxGL.ShapeSource id="trip-route" shape={routeLine}>
             <MapboxGL.LineLayer
               id="trip-route-casing"
-              style={{ lineColor: '#000000', lineWidth: 11, lineCap: 'round', lineJoin: 'round', lineOpacity: 0.9 }}
+              style={{
+                lineColor: '#000000',
+                lineWidth: dispatchIsSearching ? 6 : 11,
+                lineCap: 'round',
+                lineJoin: 'round',
+                lineOpacity: dispatchIsSearching ? 0.35 : 0.9,
+              }}
             />
             <MapboxGL.LineLayer
               id="trip-route-line"
-              style={{ lineColor: ROUTE_LINE, lineWidth: 5, lineCap: 'round', lineJoin: 'round' }}
+              style={{
+                lineColor: ROUTE_LINE,
+                lineWidth: dispatchIsSearching ? 3 : 5,
+                lineCap: 'round',
+                lineJoin: 'round',
+                lineOpacity: dispatchIsSearching ? 0.45 : 1,
+              }}
             />
           </MapboxGL.ShapeSource>
         )}
@@ -1161,21 +1175,22 @@ function TripMapImpl() {
 
         {/* Idle nearby drivers, only while dispatch is actually running —
             leaving them on during the ride is visual noise the rider reads as
-            "which one of these is mine?". */}
-        {!snapshot?.driver && nearbyDrivers.map((d) => {
-          const isOffered = d.id === dispatchOffer?.driverId;
-          return (
-            <MapboxGL.MarkerView key={d.id} id={`driver-${d.id}`} coordinate={[d.longitude, d.latitude]}>
-              <View style={[styles.driverPuck, isOffered && styles.driverPuckActive]}>
-                <Ionicons
-                  name="car-sport"
-                  size={isOffered ? 16 : 13}
-                  color={isOffered ? colors.onPrimary : colors.onSurfaceVariant}
-                />
-              </View>
-            </MapboxGL.MarkerView>
-          );
-        })}
+            "which one of these is mine?".
+
+            They GLIDE between polls and face the way they are moving (see
+            GlidingCar) — a car that blinks twelve seconds at a time to a new
+            spot reads as a screenshot, and that stillness is half of "the
+            searching page is dead". Only real drivers with real fixes; nothing
+            here is invented. */}
+        {!snapshot?.driver && nearbyDrivers.map((d) => (
+          <GlidingCar
+            key={d.id}
+            id={d.id}
+            coordinate={[d.longitude, d.latitude]}
+            asked={d.id === dispatchOffer?.driverId}
+            haloColor={colors.primary}
+          />
+        ))}
 
         {/* THE assigned driver. Rotated to the smoothed bearing, so it points
             where the car is going rather than spinning on every fix. */}
@@ -1208,6 +1223,22 @@ function TripMapImpl() {
             sits on the coordinate rather than the pin's middle floating over it.
             The difference is the core, which is a hollow ring in the pickup
             accent instead of a filled glyph. */}
+        {/* THE SEARCH, PULSING FROM THE PICKUP.
+
+            The geographic ring above says how far the search reaches; this says
+            that it is happening NOW. Two rings breathe out from the kerb the
+            driver is coming to — the one moving thing on a map that, in a quiet
+            area, otherwise holds a pin and nothing else. `PulseRing` is the
+            shared primitive: UI-thread only, cached as a hardware layer, and
+            stopped by `useLoopsActive` when this surface is covered. */}
+        {dispatchIsSearching && pickup && (
+          <MapboxGL.MarkerView id="search-radar" coordinate={pickup} anchor="center">
+            <View pointerEvents="none">
+              <PulseRing size={220} color={colors.primary} ringCount={2} duration={2000} />
+            </View>
+          </MapboxGL.MarkerView>
+        )}
+
         {pickup && (
           <MapboxGL.MarkerView id="pickup-pin" coordinate={pickup} anchor="bottom">
             <View style={styles.destPin}>
@@ -1314,22 +1345,58 @@ function TripMapImpl() {
  */
 export const TripMap = React.memo(TripMapImpl);
 
+/**
+ * A NEARBY CAR THAT DRIVES INSTEAD OF BLINKING.
+ *
+ * Positions arrive on a poll, seconds apart. `AnimatedMarkerView` (the shared,
+ * rate-limited glide in @eyego/maps) eases each new fix in, and the car turns
+ * to face the way it moved — so a stream of fixes reads as a car on a road.
+ *
+ * The car being ASKED right now wears a small pulse in the brand colour —
+ * "we are asking this one" — and nothing personal (no name, no plate).
+ */
+function GlidingCar({
+  id,
+  coordinate,
+  asked,
+  haloColor,
+}: {
+  id: string;
+  coordinate: Coord;
+  asked: boolean;
+  haloColor: string;
+}) {
+  const prevRef = useRef<Coord>(coordinate);
+  const [bearing, setBearing] = useState(0);
+  const [lng, lat] = coordinate;
+  useEffect(() => {
+    const [pLng, pLat] = prevRef.current;
+    prevRef.current = [lng, lat];
+    // East is +x, north is +y; cos(lat) squares the degrees.
+    const x = (lng - pLng) * Math.cos((lat * Math.PI) / 180);
+    const y = lat - pLat;
+    if (Math.hypot(x, y) > 1e-6) setBearing((Math.atan2(x, y) * 180) / Math.PI);
+  }, [lng, lat]);
+
+  return (
+    <MapboxGL.AnimatedMarkerView id={`driver-${id}`} coordinate={coordinate} duration={1000}>
+      <View pointerEvents="none" style={glideStyles.wrap}>
+        {asked ? (
+          <View style={StyleSheet.absoluteFill} pointerEvents="none">
+            <PulseRing size={64} color={haloColor} ringCount={2} duration={1400} />
+          </View>
+        ) : null}
+        <VehicleMarker bearing={bearing} size={asked ? 34 : 26} />
+      </View>
+    </MapboxGL.AnimatedMarkerView>
+  );
+}
+
+const glideStyles = StyleSheet.create({
+  wrap: { width: 64, height: 64, alignItems: 'center', justifyContent: 'center' },
+});
+
 const makeStyles = (colors: Colors) => StyleSheet.create({
-  driverPuck: {
-    width: 26, height: 26, borderRadius: 13,
-    backgroundColor: colors.surfaceCard,
-    borderWidth: 1, borderColor: colors.rimLight,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  driverPuckActive: {
-    width: 32, height: 32, borderRadius: 16,
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.7, shadowRadius: 8,
-    elevation: 8,
-  },
   vehiclePuck: {
     width: 36, height: 36, borderRadius: 18,
     backgroundColor: colors.primary,

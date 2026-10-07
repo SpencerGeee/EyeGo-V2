@@ -27,6 +27,7 @@ import {
   MorphSheet,
   goDeeper,
   goBack,
+  getTierTheme,
 } from '@eyego/ui';
 import type { Seat } from '@eyego/types';
 
@@ -144,8 +145,9 @@ export default function SeatPickerScreen() {
   const selectedSeat = seats.find((s) => s.id === selectedId);
   const freeCount = seats.filter((s) => s.status === 'AVAILABLE').length;
   const heldCount = seats.filter((s) => (s.status as string) === 'PENDING').length;
-  const tierLabel: string =
-    (selectedTrip as any)?.tier?.name ?? (selectedTrip as any)?.tierName ?? 'Standard';
+  // `trip.tier` is the wire string ('ECO'), so `.tier.name` was always undefined
+  // and every tag said "Standard". The tier's own human label instead.
+  const tierLabel: string = getTierTheme(colors as any, (selectedTrip as any)?.tier ?? null).label;
   // "Accra Express • Sprinter 15-Seater": the route and the body, as the
   // reference frame captions it.
   const routeName: string | null =

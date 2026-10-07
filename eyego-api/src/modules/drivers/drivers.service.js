@@ -77,7 +77,7 @@ const dispatchCascade = require('../../services/dispatch-cascade.service');
  * it was never in this aggregation either — so which code path finished the trip
  * silently decided whether it showed up in the driver's earnings at all.
  */
-const EARNING_TYPES = ['EARNINGS_CREDIT', 'TRIP_EARNING', 'CASH_EARNING'];
+const EARNING_TYPES = ['EARNINGS_CREDIT', 'TRIP_EARNING', 'CASH_EARNING', 'PROMO_SUBSIDY'];
 
 /**
  * Idempotency gate in front of the real state machine.
@@ -1406,7 +1406,7 @@ async function startTrip(driverId, tripId) {
     ({ trip: updated } = await tripState.applyTransition(tripId, step, {
       actor: tripState.ACTOR.DRIVER,
       actorId: driverId,
-      expectedVersion: updated.version,
+      // Unpinned for the same reason as departTrip — see there.
     }));
   }
 
@@ -1562,7 +1562,10 @@ async function departTrip(driverId, tripId, { acknowledgeUnderMinimum = false } 
   const { trip: updated } = await tripState.applyTransition(tripId, 'IN_PROGRESS', {
     actor: tripState.ACTOR.DRIVER,
     actorId: driverId,
-    expectedVersion: trip.version,
+    // No pinned version: boarding fires its PASSENGER_BOARDED event a beat
+    // AFTER it returns, so a driver tapping Depart right after boarding lost the
+    // swap and was told the trip had 'moved on'. Status legality still guards a
+    // trip that really changed (cancelled, already departed); a lost swap retries.
     // Only when it actually happened, so the event log distinguishes "departed
     // under minimum, driver accepted the shortfall" from an ordinary departure.
     payload:
@@ -1584,236 +1587,32 @@ async function departTrip(driverId, tripId, { acknowledgeUnderMinimum = false } 
 }
 
 async function arriveTrip(driverId, tripId) {
-  const result = await prisma.$transaction(async (tx) => {
-    const trip = await tx.trip.findFirst({
-      where: { id: tripId, driverId },
-      include: {
-        // Include both PAID (MoMo/card) and PENDING (cash) bookings — drivers collect cash in person
-        bookings: { where: { ...seatOccupyingWhere(), paymentStatus: { in: ['PAID', 'PENDING'] } } },
-      },
-    });
-    if (!trip) throw new NotFoundError('Trip');
-
-    // Idempotency guard: if already completed (e.g. mutation retry, or the
-    // socket `driver:arrived` path already ran), bail before crediting again.
-    // Without this, the active-screen `retry: 1` mutation could double-credit
-    // the driver's wallet.
-    if (trip.status === 'COMPLETED') {
-      return { trip, totalEarningsPesewas: 0, alreadyCompleted: true, transition: null };
-    }
-    // A trip can only be completed from IN_PROGRESS — nothing may jump the
-    // queue from e.g. ARRIVED_AT_PICKUP and settle fares for a ride that never
-    // departed. (The COMPLETED short-circuit above keeps retries idempotent,
-    // so this only ever rejects genuinely out-of-order calls.)
-    // Close trip. Inside the caller's transaction so the status change, the
-    // cash settlement and the driver's wallet credit below either all land or
-    // none do — the reason `applyTransitionTx` exists.
-    const transition = await tripState.applyTransitionTx(tx, tripId, 'COMPLETED', {
-      actor: tripState.ACTOR.DRIVER,
-      actorId: driverId,
-      expectedVersion: trip.version,
-    });
-
-    // ── Auto-settle any still-unpaid CASH bookings ───────────────────────
-    // Mirrors the same fix in trips.service.js completeTrip — "Mark Boarded"
-    // is a manual per-seat driver action that's easy to skip, which would
-    // otherwise leave a cash booking's paymentStatus stuck at PENDING
-    // forever even though the trip is over and the rider paid in person.
-    const unsettledCash = await tx.booking.findMany({
-      where: {
-        tripId,
-        paymentMethod: 'CASH',
-        paymentStatus: { not: 'PAID' },
-        /**
-         * BUGFIX ("the earnings page showed 'cash commission auto settled on
-         * arrival — 1 seat(s) not marked boarded'; i don't know if it's a bug or
-         * a symptom of the seat that was marked on the select-seat page but
-         * nobody actually booked").
-         *
-         * It was a bug, and the reading was right. This used to exclude only
-         * CANCELLED and NO_SHOW, which let SEAT_HELD and PENDING through — a
-         * SEAT_HELD row is a fifteen-minute hold on a seat, not a passenger. So
-         * a checkout that was abandoned (or a ghost hold left behind by a failed
-         * booking attempt) was auto-settled as though someone had ridden and
-         * paid cash, and the driver's wallet was DEBITED the commission on a
-         * fare they never collected.
-         *
-         * Auto-settlement exists for one case: a rider who genuinely travelled
-         * and paid cash, where the driver simply never tapped "Mark Boarded".
-         * That rider's booking is CONFIRMED, PAID or BOARDED. A hold that never
-         * became one of those is not a fare, and there is nothing to settle.
-         */
-        status: { in: ['CONFIRMED', 'PAID', 'BOARDED'] },
-      },
-      select: { id: true, commissionAmountPesewas: true },
-    });
-    if (unsettledCash.length > 0) {
-      const totalCommissionOwed = unsettledCash.reduce((sum, b) => sum + (b.commissionAmountPesewas || 0), 0);
-      await tx.booking.updateMany({
-        where: { id: { in: unsettledCash.map((b) => b.id) } },
-        data: { paymentStatus: 'PAID' },
-      });
-      if (totalCommissionOwed > 0) {
-        const driverBeforeSettle = await tx.driver.findUnique({ where: { id: driverId }, select: { walletBalancePesewas: true } });
-        await tx.driver.update({
-          where: { id: driverId },
-          data: { walletBalancePesewas: { decrement: totalCommissionOwed } },
-        });
-        await tx.walletTransaction.create({
-          data: {
-            driverId,
-            type: 'COMMISSION_DEDUCTION',
-            amountPesewas: totalCommissionOwed,
-            description: `Cash commission auto-settled on arrival — ${unsettledCash.length} seat(s) not marked boarded`,
-            balanceBeforePesewas: driverBeforeSettle?.walletBalancePesewas ?? 0,
-            balanceAfterPesewas: (driverBeforeSettle?.walletBalancePesewas ?? 0) - totalCommissionOwed,
-            tripId,
-          },
-        });
-      }
-    }
-
-    /**
-     * Close the bookings that were actually RIDDEN.
-     *
-     * BUGFIX ("I opened the group hub and closed the app without paying, and the
-     * driver still saw a paid passenger in their earnings"). This promoted every
-     * non-terminal row — SEAT_HELD included — to COMPLETED, and a COMPLETED
-     * booking is a passenger who travelled as far as every receipt, seat map and
-     * earnings figure is concerned. The group hub creates a hold the moment it
-     * mounts, so an abandoned invite became a completed fare on the driver's
-     * receipt with nobody in the seat and no money anywhere.
-     *
-     * A hold is a reservation with a timer on it. When the trip ends without it
-     * ever being paid for, the honest outcome is EXPIRED with the seat given
-     * back — `seatNumber: null`, or the row keeps blocking @@unique([tripId,
-     * seatNumber]) for the life of the trip.
-     */
-    await tx.booking.updateMany({
-      where: { tripId, status: { in: ['PENDING', 'SEAT_HELD'] } },
-      data: { status: 'EXPIRED', seatNumber: null },
-    });
-    await tx.booking.updateMany({
-      where: { tripId, status: { in: ['CONFIRMED', 'PAID', 'BOARDED'] } },
-      data: { status: 'COMPLETED' },
-    });
-
-    // Credit driver earnings — ONLY for online-paid bookings (MoMo/card/wallet).
-    // Cash bookings (paymentStatus PENDING, paid in hand) already had commission
-    // debited at boarding and the driver keeps the cash directly, so crediting the
-    // wallet too would double-pay. Match completeTrip's PAID-only filter.
-    const ONLINE_METHODS = ['MOMO_MTN', 'MOMO_TELECEL', 'MOMO_AIRTELTIGO', 'CARD', 'WALLET'];
-    const onlinePaidBookings = trip.bookings.filter(
-      (b) => b.paymentStatus === 'PAID' && ONLINE_METHODS.includes(b.paymentMethod),
-    );
-    // Per booking: take the commission, the driver keeps the remainder. Doing
-    // it as `fare - commission` rather than `fare * 0.85` means the two halves
-    // provably add back to the fare, which is what makes the platform's revenue
-    // and the driver's earnings reconcile against the same rides.
-    const safeEarnings = onlinePaidBookings.reduce(
-      (acc, b) => acc + (b.fareAmountPesewas - percentOf(b.fareAmountPesewas, env.PLATFORM_COMMISSION)),
-      0,
-    );
-    if (safeEarnings > 0) {
-      const driver = await tx.driver.findUnique({ where: { id: driverId } });
-      await tx.driver.update({
-        where: { id: driverId },
-        data: { walletBalancePesewas: { increment: safeEarnings } },
-      });
-      await tx.walletTransaction.create({
-        data: {
-          driverId,
-          type: 'EARNINGS_CREDIT',
-          amountPesewas: safeEarnings,
-          description: `Earnings from Trip #${trip.shortId}`,
-          balanceBeforePesewas: driver.walletBalancePesewas,
-          balanceAfterPesewas: driver.walletBalancePesewas + safeEarnings,
-          tripId,
-        },
-      });
-    }
-
-    // ── Cash earnings: recorded for REPORTING only ───────────────────────
-    // BUGFIX ("the earnings page always has a blank chart even though sales have
-    // been made or a commission has been deducted"): every earnings surface —
-    // this app's chart, the /earnings summary, shift totals — reads wallet
-    // transactions of type EARNINGS_CREDIT. Cash trips deliberately never create
-    // one (the driver is handed the money directly; only commission is debited,
-    // which is why a COMMISSION_DEDUCTION row was visible while earnings showed
-    // zero). A cash-only driver therefore saw GHS 0, 0 trips and a flat chart
-    // forever, with no way to tell it apart from having done no work.
-    //
-    // This writes a DISTINCT type with balanceBeforePesewas === balanceAfterPesewas: it moves
-    // no money and is not part of the wallet balance, it exists so cash income is
-    // reportable. Every existing aggregate filters on an explicit type, so no
-    // balance or payout calculation can pick this up by accident — the reporting
-    // queries opt into it by name.
-    const cashBookings = trip.bookings.filter((b) => b.paymentMethod === 'CASH');
-    const cashEarnings = cashBookings.reduce(
-      (acc, b) => acc + (b.fareAmountPesewas - percentOf(b.fareAmountPesewas, env.PLATFORM_COMMISSION)),
-      0,
-    );
-    if (cashEarnings > 0) {
-      const balanceNow = (await tx.driver.findUnique({
-        where: { id: driverId }, select: { walletBalancePesewas: true },
-      }))?.walletBalancePesewas ?? 0;
-      await tx.walletTransaction.create({
-        data: {
-          driverId,
-          type: 'CASH_EARNING',
-          amountPesewas: cashEarnings,
-          description: `Cash collected in person — Trip #${trip.shortId}`,
-          // Equal on purpose: no wallet movement, reporting only.
-          balanceBeforePesewas: balanceNow,
-          balanceAfterPesewas: balanceNow,
-          tripId,
-        },
-      });
-    }
-
-    return { trip, totalEarningsPesewas: safeEarnings, transition };
+  /**
+   * ONE SETTLEMENT, NOT TWO.
+   *
+   * This used to be a second copy of `trips.service.completeTrip`, and the two
+   * had drifted: this one recomputed commission at the env rate instead of the
+   * stored one (ignoring runtime rate changes and promo adjustments), skipped
+   * bookings paid as plain 'MOMO', and reported cash SEAT_HELD holds as cash
+   * earnings. Group trips (which end here) and on-demand rides (which end via
+   * rides.complete) now settle through the same function, so their numbers
+   * cannot disagree. Ownership is checked here; completeTrip is idempotent on
+   * COMPLETED, so a retried tap cannot pay twice.
+   */
+  const owned = await prisma.trip.findFirst({
+    where: { id: tripId, driverId },
+    select: { id: true, status: true },
   });
+  if (!owned) throw new NotFoundError('Trip');
 
-  // Post-commit fan-out. Both apps learn the trip is over from the same event,
-  // carrying the same version — rather than the rider finding out via a push
-  // notification and the driver via a REST response, which is how the two
-  // could disagree about whether the ride had ended.
-  if (result.transition) tripState.publishCommitted(result.transition);
-
-  // ── Quest progress ── RIDES_COUNT and EARNINGS, so the driver's Quests tab
-  // advances after a completed ride.
-  //
-  // POST-COMMIT, deliberately. This used to run inside the transaction above,
-  // where its serial round trips ate the 5s interactive-transaction budget and
-  // expired the whole thing — the driver tapped "Mark as arrived", the trip
-  // and the wallet credit were rolled back, and the app said the trip could
-  // not be updated. Quest counters are not money and are not worth coupling to
-  // a ride's atomicity; if this fails the ride is still correctly settled.
-  if (!result.alreadyCompleted) {
-    setImmediate(async () => {
-      const { incrementProgress } = require('../quests/quests.service');
-      try {
-        await incrementProgress(driverId, 'RIDES_COUNT', 1);
-        if (result.totalEarningsPesewas > 0) {
-          await incrementProgress(driverId, 'EARNINGS', result.totalEarningsPesewas);
-        }
-      } catch (err) {
-        logger.warn(`Quest progress for driver ${driverId} after trip ${tripId} failed: ${err.message}`);
-      }
-    });
-  }
-
-  // Generate receipts for PAID bookings — non-blocking, runs after transaction commits
-  setImmediate(async () => {
-    const paidBookings = result.trip.bookings.filter(b => b.paymentStatus === 'PAID');
-    await Promise.all(paidBookings.map(b => generateTripReceipt(b.id).catch(() => {})));
-  });
-
-  // Completion push moved to trip-notify.service.js — see arriveAtPickup above.
-  // It was also the wrong notification: `driverArrived` announces arrival at the
-  // PICKUP, so a rider being dropped off was told their driver had arrived to
-  // collect them.
-  return result;
+  const { completeTrip } = require('../trips/trips.service');
+  const settled = await completeTrip(tripId);
+  const trip = await prisma.trip.findUnique({ where: { id: tripId } });
+  return {
+    trip,
+    totalEarningsPesewas: settled?.totalEarningsPesewas ?? 0,
+    alreadyCompleted: owned.status === 'COMPLETED',
+  };
 }
 
 /**
@@ -1890,7 +1689,7 @@ async function addOfflinePassenger(driverId, tripId, { phone, seatNumber }) {
     ...pinnedRatesFor(trip),
   });
   const seatFare = fareInfo.farePerPersonPesewas;
-  const commissionAmountPesewas = percentOf(seatFare, env.PLATFORM_COMMISSION);
+  const commissionAmountPesewas = fareInfo.commissionPerSeatPesewas; // the trip's pinned rate
 
   const driver = await prisma.driver.findUnique({ where: { id: driverId } });
   if (driver.walletBalancePesewas < commissionAmountPesewas) throw new InsufficientWalletError();
@@ -1969,7 +1768,7 @@ async function addCashNoPhone(driverId, tripId, { seatNumber }) {
     ...pinnedRatesFor(trip),
   });
   const seatFare = fareInfo.farePerPersonPesewas;
-  const commissionAmountPesewas = percentOf(seatFare, env.PLATFORM_COMMISSION);
+  const commissionAmountPesewas = fareInfo.commissionPerSeatPesewas; // the trip's pinned rate
 
   const driver = await prisma.driver.findUnique({ where: { id: driverId } });
   if (driver.walletBalancePesewas < commissionAmountPesewas) throw new InsufficientWalletError();
@@ -2537,9 +2336,45 @@ async function claimReassignedTrip(driverId, tripId) {
  * Taking them out of the dispatch pool matters too: an anonymised driver left
  * in the Redis geo-set is still a candidate every matcher run considers.
  */
-async function deleteMe(driverId) {
+async function deleteMe(driverId, { acknowledgeBalance = false } = {}) {
   const driver = await prisma.driver.findUnique({ where: { id: driverId } });
   if (!driver) throw new NotFoundError('Driver');
+
+  /**
+   * NOT WITH RIDERS WAITING, AND NOT WITH MONEY EITHER WAY.
+   *
+   * Deletion used to disable the account and leave everything else standing:
+   * riders booked on this driver's upcoming bus (or on the ride under way) were
+   * stranded with a driver who no longer existed, earnings were left in a
+   * wallet nobody could withdraw from, and commission owed on cash rides was
+   * simply walked away from.
+   */
+  const TERMINAL = tripState.TERMINAL_STATUSES;
+  const liveTrips = await prisma.trip.count({ where: { driverId, status: { notIn: TERMINAL } } });
+  if (liveTrips > 0) {
+    throw new AppError(
+      'You have a trip in progress or published. Complete or cancel it before deleting your account.',
+      409,
+      'ACTIVE_TRIP',
+    );
+  }
+  // Earnings warn, debt walls. Below the withdrawal minimum a balance can never
+  // be withdrawn, so a hard block made deletion impossible; the client confirms
+  // and resends with `acknowledgeBalance`. Debt is always clearable by top-up.
+  if (driver.walletBalancePesewas > 0 && !acknowledgeBalance) {
+    throw new AppError(
+      `You have ${formatGhs(driver.walletBalancePesewas)} in your wallet. You can't withdraw it once your account is deleted — withdraw it first, or delete anyway.`,
+      409,
+      'WALLET_NOT_EMPTY',
+    );
+  }
+  if (driver.walletBalancePesewas < 0) {
+    throw new AppError(
+      `You owe ${formatGhs(-driver.walletBalancePesewas)} in commission. Top up to clear it before deleting your account.`,
+      409,
+      'WALLET_IN_DEBT',
+    );
+  }
 
   const result = await prisma.$transaction(async (tx) => {
     const updated = await tx.driver.update({
@@ -2547,6 +2382,12 @@ async function deleteMe(driverId) {
       data: {
         name: '[Deleted Account]',
         phone: `deleted_${driverId.slice(0, 12)}`,
+        // Personal, with no record-keeping reason to survive — the emergency
+        // contact is a third party's number. KYC (Ghana Card, licence) is kept:
+        // its retention period is a legal decision, not this function's.
+        profilePhoto: null,
+        dateOfBirth: null,
+        emergencyContact: null,
         status: 'DISABLED',
         isOnline: false,
         fcmToken: null,

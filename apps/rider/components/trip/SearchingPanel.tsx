@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { AccessibilityInfo, StyleSheet, View } from 'react-native';
 import Animated, {
   Easing,
   cancelAnimation,
@@ -14,7 +14,8 @@ import Animated, {
 } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, radii, spacing, springs, withOpacity } from '@eyego/config';
-import { Text, useLoopsActive } from '@eyego/ui';
+import { Text, useLoopsActive, RollingDigits } from '@eyego/ui';
+import { formatGhs } from '@eyego/utils';
 
 import { useColors, type Colors } from '../../utils/useColors';
 
@@ -90,12 +91,30 @@ export interface SearchingPanelProps {
   radiusKm?: number | null;
   seats?: number;
   tierLabel?: string | null;
+  /** How the ride will be paid ("Cash") — the fourth fact every rival shows here. */
+  paymentLabel?: string | null;
   scheduledFor?: string | null;
   errorReason?: string | null;
+  /** What the rider is offering, boosts included. Null hides the fare line. */
+  farePesewas?: number | null;
+  /** How much of that the rider added to find a driver faster. */
+  boostedPesewas?: number;
+  /**
+   * Nobody is in range yet — the server parked the search and is re-scanning.
+   * The commonest searching state in a quiet area, and it deserves its own
+   * sentence rather than the same "asking drivers" copy as a busy one.
+   */
+  waiting?: boolean;
+  /**
+   * When the search gives up, on THIS phone's clock (the caller converts from
+   * server time). A deadline rather than a count, so the panel's own one-second
+   * tick keeps it current without re-rendering the whole stage.
+   */
+  searchEndsAtMs?: number | null;
 }
 
 /** How long the rider has been waiting, in whole seconds. */
-function useElapsed(active: boolean): number {
+export function useElapsed(active: boolean): number {
   const [secs, setSecs] = useState(0);
   useEffect(() => {
     if (!active) {
@@ -225,8 +244,13 @@ export function SearchingPanel({
   radiusKm = null,
   seats = 1,
   tierLabel,
+  paymentLabel,
   scheduledFor,
   errorReason,
+  farePesewas = null,
+  boostedPesewas = 0,
+  waiting = false,
+  searchEndsAtMs = null,
 }: SearchingPanelProps) {
   const colors = useColors();
   const styles2 = useMemo(() => makeStyles(colors), [colors]);
@@ -251,7 +275,12 @@ export function SearchingPanel({
   const substatus = (() => {
     if (status === 'matched') return 'Taking you to your trip…';
     if (status === 'error') return errorReason ?? 'Please try again in a moment.';
-    if (status === 'timeout') return 'Nothing was charged. Try again shortly, or book a scheduled ride.';
+    if (status === 'timeout') {
+      // "Drivers near Osu are all busy" — the place makes it a fact about the
+      // area, not a verdict on the app.
+      const area = originText?.split(',')[0]?.trim();
+      return `${area ? `Drivers near ${area} are all busy. ` : ''}Nothing was charged — try again shortly, or schedule it.`;
+    }
     if (status === 'sending') return 'Reaching drivers near your pickup…';
     /**
      * The distance is the part a rider can act on.
@@ -271,6 +300,21 @@ export function SearchingPanel({
       return mins != null
         ? `Asking a driver ${mins} min away · ${attempt.attempt} of ${attempt.total}`
         : `Asking driver ${attempt.attempt} of ${attempt.total}…`;
+    }
+    /**
+     * NOBODY IN RANGE — SAY SO, AND SAY WHAT HAPPENS NEXT.
+     *
+     * The server has parked the search and re-scans every few seconds; the
+     * first driver to come online or free up nearby is asked straight away.
+     * That is a real, different state from "asking drivers in turn", and the
+     * screen used to describe both the same way — which is how a working
+     * search on an empty map came to read as dead.
+     */
+    if (waiting) {
+      const secs =
+        searchEndsAtMs != null ? Math.max(0, Math.ceil((searchEndsAtMs - Date.now()) / 1000)) : 0;
+      const left = secs > 0 ? ` · ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')} left` : '';
+      return `No drivers free near you yet — we'll ask the first one who comes online${left}.`;
     }
     if (attempt.total > 0) return `${attempt.total} driver${attempt.total === 1 ? '' : 's'} nearby — asking them in turn`;
     /**
@@ -294,6 +338,11 @@ export function SearchingPanel({
   })();
 
   const mmss = `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, '0')}`;
+
+  // Screen readers hear the state change ("Driver found"), not the ticking line.
+  useEffect(() => {
+    AccessibilityInfo.announceForAccessibility(headline);
+  }, [headline]);
 
   return (
     <View style={styles2.root}>
@@ -348,12 +397,18 @@ export function SearchingPanel({
 
       {/* The facts of the booking, as chips. Small, quiet, and only the ones
           that exist — an empty row of placeholders is worse than no row. */}
-      {(tierLabel || seats > 1 || scheduledFor) && (
+      {(tierLabel || seats > 1 || scheduledFor || paymentLabel) && (
         <View style={styles2.chips}>
           {tierLabel ? (
             <View style={styles2.chip}>
               <Ionicons name="car-outline" size={12} color={colors.onSurfaceVariant} />
               <Text style={styles2.chipText}>{tierLabel}</Text>
+            </View>
+          ) : null}
+          {paymentLabel ? (
+            <View style={styles2.chip}>
+              <Ionicons name="cash-outline" size={12} color={colors.onSurfaceVariant} />
+              <Text style={styles2.chipText}>{paymentLabel}</Text>
             </View>
           ) : null}
           {seats > 1 ? (
@@ -366,6 +421,32 @@ export function SearchingPanel({
             <View style={styles2.chip}>
               <Ionicons name="calendar-outline" size={12} color={colors.onSurfaceVariant} />
               <Text style={styles2.chipText}>{scheduledFor}</Text>
+            </View>
+          ) : null}
+        </View>
+      )}
+
+      {/* THE PRICE BEING ASKED FOR. Every rival shows it here; this screen
+          showed everything except the money. Tabular, so a boost that changes
+          it does not make the line jump. */}
+      {farePesewas != null && farePesewas > 0 && (
+        <View style={styles2.fareRow}>
+          <Text style={styles2.fareLabel}>{boostedPesewas > 0 ? 'YOUR OFFER' : 'FARE'}</Text>
+          {/* Rolls up, odometer-style, when a boost lands — the raise is seen
+              happening, not just a number that changed. */}
+          <RollingDigits
+            text={formatGhs(farePesewas)}
+            value={farePesewas}
+            fontSize={fontSizes.titleMedium}
+            fontFamily={fonts.displayBold}
+            color={colors.onSurface}
+          />
+          {boostedPesewas > 0 ? (
+            <View style={[styles2.boostBadge, { backgroundColor: withOpacity(colors.primary, 0.14) }]}>
+              <Ionicons name="flash" size={11} color={colors.primary} />
+              <Text style={[styles2.boostText, { color: colors.primary }]}>
+                +{formatGhs(boostedPesewas)} to your driver
+              </Text>
             </View>
           ) : null}
         </View>
@@ -475,6 +556,23 @@ const makeStyles = (colors: Colors) =>
       fontSize: 11.5,
       color: colors.onSurfaceVariant,
     },
+
+    fareRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.sm },
+    fareLabel: {
+      fontFamily: fonts.labelCaps,
+      fontSize: 9,
+      letterSpacing: 1.1,
+      color: colors.onSurfaceVariant,
+    },
+    boostBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: radii.full,
+    },
+    boostText: { fontFamily: fonts.semiBold, fontSize: 11, fontVariant: ['tabular-nums'] },
   });
 
 export default SearchingPanel;

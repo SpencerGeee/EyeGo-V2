@@ -367,8 +367,11 @@ export default function ActiveTripScreen() {
     name: string;
   } | null>(null);
 
-  const { data: trip, isLoading } = useQuery({
+  const { data: trip, isLoading, isError: tripMissing } = useQuery({
     queryKey: ['driver', 'trip', 'active', id],
+    // The detail endpoint is scoped to the trip's own driver: a 404 means
+    // "not yours", and retrying it only holds a dead skeleton on screen.
+    retry: (n, err: any) => err?.response?.status !== 404 && n < 2,
     // getTripById(id) — not getActiveTrip(), which is a findFirst that can
     // return the WRONG trip if the driver has more than one active trip.
     queryFn: () => driverApi.getTripById(id!),
@@ -385,6 +388,12 @@ export default function ActiveTripScreen() {
   useEffect(() => {
     if (!id || typeof id !== 'string') goBack();
   }, [id, router]);
+
+  // A trip this driver does not own (a stale push, an old notification row)
+  // has nothing to manage here. Leave rather than park on a skeleton.
+  useEffect(() => {
+    if (tripMissing) goOut('/(tabs)/home');
+  }, [tripMissing]);
 
   const isActiveTrip = !!trip && !['COMPLETED', 'CANCELLED'].includes(trip.status);
 
@@ -1095,7 +1104,7 @@ export default function ActiveTripScreen() {
             `as any` hid it from the compiler. */}
         {!isLoading && !trip && (
           <Pressable
-            onPress={() => router.replace('/(tabs)/home')}
+            onPress={() => goOut('/(tabs)/home')}
             hitSlop={12}
             style={[styles.backEscapeButton, { top: insets.top + 12 }]}
            accessibilityRole="button">

@@ -45,6 +45,10 @@ export interface DispatchOffer {
   driverEarningsPesewas: number | null;
   /** Wallet balance needed to BOARD this ride — see PendingOffer in @eyego/api. */
   walletRequiredPesewas: number | null;
+  /** The rider's raise, already inside both figures above — see PendingOffer. */
+  boostPesewas: number | null;
+  /** How many people are waiting at the pickup. */
+  partySize: number | null;
   tier: string | null;
   /** Server deadline. Never compare this to Date.now() directly. */
   expiresAtServerMs: number;
@@ -86,6 +90,8 @@ function offerFromPayload(p: any): DispatchOffer {
     farePesewas: p.farePesewas ?? null,
     driverEarningsPesewas: p.driverEarningsPesewas ?? null,
     walletRequiredPesewas: p.walletRequiredPesewas ?? null,
+    boostPesewas: p.boostPesewas ?? null,
+    partySize: p.partySize ?? null,
     tier: p.tier ?? null,
     expiresAtServerMs: p.expiresAtServerMs,
     etaSeconds: p.etaSeconds ?? null,
@@ -96,6 +102,33 @@ function offerFromPayload(p: any): DispatchOffer {
     dropoffDistanceKm: p.dropoffDistanceKm ?? null,
     kind: p.kind ?? null,
   };
+}
+
+/**
+ * THE SAME OFFER, RE-PARKED: take its facts; keep our road only when the frame
+ * said nothing about one.
+ *
+ * A rider's boost or moved pickup re-publishes the held offer with the same
+ * deadline (`refreshHeldOffer` server-side), and its money and pickup are the
+ * truth. Its road is three-valued on the wire: absent (keep ours), `null` (the
+ * pickup moved — ours leads to the old spot), or a line (take it).
+ */
+function mergeSameOffer(held: DispatchOffer, p: any): DispatchOffer {
+  const next = offerFromPayload(p);
+  const saidRoad = p != null && Object.prototype.hasOwnProperty.call(p, 'geometry');
+  return { ...next, geometry: next.geometry ?? (saidRoad ? null : held.geometry) };
+}
+
+/** Whether a merge changed anything the card shows — a poll must not re-render it for nothing. */
+function sameOfferFacts(a: DispatchOffer, b: DispatchOffer): boolean {
+  return (
+    a.farePesewas === b.farePesewas &&
+    a.driverEarningsPesewas === b.driverEarningsPesewas &&
+    a.pickupLat === b.pickupLat &&
+    a.pickupLng === b.pickupLng &&
+    a.pickupAddress === b.pickupAddress &&
+    (a.geometry?.length ?? 0) === (b.geometry?.length ?? 0)
+  );
 }
 
 interface DriverTripState {
@@ -388,11 +421,15 @@ export const useDriverTripStore = create<DriverTripState>((set, get) => ({
       } else {
         const held = get().offer;
         const next = offerFromPayload(liveOffer);
-        if (held?.tripId !== next.tripId) {
+        // A new deadline on the same trip is a NEW offer (a re-ask after the
+        // last one lapsed) — keeping the old, expired card hid it.
+        if (held?.tripId !== next.tripId || held.expiresAtServerMs !== next.expiresAtServerMs) {
           set({ offer: next });
-        } else if (held && !held.geometry && next.geometry) {
-          // Same offer, and the road has arrived since we last read it.
-          set({ offer: { ...held, geometry: next.geometry } });
+        } else {
+          // The same offer re-parked: a boost, a moved pickup, or the road
+          // arriving. The poll is how a phone that missed that frame catches up.
+          const merged = mergeSameOffer(held, liveOffer);
+          if (!sameOfferFacts(held, merged)) set({ offer: merged });
         }
       }
       if (trip) get().watch(trip.tripId);
@@ -475,9 +512,15 @@ export const useDriverTripStore = create<DriverTripState>((set, get) => ({
         const held = get().offer;
         set({
           clockSkewMs: event.serverNowMs - Date.now(),
+          /**
+           * The SAME offer re-published takes the new frame's facts too — not
+           * only the road. A rider's fare boost or moved pickup arrives as a
+           * re-publish with the same deadline (`refreshHeldOffer` server-side);
+           * merging geometry alone left the card showing the old money.
+           */
           offer:
             held && held.tripId === next.tripId && held.expiresAtServerMs === next.expiresAtServerMs
-              ? { ...held, geometry: next.geometry ?? held.geometry }
+              ? mergeSameOffer(held, p)
               : next,
         });
       } else if (event.type === 'OFFER_REVOKED') {

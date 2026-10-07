@@ -1,21 +1,37 @@
 ﻿import React, { useMemo, useEffect, useRef, useState } from 'react';
-import { View, StyleSheet, Pressable, Alert } from 'react-native';
+import { View, StyleSheet, Pressable } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { expectTripSurfaceReturn } from '../../../utils/tripSurfaceReturn';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
-import { Text, Button, GlassSurface, MorphTarget, AppBackground, GradientGlowBorder, goDeeper, goBack, notify, goOut } from '@eyego/ui';
+import {
+  Text, Button, GlassSurface, MorphTarget, AppBackground, GradientGlowBorder,
+  goDeeper, goBack, notify, goOut, goFresh, Pressable as HapticPressable, getTierTheme,
+} from '@eyego/ui';
+import * as Haptics from 'expo-haptics';
+import { formatGhs } from '@eyego/utils';
 import { useThemeStore } from '../../../stores/theme.store';
 import { SearchingPanel } from '../SearchingPanel';
+import { FareBoostRow, type BoostStep } from '../FareBoostRow';
 import { tripsApi, ridesApi, queryKeys, secondsRemaining } from '@eyego/api';
 import { useColors, Colors } from '../../../utils/useColors';
 import { useTripFlow } from '../../../stores/tripFlow.store';
 import { useShallow } from 'zustand/react/shallow';
 import { useRideStore } from '../../../stores/ride.store';
 import { useTripStore, isTerminal } from '../../../stores/trip.store';
+import { useRideEnded } from '../../../stores/rideEnded.store';
+import { shareSearchingTrip } from '../../../utils/safety';
+import { consumePickedPlace } from '../../../utils/placePickerResult';
+import { byDeparture, departureLabel, seatsLeft } from '../../../utils/tripGroups';
+import type { GeocodeResult } from '../../../utils/geocoding';
+
+/** A place as the ride store holds it. */
+type Place = { latitude: number; longitude: number; address: string };
+
+const freshIdempotencyKey = () => `ride-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
 /**
  * NO POLLING HERE ANY MORE.
@@ -41,10 +57,50 @@ import { useTripStore, isTerminal } from '../../../stores/trip.store';
 /**
  * How often the ambient nearby-car pins are refreshed while a search runs.
  *
- * Slow on purpose: these are context, not tracking. The dispatch result
- * arrives over the socket, so this never gates the outcome of the request.
+ * Context, not tracking — the dispatch result arrives over the socket, so this
+ * never gates the outcome. 5 s rather than 12: the map glides each car to its
+ * new fix, and a car that moves once every twelve seconds still reads as a
+ * screenshot.
  */
-const NEARBY_REFRESH_MS = 12_000;
+const NEARBY_REFRESH_MS = 5_000;
+
+/** When the boost chips appear if drivers ARE around but nobody has taken it. */
+const BOOST_OFFER_AFTER_MS = 20_000;
+
+/** One of the three things a rider can do while the search runs. */
+function ActionTile({
+  icon,
+  label,
+  onPress,
+  disabled,
+  tone,
+  styles,
+}: {
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+  label: string;
+  onPress: () => void;
+  disabled?: boolean;
+  tone: string;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  return (
+    <HapticPressable
+      onPress={onPress}
+      disabled={disabled}
+      haptic="light"
+      style={[styles.tile, disabled && styles.tileDisabled]}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+    >
+      <View style={[styles.tileIcon, { backgroundColor: withOpacity(tone, 0.1) }]}>
+        <Ionicons name={icon} size={18} color={tone} />
+      </View>
+      <Text style={[styles.tileLabel, { color: tone }]} numberOfLines={1}>
+        {label}
+      </Text>
+    </HapticPressable>
+  );
+}
 
 function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
   const colors = useColors();
@@ -93,6 +149,31 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
    */
   const [conflict, setConflict] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  /**
+   * "Cancel request?" asked INLINE, not with `Alert.alert`.
+   *
+   * A native alert lands above the root overlays and freezes the live map
+   * behind a system sheet at the most anxious moment of the flow. Uber and
+   * Bolt both confirm in the sheet itself, with "keep searching" as the
+   * primary — leaving should be the deliberate choice, not the default.
+   */
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  /**
+   * The money on the table: what the ride was requested at, and how much the
+   * rider has added since. Null until known (a resumed search reads it back
+   * from the trip's own events — see below).
+   */
+  const [fare, setFare] = useState<{ requestedPesewas: number; boostPesewas: number } | null>(null);
+  const [boosting, setBoosting] = useState(false);
+  /** The pickup may move once per request. Hidden after that, not refused. */
+  const [pickupMoved, setPickupMoved] = useState(false);
+  const [movingPickup, setMovingPickup] = useState(false);
+  /** True between opening the picker for the pickup and coming back from it. */
+  const editingPickupRef = useRef(false);
+  /** Set by "Try again"; the effect below sends once the journey is re-seeded. */
+  const [retryQueued, setRetryQueued] = useState(false);
+  /** The boost (% of the requested fare) a retry carries into the new request. */
+  const carryBoostPctRef = useRef(0);
   const tripIdRef = useRef<string | null>(null);
   const sentRef = useRef(false);
   /**
@@ -147,6 +228,122 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
   };
 
   /**
+   * THE JOURNEY, KEPT BY THE SCREEN THAT IS SHOWING IT.
+   *
+   * "Nobody found" is answered IN PLACE now — the map stays, with Try again,
+   * Schedule and the group bus — but TripStatusListener's terminal branch still
+   * runs `clearRideState()` underneath it, wiping the very pickup and
+   * destination this screen is describing. The last complete pair is held here
+   * so the itinerary, the retry and the schedule hand-off all still have it.
+   */
+  const journeyRef = useRef<{ origin: Place; destination: Place } | null>(null);
+  if (origin && storeDestination && Number.isFinite(storeDestination.latitude)) {
+    journeyRef.current = { origin, destination: storeDestination };
+  }
+  const originLabel = origin?.address ?? journeyRef.current?.origin.address ?? snapshot?.pickup?.address ?? null;
+  const destinationLabel =
+    destination ?? journeyRef.current?.destination.address ?? snapshot?.dropoff?.address ?? null;
+
+  const searching = mode === 'stage' && status === 'searching';
+  const currentFarePesewas = fare ? fare.requestedPesewas + fare.boostPesewas : null;
+  /** One timer, not a ticking clock: the stage only needs to know "20 s in". */
+  const [boostOffered, setBoostOffered] = useState(false);
+  useEffect(() => {
+    if (!searching) {
+      setBoostOffered(false);
+      return;
+    }
+    const t = setTimeout(() => setBoostOffered(true), BOOST_OFFER_AFTER_MS);
+    return () => clearTimeout(t);
+  }, [searching]);
+
+  /**
+   * A RESUMED SEARCH READS ITS MONEY BACK FROM THE TRIP.
+   *
+   * The live snapshot is a room frame and carries no personal fare, so a
+   * search re-opened from Home (or after a cold start) had no price to show
+   * and nothing to boost from. The events endpoint answers with the RIDER'S
+   * snapshot — their own fare, boosts included — plus every FARE_BOOSTED and
+   * PICKUP_MOVED, which is the same arithmetic the server uses: requested =
+   * current − Σ boosts.
+   */
+  const liveTripId = snapshot?.tripId ?? null;
+  useEffect(() => {
+    if (!liveTripId || fare != null || status !== 'searching') return;
+    let cancelled = false;
+    ridesApi
+      .events(liveTripId, 0)
+      .then((r) => {
+        if (cancelled) return;
+        const events = Array.isArray(r?.events) ? r.events : [];
+        const current = Number(r?.snapshot?.fare?.amountPesewas);
+        if (!Number.isFinite(current) || current <= 0) return;
+        const boost = events
+          .filter((e: any) => e?.type === 'FARE_BOOSTED')
+          .reduce((n: number, e: any) => n + (Number(e?.payload?.addedPesewas) || 0), 0);
+        setFare({ requestedPesewas: current - boost, boostPesewas: boost });
+        setPickupMoved(events.some((e: any) => e?.type === 'PICKUP_MOVED'));
+      })
+      .catch(() => {
+        // The fare line is information, not a gate — the search goes on without it.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [liveTripId, fare, status]);
+
+  /**
+   * THE RIDER IS ALREADY LOOKING AT THE NEWS.
+   *
+   * The terminal listener raises a "no drivers" notice for Home to present.
+   * When this screen answers it in place, that notice is a second copy of
+   * news already read — and would greet the rider again on Home. Cleared
+   * whenever it appears while the in-place answer is on screen; the listener's
+   * frame and the channel's can land in either order.
+   */
+  const endedNotice = useRideEnded((s) => s.notice);
+  useEffect(() => {
+    if (mode !== 'stage' || status !== 'timeout' || !endedNotice) return;
+    if (endedNotice.reason === 'NO_DRIVERS' || endedNotice.reason === 'EXPIRED') {
+      useRideEnded.getState().clear();
+    }
+  }, [mode, status, endedNotice]);
+
+  /**
+   * A GROUP BUS GOING THE SAME WAY — offered only when one exists.
+   *
+   * The same proximity search the browse pages use (origin and destination
+   * each within the server's default radius of a route or one of its stops).
+   * An option that leads to "no rides found" is worse than no option.
+   */
+  const busJourney = status === 'timeout' ? journeyRef.current : null;
+  const { data: busTrips = [] } = useQuery({
+    queryKey: [
+      'trips', 'group-near',
+      busJourney?.origin.latitude, busJourney?.origin.longitude,
+      busJourney?.destination.latitude, busJourney?.destination.longitude,
+    ],
+    queryFn: () =>
+      tripsApi.search({
+        originLat: busJourney!.origin.latitude,
+        originLng: busJourney!.origin.longitude,
+        destinationLat: busJourney!.destination.latitude,
+        destinationLng: busJourney!.destination.longitude,
+      }),
+    enabled: busJourney != null,
+    staleTime: 60_000,
+    // Two envelopes deep: axios → { success, data: { trips } }. See home.tsx.
+    select: (r): any[] => {
+      const body = (r as any)?.data?.data;
+      const trips = body?.trips ?? body;
+      return Array.isArray(trips) ? [...trips].sort(byDeparture) : [];
+    },
+  });
+  // "next 07:40 · 6 seats left" — the soonest one, so the option is a choice
+  // with facts in it rather than a link to a list.
+  const nextBus = busTrips[0] ?? null;
+
+  /**
    * Settle up once a driver is attached.
    *
    * NOTE THE ABSENCE OF NAVIGATION. This used to `dismissTo` the legacy
@@ -163,6 +360,8 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
     (_matchedTripId: string) => {
       if (navigatedRef.current) return;
       navigatedRef.current = true;
+      // The one moment in the flow that earns a success tap — once per match.
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       setPendingTripRequest(null);
       queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });
       queryClient.invalidateQueries({ queryKey: queryKeys.bookings.active() });
@@ -395,6 +594,33 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
         );
 
         tripIdRef.current = tripId;
+        // The signed price IS the requested fare — the base every boost step is
+        // a percentage of.
+        setFare({ requestedPesewas: quote.amountPesewas, boostPesewas: 0 });
+        setPickupMoved(false);
+        /**
+         * TRY AGAIN KEEPS THE BOOST. The rider already said they would pay more
+         * to be found faster; a retry re-asks at the new price, raised by the
+         * same percentage, in the server's own +30/+20/+10 steps.
+         */
+        const carryPct = carryBoostPctRef.current;
+        carryBoostPctRef.current = 0;
+        if (carryPct > 0) {
+          void (async () => {
+            let left = carryPct;
+            for (const step of [30, 20, 10] as const) {
+              while (left >= step) {
+                try {
+                  const r = await ridesApi.boost(tripId, step);
+                  setFare({ requestedPesewas: r.requestedPesewas, boostPesewas: r.totalBoostPesewas });
+                } catch {
+                  return; // the search runs on at the price it has
+                }
+                left -= step;
+              }
+            }
+          })();
+        }
         // Persist so the Activity tab can show a live card if the rider
         // navigates away from this screen.
         setPendingTripRequest(tripId, destination ?? null);
@@ -532,6 +758,137 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
     }, [sendRequest]),
   );
 
+  // ── While searching: boost, move the pickup, share ───────────────────────
+
+  const searchingTripId = () => tripIdRef.current ?? snapshot?.tripId ?? null;
+
+  /** +10/20/30 % of the requested fare; the driver being asked sees it at once. */
+  const boostFare = async (pct: BoostStep) => {
+    const tripId = searchingTripId();
+    if (!tripId || boosting) return;
+    setBoosting(true);
+    try {
+      const r = await ridesApi.boost(tripId, pct);
+      setFare({ requestedPesewas: r.requestedPesewas, boostPesewas: r.totalBoostPesewas });
+      notify('Fare raised', `Drivers now see ${formatGhs(r.farePesewas)}. All of the extra goes to them.`, {
+        tone: 'success',
+      });
+    } catch (err: any) {
+      notify("Couldn't raise the fare", err?.response?.data?.message ?? 'Please try again in a moment.');
+    } finally {
+      setBoosting(false);
+    }
+  };
+
+  /**
+   * EDIT PICKUP — the map picker, opened on the current pin.
+   *
+   * Uber's rule: once, within ~200 m, before anyone accepts. The server holds
+   * the rule and words the refusal; the picker only has to say it up front.
+   */
+  const editPickup = () => {
+    const at = origin ?? journeyRef.current?.origin ?? null;
+    editingPickupRef.current = true;
+    expectTripSurfaceReturn();
+    goDeeper({
+      pathname: '/profile/place-picker',
+      params: {
+        title: 'Move pickup (up to 200 m)',
+        ...(at
+          ? { initialLat: String(at.latitude), initialLng: String(at.longitude), initialAddress: at.address }
+          : { focusSearch: '1' }),
+      },
+    } as any);
+  };
+
+  const movePickupTo = React.useCallback(
+    async (p: GeocodeResult) => {
+      const tripId = tripIdRef.current ?? useTripStore.getState().snapshot?.tripId ?? null;
+      if (!tripId) return;
+      const address = p.name?.trim() || p.fullAddress?.trim() || 'Pinned location';
+      setMovingPickup(true);
+      try {
+        await ridesApi.movePickup(tripId, { lat: p.latitude, lng: p.longitude, address });
+        useRideStore.getState().setOrigin({ latitude: p.latitude, longitude: p.longitude, address });
+        setPickupCoord([p.longitude, p.latitude]);
+        setPickupMoved(true);
+        notify('Pickup moved', 'Drivers will come to the new spot.', { tone: 'success' });
+      } catch (err: any) {
+        notify("Couldn't move your pickup", err?.response?.data?.message ?? 'Please try again.');
+      } finally {
+        setMovingPickup(false);
+      }
+    },
+    [setPickupCoord],
+  );
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (!editingPickupRef.current) return;
+      editingPickupRef.current = false;
+      const picked = consumePickedPlace();
+      if (picked) void movePickupTo(picked);
+    }, [movePickupTo]),
+  );
+
+  // ── Nobody found: Try again / Schedule / group bus, with the map still up ──
+
+  /** Put the journey back where the booking screens read it. */
+  const reseedJourney = () => {
+    const j = journeyRef.current;
+    if (!j) return false;
+    const ride = useRideStore.getState();
+    ride.setOrigin(j.origin);
+    ride.setDestination(j.destination);
+    return true;
+  };
+
+  /** Stop following a trip that is over, so nothing re-reads it. */
+  const releaseEndedTrip = () => {
+    useRideEnded.getState().clear();
+    useTripStore.getState().unwatch();
+  };
+
+  const tryAgain = () => {
+    if (!reseedJourney()) {
+      releaseEndedTrip();
+      goOut('/(tabs)/home');
+      return;
+    }
+    releaseEndedTrip();
+    navigatedRef.current = false;
+    tripIdRef.current = null;
+    // Nearest whole step of 10, capped like the server's +50 %.
+    carryBoostPctRef.current =
+      fare && fare.requestedPesewas > 0
+        ? Math.min(50, Math.round((fare.boostPesewas / fare.requestedPesewas) * 10) * 10)
+        : 0;
+    setFare(null);
+    setPickupMoved(false);
+    setConfirmCancel(false);
+    // A new attempt is a new intent: the old key would replay the old trip.
+    idempotencyKeyRef.current = freshIdempotencyKey();
+    setRetryQueued(true);
+  };
+  // Sent from an effect so it runs with the re-seeded journey, not the closure
+  // that saw a cleared store.
+  useEffect(() => {
+    if (!retryQueued || origin?.latitude == null || storeDestination?.latitude == null) return;
+    setRetryQueued(false);
+    void sendRequest();
+  }, [retryQueued, origin?.latitude, storeDestination?.latitude, sendRequest]);
+
+  const scheduleInstead = () => {
+    reseedJourney();
+    releaseEndedTrip();
+    goFresh('/ride/schedule');
+  };
+
+  const takeGroupBus = () => {
+    releaseEndedTrip();
+    goFresh(busTrips.length === 1 ? `/ride/${busTrips[0].id}` : '/browse/all');
+  };
+
   useEffect(() => {
     if (sentRef.current) return;
     sentRef.current = true;
@@ -651,17 +1008,12 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
       return;
     }
     if (status === 'error' || status === 'timeout') {
+      if (status === 'timeout') releaseEndedTrip();
       goOut('/(tabs)/home');
       return;
     }
-    Alert.alert(
-      'Stop looking for a driver?',
-      'We\'ll cancel this request. You can book again any time.',
-      [
-        { text: 'Keep looking', style: 'cancel' },
-        { text: 'Stop', style: 'destructive', onPress: handleCancel },
-      ],
-    );
+    // Asked in the sheet — see `confirmCancel`.
+    setConfirmCancel(true);
   };
 
   const formattedTime = scheduledAt
@@ -725,9 +1077,17 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
         ) : (
           <SearchingPanel
             status={status as any}
-            originText={origin?.address ?? null}
-            destinationText={destination ?? null}
+            originText={originLabel}
+            destinationText={destinationLabel}
             attempt={dispatchAttempt}
+            // The price is only news while it is being offered; a retry re-quotes.
+            farePesewas={status === 'searching' ? currentFarePesewas : null}
+            boostedPesewas={fare?.boostPesewas ?? 0}
+            waiting={dispatch?.waiting === true}
+            // Server deadline → this phone's clock (skew = server − local).
+            searchEndsAtMs={
+              dispatch?.searchExpiresAtServerMs != null ? dispatch.searchExpiresAtServerMs - clockSkewMs : null
+            }
             /**
              * HOW FAR AWAY THE DRIVER BEING ASKED ACTUALLY IS.
              *
@@ -748,6 +1108,11 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
             // and the picture can never disagree. See `searchRing` in TripMap.
             radiusKm={dispatch?.radiusKm ?? null}
             offerPending={!!dispatchOffer}
+            // The trip's own tier once it exists; the rider's pick before that.
+            tierLabel={getTierTheme(colors, snapshot?.tier ?? useRideStore.getState().rideTier).label}
+            // On-demand requests are paid in cash: `requestRide` defaults to it
+            // and this screen never sends another method.
+            paymentLabel="Cash"
             seats={requestSeatCount}
             scheduledFor={formattedTime}
             errorReason={errorReason}
@@ -810,39 +1175,143 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
         </GradientGlowBorder>
         )}
 
+        {/* RAISE THE FARE. Offered once the wait has started to bite (or at
+            once when nobody is in range at all) — a boost chip in the first
+            seconds reads as an upsell, not as help. */}
+        {searching && fare != null && currentFarePesewas != null && (dispatch?.waiting === true || boostOffered) && !confirmCancel ? (
+          <FareBoostRow
+            farePesewas={currentFarePesewas}
+            requestedPesewas={fare.requestedPesewas}
+            boostPesewas={fare.boostPesewas}
+            busy={boosting}
+            onBoost={boostFare}
+          />
+        ) : null}
+
         {status === 'searching' ? (
-          <>
-            <Button
-              label={cancelling ? 'Cancelling…' : 'Cancel request'}
-              variant="ghost"
-              onPress={() =>
-                Alert.alert(
-                  'Cancel trip request?',
-                  'Nearby drivers will no longer be able to accept this request.',
-                  [
-                    { text: 'Keep searching', style: 'cancel' },
-                    { text: 'Cancel request', style: 'destructive', onPress: handleCancel },
-                  ]
-                )
-              }
-              disabled={cancelling}
-              style={{ width: '100%', marginTop: spacing.xl }}
-            />
+          confirmCancel ? (
+            <View style={styles.confirmBox}>
+              <Text style={styles.confirmTitle}>Cancel this request?</Text>
+              <Text style={styles.confirmBody}>It’s free — no driver has accepted it yet.</Text>
+              <View style={styles.confirmRow}>
+                <Button
+                  label="Cancel request"
+                  variant="ghost"
+                  onPress={handleCancel}
+                  loading={cancelling}
+                  disabled={cancelling}
+                  style={{ flex: 1 }}
+                />
+                <Button
+                  label="Keep searching"
+                  onPress={() => setConfirmCancel(false)}
+                  disabled={cancelling}
+                  style={{ flex: 1.3 }}
+                />
+              </View>
+            </View>
+          ) : (
+            <>
+              {variant === 'stage' ? (
+                <View style={styles.actionRow}>
+                  {!pickupMoved && (
+                    <ActionTile
+                      icon="location-outline"
+                      label={movingPickup ? 'Moving…' : 'Edit pickup'}
+                      onPress={editPickup}
+                      disabled={movingPickup}
+                      tone={colors.onSurface}
+                      styles={styles}
+                    />
+                  )}
+                  <ActionTile
+                    icon="share-outline"
+                    label="Share"
+                    onPress={() => void shareSearchingTrip(snapshot?.shortId, destinationLabel)}
+                    tone={colors.onSurface}
+                    styles={styles}
+                  />
+                  <ActionTile
+                    icon="close"
+                    label="Cancel"
+                    onPress={() => setConfirmCancel(true)}
+                    tone={colors.error}
+                    styles={styles}
+                  />
+                </View>
+              ) : (
+                <Button
+                  label="Cancel request"
+                  variant="ghost"
+                  onPress={() => setConfirmCancel(true)}
+                  style={{ width: '100%', marginTop: spacing.xl }}
+                />
+              )}
+              <Pressable
+                style={styles.activityBtn}
+                onPress={() => goOut('/(tabs)/home')}
+                accessibilityRole="button"
+                accessibilityLabel="Leave without cancelling"
+              >
+                <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ textDecorationLine: 'underline' }}>
+                  Leave without cancelling — keep searching in the background
+                </Text>
+              </Pressable>
+            </>
+          )
+        ) : variant === 'stage' && (status === 'timeout' || (status === 'error' && !conflict)) && journeyRef.current ? (
+          /* NOBODY FOUND, ANSWERED WHERE IT HAPPENED. The map stays; the
+             rider gets the three things worth doing next instead of a bounce
+             to Home and a sheet about it. */
+          <View style={styles.endActions}>
+            <Button label="Try again" onPress={tryAgain} style={{ width: '100%' }} />
+            {status === 'timeout' && (
+              <>
+                <Button
+                  label="Schedule this ride"
+                  variant="secondary"
+                  onPress={scheduleInstead}
+                  style={{ width: '100%' }}
+                />
+                {nextBus && (
+                  <>
+                    <Button
+                      label="Book a seat on a group bus"
+                      variant="secondary"
+                      onPress={takeGroupBus}
+                      style={{ width: '100%' }}
+                    />
+                    <Text style={styles.hint}>
+                      {[
+                        `Next ${departureLabel(nextBus)}`,
+                        seatsLeft(nextBus) != null ? `${seatsLeft(nextBus)} seat${seatsLeft(nextBus) === 1 ? '' : 's'} left` : null,
+                        busTrips.length > 1 ? `${busTrips.length} going your way` : null,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </Text>
+                  </>
+                )}
+              </>
+            )}
             <Pressable
               style={styles.activityBtn}
-              onPress={() => goOut('/(tabs)/home')}
+              onPress={handleBack}
               accessibilityRole="button"
-              accessibilityLabel="Leave without cancelling"
+              accessibilityLabel="Back to home"
             >
               <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ textDecorationLine: 'underline' }}>
-                Leave without cancelling — keep searching in the background
+                Back to home
               </Text>
             </Pressable>
-          </>
+          </View>
         ) : (
           <Button
             label="Back to home"
-            onPress={() => goOut('/(tabs)/home')}
+            onPress={() => {
+              if (status === 'timeout' && mode === 'stage') releaseEndedTrip();
+              goOut('/(tabs)/home');
+            }}
             style={{ width: '100%', marginTop: spacing.xl }}
           />
         )}
@@ -1144,5 +1613,38 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   activityBtn: {
     paddingVertical: spacing.md,
+    alignSelf: 'center',
   },
+
+  /** Edit pickup · Share · Cancel — equal thirds, one row. */
+  actionRow: { flexDirection: 'row', gap: spacing.sm },
+  tile: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: spacing.md,
+    borderRadius: radii.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.outline,
+    backgroundColor: colors.surfaceContainer,
+  },
+  tileDisabled: { opacity: 0.45 },
+  tileIcon: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
+  tileLabel: { fontFamily: fonts.semiBold, fontSize: 12.5 },
+
+  /** The inline "cancel?" — sits where the actions were. */
+  confirmBox: {
+    gap: spacing.sm,
+    padding: spacing.lg,
+    borderRadius: radii.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: withOpacity(colors.error, 0.45),
+    backgroundColor: colors.surfaceContainer,
+  },
+  confirmTitle: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodyLarge, color: colors.onSurface },
+  confirmBody: { fontFamily: fonts.regular, fontSize: fontSizes.bodySmall, color: colors.onSurfaceVariant },
+  confirmRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs },
+
+  /** Try again · Schedule · group bus, stacked full-width. */
+  endActions: { gap: spacing.sm, marginTop: spacing.sm },
 });

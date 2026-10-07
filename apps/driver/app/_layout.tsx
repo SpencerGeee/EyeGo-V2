@@ -413,20 +413,39 @@ export default function RootLayout() {
       } else if (type === 'EXPRESS_MODE' && tripId) {
         router.push({ pathname: '/(trip)/active/[id]', params: { id: tripId } } as any);
       } else if (tripId) {
-        // Fallback for any other trip-scoped push (e.g. DRIVER_ARRIVED-style events
-        // that don't have a dedicated case above) — land on the active trip screen
-        // rather than silently doing nothing on tap.
-        router.push({ pathname: '/(trip)/active/[id]', params: { id: tripId } } as any);
+        // Any other trip-scoped push. It used to open `active/<id>` for whatever
+        // trip the payload named — including rides this driver never accepted.
+        // The live trip IS the home surface (driverStage.ts), and home derives it
+        // from the server, so home is the one destination that cannot be wrong.
+        router.push('/(tabs)/home' as any);
       }
     };
 
-    const sub = Notifications.addNotificationResponseReceivedListener(handleNotificationResponse);
+    /**
+     * ONE TAP, ONE NAVIGATION.
+     *
+     * iOS keeps the last response in native memory for the life of the
+     * process, so every remount of this layout (an OTA reload, an auth flip)
+     * asked `getLastNotificationResponseAsync()` again and replayed a tap the
+     * driver made hours ago. Each response is handled once by its identifier,
+     * and cleared after.
+     */
+    let lastHandled: string | null = null;
+    const handleOnce = (response: Notifications.NotificationResponse) => {
+      const key = response.notification.request.identifier;
+      if (key && key === lastHandled) return;
+      lastHandled = key;
+      handleNotificationResponse(response);
+      try { Notifications.clearLastNotificationResponse(); } catch { /* older native module */ }
+    };
+
+    const sub = Notifications.addNotificationResponseReceivedListener(handleOnce);
 
     // The launch-time tap. Fires once, for a response that predates the
     // listener above. `cancelled` guards the async gap on a fast unmount.
     let cancelled = false;
     void Notifications.getLastNotificationResponseAsync()
-      .then((last) => { if (last && !cancelled) handleNotificationResponse(last); })
+      .then((last) => { if (last && !cancelled) handleOnce(last); })
       .catch(() => {});
     return () => { cancelled = true; sub.remove(); };
   }, [router]);

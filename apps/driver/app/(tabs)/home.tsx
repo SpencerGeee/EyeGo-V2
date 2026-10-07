@@ -314,10 +314,17 @@ export default function HomeScreen() {
     enabled: showHeatmap && !!location,
   });
 
+  /**
+   * The server's answer, BOTH ways. This only ever SET the persisted id, so a
+   * trip that ended anywhere this app did not see (expiry, an admin, another
+   * device) left it behind for the rest of the install — and a non-null
+   * `activeTripId` is a "busy driver" to every offer guard and banner in the
+   * app. `null` from `getActiveTrip` (which covers unstarted AND in-flight
+   * trips) is "nothing committed"; `undefined` is "not asked yet".
+   */
   useEffect(() => {
-    if (activeTripData?.id) {
-      setActiveTripId(activeTripData.id);
-    }
+    if (activeTripData === undefined) return;
+    setActiveTripId(activeTripData?.id ?? null);
   }, [activeTripData, setActiveTripId]);
 
   // D17: cleanup map ref on unmount

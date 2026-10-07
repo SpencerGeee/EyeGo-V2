@@ -320,40 +320,50 @@ async function cancelBookingWithFee(id, userId, { reason, note } = {}) {
         ? Math.max(0, paidFarePesewas - cancellationFeePesewas)
         : paidFarePesewas;
 
-      // Record refund transaction
-      await tx.paymentTransaction.create({
-        data: {
-          bookingId,
-          userId: booking.userId,
-          amountPesewas: refundAmountPesewas,
-          status: cancellationFeePesewas ? 'PARTIAL_REFUND' : 'REFUNDED',
-          paystackRef: booking.paystackRef,
-          gatewayResponse: cancellationFeePesewas
-            ? `Refunded ${formatGhs(refundAmountPesewas)} (fee: ${formatGhs(cancellationFeePesewas)})`
-            : 'Full refund processed',
-        },
-      });
-
       /**
-       * Credit the refund to the rider's wallet.
+       * Back to WHOEVER PAID each seat, not to whoever sat in it.
        *
-       * The PaymentTransaction row above records the refund against the
-       * BOOKING and, as its own comment says, does not itself move money. This
-       * used to be a bare `increment` on the balance, which moved the money
-       * without leaving anything in the wallet ledger — so the credit was
-       * invisible in the rider's wallet history and `riderWallet.reconcile()`
-       * could never balance. See the fuller note at
-       * `refundBookingForDriverCancellation`.
+       * A group host who covered everyone pays for seats owned by guests. This
+       * credited the refund to `booking.userId` — so a guest who cancelled a
+       * seat the host had paid for walked off with the host's money. The fee is
+       * shared across seats by fare; the last seat takes the rounding.
+       * (Both the PaymentTransaction record and the ledger row go to the payer.)
        */
       if (refundAmountPesewas > 0) {
-        await riderWallet.record({
-          userId: booking.userId,
-          type: riderWallet.TYPES.REFUND,
-          amountPesewas: refundAmountPesewas,
-          description: 'Refund for a cancelled ride',
-          bookingId: booking.id,
-          tx,
-        });
+        const shares = new Map();
+        let left = refundAmountPesewas;
+        for (let i = 0; i < paidSeats.length; i += 1) {
+          const b = paidSeats[i];
+          const share = i === paidSeats.length - 1
+            ? left
+            : Math.floor((refundAmountPesewas * (b.fareAmountPesewas ?? 0)) / Math.max(1, paidFarePesewas));
+          left -= share;
+          const payer = await payerOf(tx, b.id, booking.userId);
+          shares.set(payer, (shares.get(payer) ?? 0) + share);
+        }
+        for (const [payerId, amount] of shares) {
+          if (amount <= 0) continue;
+          await tx.paymentTransaction.create({
+            data: {
+              bookingId,
+              userId: payerId,
+              amountPesewas: amount,
+              status: cancellationFeePesewas ? 'PARTIAL_REFUND' : 'REFUNDED',
+              paystackRef: booking.paystackRef,
+              gatewayResponse: cancellationFeePesewas
+                ? `Refunded ${formatGhs(amount)} (fee: ${formatGhs(cancellationFeePesewas)})`
+                : 'Full refund processed',
+            },
+          });
+          await riderWallet.record({
+            userId: payerId,
+            type: riderWallet.TYPES.REFUND,
+            amountPesewas: amount,
+            description: payerId === booking.userId ? 'Refund for a cancelled ride' : 'Refund: a seat you paid for was cancelled',
+            bookingId: booking.id,
+            tx,
+          });
+        }
       }
     }
 
@@ -573,13 +583,42 @@ async function generateReceipt(tx, booking, refundAmountPesewas = 0, cancellatio
  * No cancellation fee applies since the rider isn't at fault. Must be called inside
  * an existing $transaction (tx) alongside the booking status update.
  */
+/**
+ * Who actually paid for a seat: the payer of record on its settled charge (a
+ * group host for covered seats), else the booking's own rider.
+ */
+async function payerOf(tx, bookingId, fallbackUserId) {
+  const paid = await tx.paymentTransaction.findFirst({
+    where: { bookingId, status: 'SUCCESS' },
+    orderBy: { createdAt: 'asc' },
+    select: { userId: true },
+  });
+  return paid?.userId ?? fallbackUserId;
+}
+
 async function refundBookingForDriverCancellation(tx, booking, reasonLabel = 'Driver-cancelled trip') {
   if (booking.paymentStatus !== 'PAID') return null;
+  // Cash was handed to the driver; the platform never held it, so there is
+  // nothing of ours to give back.
+  if (booking.paymentMethod === 'CASH') return null;
+  /**
+   * ONCE. Whoever flips PAID → REFUNDED refunds; every later caller is a no-op.
+   * The state machine refunds on every undriven ending, and several callers
+   * also refund in their own transactions — without this claim a cancellation
+   * that passed through both paid the rider twice.
+   */
+  const claimed = await tx.booking.updateMany({
+    where: { id: booking.id, paymentStatus: 'PAID' },
+    data: { paymentStatus: 'REFUNDED' },
+  });
+  if (claimed.count === 0) return null;
+  // The payer, not the passenger — see `payerOf`.
+  const payerId = await payerOf(tx, booking.id, booking.userId);
 
   await tx.paymentTransaction.create({
     data: {
       bookingId: booking.id,
-      userId: booking.userId,
+      userId: payerId,
       amountPesewas: booking.fareAmountPesewas,
       status: 'REFUNDED',
       paystackRef: booking.paystackRef,
@@ -587,7 +626,7 @@ async function refundBookingForDriverCancellation(tx, booking, reasonLabel = 'Dr
     },
   });
 
-  if (booking.userId) {
+  if (payerId) {
     /**
      * THROUGH THE LEDGER, NOT AROUND IT.
      *
@@ -609,7 +648,7 @@ async function refundBookingForDriverCancellation(tx, booking, reasonLabel = 'Dr
      * than opening a second one.
      */
     await riderWallet.record({
-      userId: booking.userId,
+      userId: payerId,
       type: riderWallet.TYPES.REFUND,
       amountPesewas: booking.fareAmountPesewas,
       description: reasonLabel,
@@ -760,6 +799,7 @@ module.exports = {
   calculateCancellationFee,
   cancelBookingWithFee,
   refundBookingForDriverCancellation,
+  payerOf,
   getReceipt,
   getUserReceipts,
   generateTripReceipt,

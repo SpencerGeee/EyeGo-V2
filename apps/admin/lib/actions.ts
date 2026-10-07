@@ -206,6 +206,10 @@ export async function createPromotion(payload: {
   discountPercent: number;
   maxDiscountGhs: number;
   maxRedemptions?: number;
+  /** Bookings one rider may use it on (default 1). Ignored when `reusable`. */
+  perUserLimit?: number;
+  /** No per-rider limit at all. */
+  reusable?: boolean;
   expiry: string;
 }): Promise<ActionResult> {
   if (!payload.code || payload.code.trim().length < 3) {

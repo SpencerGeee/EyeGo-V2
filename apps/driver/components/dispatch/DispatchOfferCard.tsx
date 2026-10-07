@@ -103,7 +103,14 @@ export interface DispatchOfferView {
    * Computed by the server in `dispatch-cascade.cashFloatPesewas`.
    */
   walletRequiredPesewas?: number | null;
+  /** The rider raised the fare to find a driver faster; all of it is in the earnings. */
+  boostPesewas?: number | null;
+  /** How many people are waiting at the pickup. */
+  partySize?: number | null;
 }
+
+/** Past this, the card says LONG TRIP — Uber's label, for the same reason: it decides the next hour. */
+const LONG_TRIP_KM = 20;
 
 export interface DispatchOfferCardProps {
   offer: DispatchOfferView;
@@ -602,6 +609,34 @@ export function DispatchOfferCard({
                 <View style={[styles.chip, { backgroundColor: colors.surfaceContainerHigh, borderColor: colors.outline }]}>
                   <Text style={[styles.chipText, { color: colors.onSurfaceVariant }]}>
                     {Math.round((earnings / offer.farePesewas) * 100)}% OF {formatGhs(offer.farePesewas)}
+                  </Text>
+                </View>
+              ) : null}
+
+              {/* How many people are waiting. A party of four looked exactly
+                  like one passenger; the driver of a small car found out at
+                  the kerb. */}
+              {offer.partySize != null && offer.partySize > 1 ? (
+                <View style={[styles.chip, { backgroundColor: colors.surfaceContainerHigh, borderColor: colors.outline }]}>
+                  <Ionicons name="people" size={10} color={colors.onSurface} />
+                  <Text style={[styles.chipText, { color: colors.onSurface }]}>{offer.partySize} PASSENGERS</Text>
+                </View>
+              ) : null}
+
+              {offer.dropoffDistanceKm != null && offer.dropoffDistanceKm >= LONG_TRIP_KM ? (
+                <View style={[styles.chip, { backgroundColor: colors.surfaceContainerHigh, borderColor: colors.outline }]}>
+                  <Ionicons name="time-outline" size={10} color={colors.onSurface} />
+                  <Text style={[styles.chipText, { color: colors.onSurface }]}>LONG TRIP</Text>
+                </View>
+              ) : null}
+
+              {/* The rider raised the fare to be found faster. Said here because
+                  a raise nobody sees finds nobody — and all of it is theirs. */}
+              {offer.boostPesewas != null && offer.boostPesewas > 0 ? (
+                <View style={[styles.chip, { backgroundColor: colors.primary + '1F', borderColor: colors.primary + '3D' }]}>
+                  <Ionicons name="flash" size={10} color={colors.primary} />
+                  <Text style={[styles.chipText, { color: colors.primary }]}>
+                    +{formatGhs(offer.boostPesewas)} RIDER BOOST · 100% YOURS
                   </Text>
                 </View>
               ) : null}

@@ -1,6 +1,5 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { Redirect, useLocalSearchParams } from 'expo-router';
-import { useDriverStore } from '../../../stores/driver.store';
 
 /**
  * THE TRACKING ROUTE IS A DOOR, NOT A ROOM.
@@ -13,12 +12,9 @@ import { useDriverStore } from '../../../stores/driver.store';
  * trip actually is.
  */
 export default function DriverTrackingScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
-  const setActiveTripId = useDriverStore((s) => s.setActiveTripId);
-
-  useEffect(() => {
-    if (id) setActiveTripId(String(id));
-  }, [id, setActiveTripId]);
-
+  // No `setActiveTripId(id)` here: a link can name ANY trip, and a persisted
+  // active id for a ride this driver does not own switched off every offer and
+  // banner ("busy driver" guards). Home sets it from the server's own answer.
+  useLocalSearchParams<{ id: string }>();
   return <Redirect href={'/(tabs)/home' as never} />;
 }

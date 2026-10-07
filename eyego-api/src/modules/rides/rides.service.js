@@ -683,6 +683,196 @@ async function getRideEvents(tripId, viewerId, sinceSeq = 0) {
   };
 }
 
+// ── rider: while searching ───────────────────────────────────────────────────
+
+/** Statuses with no driver yet — the only window in which the ride may change. */
+const SEARCHING = [S.REQUESTED, S.MATCHING, S.REASSIGNING];
+/** The boost steps the rider app offers, as % of the fare they requested at. */
+const BOOST_STEPS = [10, 20, 30];
+/** Cumulative ceiling, as % of the requested fare. */
+const BOOST_CAP_PCT = 50;
+/** How far a pickup may move without re-requesting (Uber's ~200 m grey circle). */
+const PICKUP_MOVE_MAX_M = 200;
+
+/**
+ * Load the rider's own live seat rows for a searching trip, inside `tx`, or
+ * refuse with the sentence the rider needs.
+ */
+async function searchingTripForRider(tx, tripId, userId) {
+  const trip = await tx.trip.findUnique({
+    where: { id: tripId },
+    select: {
+      status: true, requesterId: true, pickupLat: true, pickupLng: true,
+      bookings: {
+        where: { userId, ...livePassengerWhere() },
+        select: { id: true, fareAmountPesewas: true, paymentStatus: true },
+      },
+    },
+  });
+  if (!trip) throw new NotFoundError('Trip');
+  if (trip.requesterId !== userId) throw new AppError('Not authorized', 403, 'FORBIDDEN');
+  if (!SEARCHING.includes(trip.status)) {
+    throw new AppError(
+      'A driver has already taken this ride, so it can no longer be changed.',
+      409,
+      'RIDE_LOCKED',
+    );
+  }
+  if (trip.bookings.length === 0) throw new AppError('This request has no live seat to change.', 409, 'NO_LIVE_SEAT');
+  return trip;
+}
+
+/**
+ * RAISE THE FARE TO FIND A DRIVER FASTER.
+ *
+ * FEATURE (rider "finding your driver" screen): +10 / +20 / +30 % chips,
+ * capped at +50 % of the fare the ride was requested at, and ALL of it goes to
+ * the driver. Bolt's version still takes commission on the extra; ours does not,
+ * and that is said on the chip.
+ *
+ * How "all of it" is guaranteed: the boost is added to `fareAmountPesewas` and
+ * `commissionAmountPesewas` is left exactly as quoted. Every driver-pay figure
+ * in the system — the held offer, the board row, settlement — is
+ * `fare − stored commission` (see `offerMoney` in dispatch-cascade), so the
+ * extra lands whole on the driver's side everywhere without a second formula.
+ *
+ * Percentages are of the REQUESTED fare, not compounding: the requested total
+ * is recovered as `current − Σ prior boosts`, read from this trip's own
+ * FARE_BOOSTED events inside the same transaction that writes the next one, so
+ * two quick taps cannot both slip under the cap.
+ */
+async function boostFare(userId, tripId, percent) {
+  const pct = Number(percent);
+  if (!BOOST_STEPS.includes(pct)) {
+    throw new AppError(`A boost is one of ${BOOST_STEPS.join(', ')} percent.`, 400, 'INVALID_BOOST');
+  }
+
+  const { trip, event } = await tripState.recordEvent(tripId, 'FARE_BOOSTED', {
+    actor: ACTOR.RIDER,
+    actorId: userId,
+    sideEffects: async (tx) => {
+      const t = await searchingTripForRider(tx, tripId, userId);
+      /**
+       * NOT AFTER MONEY HAS MOVED. Refunds and wallet credits are computed from
+       * `fareAmountPesewas`; raising it on a booking that is already paid (or
+       * being paid) would refund more than was ever charged.
+       */
+      if (t.bookings.some((b) => b.paymentStatus !== 'PENDING')) {
+        throw new AppError(
+          'This ride is already paid for, so its fare can no longer change.',
+          409,
+          'BOOST_AFTER_PAYMENT',
+        );
+      }
+      const prior = await tx.tripEvent.findMany({
+        where: { tripId, type: 'FARE_BOOSTED' },
+        select: { payload: true },
+      });
+      const boostedSoFar = prior.reduce((n, e) => n + (Number(e.payload?.addedPesewas) || 0), 0);
+      const currentPesewas = t.bookings.reduce((n, b) => n + b.fareAmountPesewas, 0);
+      const requestedPesewas = currentPesewas - boostedSoFar;
+      const addedPesewas = Math.round((requestedPesewas * pct) / 100);
+      const capPesewas = Math.round((requestedPesewas * BOOST_CAP_PCT) / 100);
+      if (addedPesewas <= 0) throw new AppError('This fare cannot be boosted.', 409, 'BOOST_NOT_AVAILABLE');
+      if (boostedSoFar + addedPesewas > capPesewas) {
+        throw new AppError(
+          `That would take the boost past +${BOOST_CAP_PCT}%. Pick a smaller step.`,
+          409,
+          'BOOST_CAP_REACHED',
+        );
+      }
+
+      // Split across the rider's own rows by their share of the fare; the last
+      // row takes the rounding so the parts sum to exactly `addedPesewas`.
+      let left = addedPesewas;
+      for (let i = 0; i < t.bookings.length; i++) {
+        const b = t.bookings[i];
+        const share =
+          i === t.bookings.length - 1 ? left : Math.round((addedPesewas * b.fareAmountPesewas) / currentPesewas);
+        left -= share;
+        if (share !== 0) {
+          await tx.booking.update({ where: { id: b.id }, data: { fareAmountPesewas: { increment: share } } });
+        }
+      }
+
+      return {
+        percent: pct,
+        addedPesewas,
+        totalBoostPesewas: boostedSoFar + addedPesewas,
+        requestedPesewas,
+        farePesewas: currentPesewas + addedPesewas,
+        capPesewas,
+      };
+    },
+  });
+
+  // The driver being asked right now sees the raise on their card at once;
+  // everyone else's board row re-reads it on the next poll.
+  await cascade.refreshHeldOffer(tripId).catch((err) =>
+    logger.warn(`refreshHeldOffer after boost failed for ${tripId}: ${err.message}`),
+  );
+
+  return { tripId, version: trip?.version ?? null, ...(event?.payload ?? {}) };
+}
+
+/**
+ * NUDGE THE PICKUP WITHOUT STARTING AGAIN.
+ *
+ * Uber's rule, because it is the right one: once, within ~200 m, while no
+ * driver has accepted. The fare was quoted for a pickup a short walk away and
+ * stands; anything further is a different ride and is re-requested. The held
+ * offer is re-sent so the driver being asked sees where they are going.
+ */
+async function movePickup(userId, tripId, { lat, lng, address }) {
+  const nLat = Number(lat);
+  const nLng = Number(lng);
+  if (!Number.isFinite(nLat) || !Number.isFinite(nLng)) {
+    throw new AppError('A pickup needs a latitude and a longitude.', 400, 'INVALID_PICKUP');
+  }
+
+  const { trip } = await tripState.recordEvent(tripId, 'PICKUP_MOVED', {
+    actor: ACTOR.RIDER,
+    actorId: userId,
+    sideEffects: async (tx) => {
+      const t = await searchingTripForRider(tx, tripId, userId);
+      const already = await tx.tripEvent.count({ where: { tripId, type: 'PICKUP_MOVED' } });
+      if (already > 0) {
+        throw new AppError(
+          'You can move the pickup once while we look for a driver. Cancel and request again to change it more.',
+          409,
+          'PICKUP_ALREADY_MOVED',
+        );
+      }
+      if (t.pickupLat == null || t.pickupLng == null) {
+        throw new AppError('This ride has no pickup to move.', 409, 'NO_PICKUP');
+      }
+      const movedM = Math.round(haversineMeters(t.pickupLat, t.pickupLng, nLat, nLng));
+      if (movedM > PICKUP_MOVE_MAX_M) {
+        throw new AppError(
+          `That is ${movedM} m away — a pickup can move up to ${PICKUP_MOVE_MAX_M} m. Cancel and request again for somewhere further.`,
+          409,
+          'PICKUP_TOO_FAR',
+        );
+      }
+      const label = typeof address === 'string' && address.trim() ? address.trim().slice(0, 240) : null;
+      await tx.trip.update({
+        where: { id: tripId },
+        data: { pickupLat: nLat, pickupLng: nLng, ...(label ? { pickupAddress: label } : {}) },
+      });
+      await tx.booking.updateMany({
+        where: { id: { in: t.bookings.map((b) => b.id) } },
+        data: { pickupLat: nLat, pickupLng: nLng, ...(label ? { pickupAddress: label } : {}) },
+      });
+      return { from: { lat: t.pickupLat, lng: t.pickupLng }, to: { lat: nLat, lng: nLng }, movedM };
+    },
+  });
+
+  await cascade.refreshHeldOffer(tripId).catch((err) =>
+    logger.warn(`refreshHeldOffer after pickup move failed for ${tripId}: ${err.message}`),
+  );
+  return { tripId, version: trip?.version ?? null };
+}
+
 // ── rider: cancel ────────────────────────────────────────────────────────────
 
 async function cancelRide(userId, tripId, reason = null) {
@@ -717,6 +907,8 @@ async function cancelRide(userId, tripId, reason = null) {
       actorId: userId,
       payload: { reason, freeCancel },
       data: { cancelledBy: ACTOR.RIDER, cancellationReason: reason },
+      // Paid seats are refunded by the CANCELLED transition itself (see the
+      // terminal release in trip-state) — free cancellation, full refund.
       sideEffects: async (tx) => {
         await tx.booking.updateMany({
           where: { tripId, status: { in: ['PENDING', 'SEAT_HELD', 'CONFIRMED', 'PAID', 'BOARDED'] } },
@@ -1335,6 +1527,8 @@ module.exports = {
   requestRide,
   getActiveRide,
   getRideEvents,
+  boostFare,
+  movePickup,
   cancelRide,
   acceptRide,
   declineRide,

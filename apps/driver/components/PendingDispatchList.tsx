@@ -13,7 +13,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { formatGhs } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, GlassSurface, GradientGlowBorder, ShinyText, Skeleton, getTierTheme } from '@eyego/ui';
+import { Text, GlassSurface, GradientGlowBorder, ShinyText, Skeleton, getTierTheme, useLoopsActive, notify } from '@eyego/ui';
 import type { PendingDispatch } from '@eyego/api';
 
 import { useColors, type DriverColors } from '../utils/useColors';
@@ -100,8 +100,14 @@ export function PendingDispatchList({ compact = false }: PendingDispatchListProp
   const open = useCallback((r: PendingDispatch) => {
     if (r.heldByAnother) {
       // Genuinely not takeable this second: another driver is inside their
-      // exclusive window. The row's own tag says so.
+      // exclusive window. A haptic and nothing else read as a broken tap —
+      // the report this pass opened with — so say why.
       void Haptics.selectionAsync().catch(() => {});
+      notify(
+        'Another driver is deciding',
+        'This ride is held for someone else for a few seconds. If they pass, it comes back here for you.',
+        { tone: 'info' },
+      );
       return;
     }
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
@@ -273,8 +279,11 @@ export function PendingDispatchList({ compact = false }: PendingDispatchListProp
  */
 function LivePulse({ active, color }: { active: boolean; color: string }) {
   const t = useSharedValue(0);
+  // The home tab never unmounts, so without the gate this breathed behind
+  // every other tab for the whole shift. Meaningful, so reduce-motion keeps it.
+  const running = useLoopsActive({ decorative: false }) && active;
   useEffect(() => {
-    if (!active) {
+    if (!running) {
       cancelAnimation(t);
       t.value = 0;
       return;
@@ -282,10 +291,10 @@ function LivePulse({ active, color }: { active: boolean; color: string }) {
     t.value = withRepeat(withTiming(1, { duration: 1800, easing: Easing.inOut(Easing.quad) }), -1, false);
     // An infinite repeat outlives unmount unless it is cancelled.
     return () => cancelAnimation(t);
-  }, [active, t]);
+  }, [running, t]);
 
   const halo = useAnimatedStyle(() => ({
-    opacity: active ? 0.42 * (1 - t.value) : 0,
+    opacity: running ? 0.42 * (1 - t.value) : 0,
     transform: [{ scale: 1 + t.value * 1.6 }],
   }));
 

@@ -477,7 +477,8 @@ async function main() {
 
   await check('card-save initialisation reaches the gateway rather than 500ing', async () => {
     const { status, body } = await req('POST', '/wallet/payment-methods/initialize', { ...T, raw: true, body: {} });
-    if (status >= 500) throw new Error(`${status}: ${JSON.stringify(body).slice(0, 200)}`);
+    // A coded 502 is Paystack itself answering 5xx (provider.normaliseGatewayError) — reached, explained.
+    if (status >= 500 && body?.code !== 'PAYMENT_PROVIDER_ERROR') throw new Error(`${status}: ${JSON.stringify(body).slice(0, 200)}`);
     return `${status} ${body?.message || 'ok'}`.slice(0, 80);
   });
 
@@ -810,11 +811,27 @@ async function main() {
 
     await check('a tip is charged in pesewas, not cedis', async () => {
       if (!ctx.bookingId) return 'skipped';
+      ctx.driverWalletBeforeTip = (await GET('/driver/wallet/balance', { token: ctx.driver.token })).balancePesewas;
       const { status, body } = await req('POST', `/bookings/${ctx.bookingId}/tip`, {
         ...T, raw: true, body: { amountPesewas: 500 },
       });
       if (status >= 500) throw new Error(`${status}: ${JSON.stringify(body).slice(0, 200)}`);
+      ctx.tipped = status < 300;
       return `${status} ${body?.data?.reference ? 'reference issued' : body?.message || ''}`.slice(0, 80);
+    });
+
+    await check('the tip actually reaches the driver — once, all of it', async () => {
+      // Nothing ever credited a tip: the rider was charged, the driver got a
+      // push, and no TIP row was written. In simulated payments it settles now.
+      if (!ctx.tipped) return 'skipped (tip not accepted)';
+      const after = await until(
+        async () => {
+          const b = (await GET('/driver/wallet/balance', { token: ctx.driver.token })).balancePesewas;
+          return b - ctx.driverWalletBeforeTip === 500 ? b : null;
+        },
+        { timeoutMs: 10000, everyMs: 1000, label: 'driver wallet +500' },
+      );
+      return `${ctx.driverWalletBeforeTip} → ${after}`;
     });
 
     await check('a fractional tip is refused', () =>

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { View, StyleSheet, ScrollView, Pressable, TextInput } from 'react-native';
+import { View, StyleSheet, ScrollView, Pressable, TextInput, Alert } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -12,10 +12,11 @@ import { useDriverStore } from '../../stores/driver.store';
 import { apiClient } from '@eyego/api';
 import { useMutation } from '@tanstack/react-query';
 
+// Each line is what the server actually does (drivers.service.deleteMe).
 const DELETION_CONSEQUENCES = [
-  'Active trips will be cancelled and fare settled automatically',
-  'Earnings will be transferred to your linked payout account',
-  'Documents and personal data deleted after 30 days',
+  'Finish or cancel any active or published trip first',
+  'Withdraw your earnings first — a balance left behind can’t be withdrawn later',
+  'Your name, phone and photo are removed and you’re signed out everywhere',
   'Your account cannot be recovered once deleted',
 ];
 
@@ -30,13 +31,23 @@ export default function AccountDeletionScreen() {
   const [confirmText, setConfirmText] = useState('');
 
   const { mutate: deleteAccount, isPending } = useMutation({
-    mutationFn: () => apiClient.delete('/driver/me'),
+    mutationFn: (acknowledgeBalance: boolean = false) =>
+      apiClient.delete('/driver/me', { data: { acknowledgeBalance } }),
     onSuccess: () => {
       logout();
       router.replace('/(auth)/phone' as any);
     },
     onError: (err: any) => {
-      notify('Could not delete your account', err?.message ?? 'Failed to delete account. Please try again.');
+      // Earnings are a question, not a wall: below the withdrawal minimum they
+      // can never be withdrawn, so the driver decides.
+      if (err?.response?.data?.code === 'WALLET_NOT_EMPTY') {
+        Alert.alert('Earnings left in your wallet', err.response.data.message, [
+          { text: 'Keep my account', style: 'cancel' },
+          { text: 'Delete anyway', style: 'destructive', onPress: () => deleteAccount(true) },
+        ]);
+        return;
+      }
+      notify('Could not delete your account', err?.response?.data?.message ?? err?.message ?? 'Failed to delete account. Please try again.');
     },
   });
 
@@ -93,7 +104,7 @@ export default function AccountDeletionScreen() {
             ) : (
               <Button
                 label="Permanently Delete Account"
-                onPress={() => deleteAccount()}
+                onPress={() => deleteAccount(false)}
                 disabled={!canConfirm}
                 style={[styles.dangerBtn, ...(!canConfirm ? [styles.dangerBtnDisabled] : [])]}
               />

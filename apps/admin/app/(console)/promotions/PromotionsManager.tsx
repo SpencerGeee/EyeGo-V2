@@ -181,6 +181,8 @@ function CreateDialog({ open, onClose }: { open: boolean; onClose: () => void })
   const [percent, setPercent] = useState('10');
   const [capGhs, setCapGhs] = useState('20');
   const [maxRedemptions, setMaxRedemptions] = useState('');
+  const [perUser, setPerUser] = useState('1');
+  const [reusable, setReusable] = useState(false);
   const [expiry, setExpiry] = useState(defaultExpiry);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -193,6 +195,8 @@ function CreateDialog({ open, onClose }: { open: boolean; onClose: () => void })
     setPercent('10');
     setCapGhs('20');
     setMaxRedemptions('');
+    setPerUser('1');
+    setReusable(false);
     setExpiry(defaultExpiry());
     setError(null);
     onClose();
@@ -207,6 +211,7 @@ function CreateDialog({ open, onClose }: { open: boolean; onClose: () => void })
       // The operator types cedis; the column is pesewas. Converted here, once.
       maxDiscountGhs: capNum,
       maxRedemptions: maxRedemptions ? Number(maxRedemptions) : undefined,
+      ...(reusable ? { reusable: true } : { perUserLimit: Number(perUser) || 1 }),
       expiry,
     });
     setBusy(false);
@@ -355,6 +360,38 @@ function CreateDialog({ open, onClose }: { open: boolean; onClose: () => void })
               required
             />
             <p className="hint">Required by the API.</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="label" htmlFor="promo-per-user">
+              Uses per rider
+            </label>
+            <input
+              id="promo-per-user"
+              type="number"
+              inputMode="numeric"
+              min="1"
+              step="1"
+              className="input"
+              value={reusable ? '' : perUser}
+              onChange={(e) => setPerUser(e.target.value)}
+              placeholder={reusable ? 'no limit' : '1'}
+              disabled={reusable}
+            />
+            <p className="hint">How many bookings one rider can use it on.</p>
+          </div>
+          <div className="flex items-center gap-2 pt-6">
+            <input
+              id="promo-reusable"
+              type="checkbox"
+              checked={reusable}
+              onChange={(e) => setReusable(e.target.checked)}
+            />
+            <label className="t-small" htmlFor="promo-reusable">
+              Reusable — no per-rider limit
+            </label>
           </div>
         </div>
       </div>

@@ -219,29 +219,28 @@ function main() {
     });
   }
 
-  section('5 · the dispatch screen lets the driver see the map');
+  section('5 · one offer renderer');
 
-  check('the top chrome auto-hides', () => {
+  /**
+   * The pushed dispatch screen (its own MapView, its own countdown) was the
+   * "dead page" — three renderers of one ride. Since 2026-09-17 the root
+   * `DispatchOfferSheet` is the only one; the route survives as a door.
+   */
+  check('the dispatch route is a door, not a second renderer', () => {
     const src = read(join(ROOT, 'apps/driver/app/(trip)/dispatch/[id].tsx'));
-    if (!/chromeVisible/.test(src) || !/wakeChrome/.test(src)) {
-      throw new Error(
-        'the back control, the "Held for you" pill and their scrim are permanent again. They sit over the ' +
-          'narrow strip of map the driver has ~45s to read.',
-      );
+    if (/<(MapView|DispatchOfferCard|DriverSurfaceMap)\b/.test(src)) {
+      throw new Error('the dispatch route renders an offer again — a second renderer with its own clock');
     }
-    return 'fades on idle, returns on map interaction';
+    if (!/openOffer/.test(src)) throw new Error('the dispatch route no longer hands the ride to the root sheet');
+    return 'hydrate → openOffer → home';
   });
 
-  check('the offer card itself does NOT auto-hide', () => {
-    const src = read(join(ROOT, 'apps/driver/app/(trip)/dispatch/[id].tsx'));
-    // The card is rendered under `offer ?`, never under the chrome flag.
+  check('the offer card is never hidden by a chrome timer', () => {
+    const src = read(join(ROOT, 'apps/driver/components/DispatchOfferSheet.tsx'));
     if (/chromeVisible\s*&&[\s\S]{0,400}<DispatchOfferCard/.test(src)) {
-      throw new Error(
-        'the offer card is gated on the chrome timer. Hiding the thing the driver is deciding about is a ' +
-          'worse bug than the crowding it was meant to fix.',
-      );
+      throw new Error('the offer card is gated on a chrome timer — hiding the thing the driver is deciding about');
     }
-    return 'always visible';
+    return 'always visible while a ride is up';
   });
 
   section('6 · the party size reaches the quote');
@@ -619,10 +618,11 @@ function main() {
   });
 
   check("the driver's hot screens gate their loops", () => {
+    // LiveTripCard and DispatchLiveMap were deleted on 2026-09-17 (the trip is
+    // stages on home); the board is what now loops on the home tab.
     const want = [
       'apps/driver/components/trip/TripStatusRail.tsx',
-      'apps/driver/components/LiveTripCard.tsx',
-      'apps/driver/components/dispatch/DispatchLiveMap.tsx',
+      'apps/driver/components/PendingDispatchList.tsx',
     ];
     const bad = want.filter((f) => !/useLoopsActive/.test(read(join(ROOT, f))));
     if (bad.length) throw new Error(`ungated on a reported-laggy screen: ${bad.join(', ')}`);
@@ -678,7 +678,7 @@ function main() {
       ['packages/ui/src/Loader.tsx', 'a frozen loader reads as hung'],
       ['packages/ui/src/effects/PulseRing.tsx', 'the radar states "searching"'],
       ['apps/rider/components/trip/SearchingPanel.tsx', 'the sweep states "searching"'],
-      ['apps/driver/components/LiveTripCard.tsx', 'the pulse marks a LIVE trip'],
+      ['apps/driver/components/PendingDispatchList.tsx', 'the live dot marks live work'],
       ['apps/driver/components/DispatchBlockedBanner.tsx', 'it explains why there is no work'],
       ['apps/driver/components/DriverAlertBanner.tsx', 'an alert that stops breathing stops alerting'],
     ];
@@ -689,6 +689,44 @@ function main() {
       );
     }
     return `${meaningful.length} meaningful loops exempt`;
+  });
+
+  section('15 · a ride card cannot end the moment it opens; a receipt needs a verdict');
+
+  /**
+   * "The driver home showed a new pending trip, I tap it, I only feel the
+   * haptic but nothing happens." `secondsLeft` was `useState(0)`; the expiry
+   * effect ran in the card's FIRST commit, read that 0, and closed the card —
+   * every tapped row and every held offer, on frame one.
+   */
+  check('the offer countdown is derived from the deadline, never seeded state', () => {
+    const src = read(join(ROOT, 'apps/driver/components/DispatchOfferSheet.tsx'));
+    if (/\[\s*secondsLeft\s*,\s*setSecondsLeft\s*\]\s*=\s*useState/.test(src)) {
+      throw new Error(
+        'secondsLeft is state again: it starts at 0, the expiry effect reads that 0 in the first commit, ' +
+          'and every offer card closes the instant it opens',
+      );
+    }
+    if (!/const secondsLeft\s*=/.test(src)) throw new Error('secondsLeft is not derived from deadlineMs at render');
+    return 'derived from deadlineMs at render';
+  });
+
+  /**
+   * "I never even accepted the trip and the driver app showed the trip complete
+   * page with the earnings." Third report of that shape. The receipt painted a
+   * checkmark for any status it did not list, and for "nothing loaded" — which
+   * is exactly what a trip that is not this driver's looks like (owner-scoped
+   * detail endpoint → 404).
+   */
+  check("the receipt celebrates only the server's COMPLETED or the driver's own swipe", () => {
+    const src = read(join(ROOT, 'apps/driver/app/(trip)/complete/[id].tsx'));
+    if (/const tripStatus = \(completedTrip/.test(src)) {
+      throw new Error('the verdict is read from the cached list again — a stale row can declare a trip complete');
+    }
+    if (!/tripStatus !== 'COMPLETED' && !fromOwnCompletion/.test(src)) {
+      throw new Error('no gate before the "Trip Complete!" render — any trip id paints a settlement');
+    }
+    return 'detail-fetch verdict, own-swipe optimism only';
   });
 
   process.exit(summary());

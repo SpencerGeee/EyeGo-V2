@@ -4,13 +4,14 @@ import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { walletApi, queryKeys } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { Text, Button, Input, goDeeper, goBack, notify } from '@eyego/ui';
 import { formatGhs, pesewasFromCedis } from "@eyego/utils";
 import { pickPhoneContact, normaliseGhPhone } from '../../utils/contacts';
+import { useWalletBalance } from '../../hooks/useWalletBalance';
 
 export default function SendMoneyScreen() {
   const colors = useColors();
@@ -26,11 +27,7 @@ export default function SendMoneyScreen() {
   const [phone, setPhone] = useState(prefilledPhone ?? '');
   const [amount, setAmount] = useState(prefilledAmount ?? '');
 
-  const { data: balance } = useQuery({
-    queryKey: queryKeys.wallet.balance(),
-    queryFn: () => walletApi.getBalance(),
-    select: (r: any) => r.data?.data?.balancePesewas ?? 0,
-  });
+  const { data: balance } = useWalletBalance();
 
   const sendMutation = useMutation({
     mutationFn: () => walletApi.sendMoney({ recipientPhone: phone.trim(), amountPesewas: pesewasFromCedis(parseFloat(amount)) }),

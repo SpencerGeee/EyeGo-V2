@@ -14,12 +14,13 @@ import Animated, {
 } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
-import { bookingsApi, walletApi, userApi, queryKeys } from '@eyego/api';
+import { bookingsApi, userApi } from '@eyego/api';
 import { useAuthStore } from '../../stores/auth.store';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { Text, Pressable, setBackgroundBusy, backgroundScrollPauseProps, SkeletonValue, goDeeper } from '@eyego/ui';
 import { getInitials, formatGhs } from '@eyego/utils';
+import { useWalletBalance } from '../../hooks/useWalletBalance';
 import { TAB_BAR_BASE_HEIGHT } from './_layout';
 
 interface MenuItem {
@@ -82,12 +83,10 @@ export default function ProfileScreen() {
     select: (r) => (r.data as any)?.data?.total ?? (r.data as any)?.total ?? 0,
   });
 
-  const { data: walletBalancePesewas, isPending: walletPending } = useQuery({
-    queryKey: queryKeys.wallet.balance(),
-    queryFn: () => walletApi.getBalance(),
-    select: (r: any) => r.data?.data?.balance ?? r.data?.balance ?? 0,
-    staleTime: 30_000,
-  });
+  // Read `balancePesewas` — this read a `balance` field the API never sends,
+  // so the card said GH₵0.00 on every account. See hooks/useWalletBalance.
+  const { data: walletBalancePesewas, isPending: walletPending, isError: walletFailed, refetch: refetchWallet } =
+    useWalletBalance();
 
   // Rider's average rating is server-computed from driver-submitted ratings
   // (see driverApi.ratePassenger / POST /driver/rate-passenger/:bookingId).
@@ -246,7 +245,14 @@ export default function ProfileScreen() {
               {/* Never "GH₵0.00" while the balance is still in flight — a rider
                   reads that as their actual balance. */}
               <SkeletonValue loading={walletPending} width={128} height={30} borderRadius={8}>
-                <Text style={styles.walletBalancePesewas}>{formatGhs(walletBalancePesewas ?? 0)}</Text>
+                {walletBalancePesewas == null && walletFailed ? (
+                  // "We could not ask" must not read as "you have nothing".
+                  <Pressable onPress={() => void refetchWallet()} accessibilityRole="button" accessibilityLabel="Retry loading your balance">
+                    <Text style={[styles.walletBalancePesewas, { fontSize: 15 }]}>Couldn’t load · Tap to retry</Text>
+                  </Pressable>
+                ) : (
+                  <Text style={styles.walletBalancePesewas}>{formatGhs(walletBalancePesewas ?? 0)}</Text>
+                )}
               </SkeletonValue>
             </View>
             <Pressable

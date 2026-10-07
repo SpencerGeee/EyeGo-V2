@@ -280,8 +280,24 @@ apiClient.interceptors.response.use(
             logoutCalled = true;
             onLogout();
           }
+          return Promise.reject(humanize(error));
         }
-        return Promise.reject(humanize(error));
+        /**
+         * A REFRESH WE COULD NOT SEND IS A CONNECTIVITY FAILURE, NOT A 401.
+         *
+         * BUGFIX ("after switching apps the rider acts like it's not connecting
+         * — balance, top-up and payment methods all empty — while the driver
+         * works"). iOS suspends the rider (it has no background mode), the
+         * 15-minute token lapses, and the first requests back from the app
+         * switcher 401 and race a refresh over sockets iOS has just torn down.
+         * When that refresh failed transiently this re-threw the ORIGINAL 401 —
+         * and the rider's query client, correctly, never retries a 401. Every
+         * screen froze in `error` until something remounted it.
+         *
+         * The refresh's own error is the truth: nothing was refused, we simply
+         * could not ask. As a network error it is retried like any other.
+         */
+        return Promise.reject(humanize(refreshError as any));
       }
     }
 

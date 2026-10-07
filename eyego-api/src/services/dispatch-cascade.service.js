@@ -150,8 +150,9 @@ const dispatchFinalRadiusKm = () => settings.get('DISPATCH_FINAL_RADIUS_KM') ?? 
  */
 const searchTimeoutSeconds = () =>
   settings.get('DISPATCH_SEARCH_TIMEOUT_SECONDS') ??
-  parseInt(process.env.RIDE_REQUEST_EXPIRY_SECONDS, 10) ??
-  300;
+  // `||`, not `??`: parseInt of an unset variable is NaN, which `??` keeps —
+  // and a NaN window makes every elapsed-time comparison false.
+  (parseInt(process.env.RIDE_REQUEST_EXPIRY_SECONDS, 10) || 300);
 /** Gap between re-scans while waiting for supply to appear. */
 const RESWEEP_INTERVAL_SECONDS =
   parseInt(process.env.DISPATCH_RESWEEP_SECONDS, 10) || 10;
@@ -315,6 +316,52 @@ const lockKey = (tripId) => `dispatch:lock:${tripId}`;
  */
 const driverOfferKey = (driverId) => `dispatch:offer:driver:${driverId}`;
 
+/**
+ * WHAT A RIDE PAYS AND WHAT THE DRIVER KEEPS — from the booking rows, never
+ * re-quoted, so it cannot disagree with what is paid out.
+ *
+ * One definition for the held offer, the board row and `refreshHeldOffer`. A
+ * rider's fare boost raises `fareAmountPesewas` and leaves the stored
+ * `commissionAmountPesewas` alone, which is how 100% of a boost reaches the
+ * driver on every one of those surfaces and at settlement.
+ */
+function offerMoney(trip, boostPesewas = 0) {
+  const farePesewas = trip.bookings.reduce((n, b) => n + (b.fareAmountPesewas || 0), 0);
+  const commissionPesewas = trip.bookings.reduce(
+    (n, b) =>
+      n +
+      (b.commissionAmountPesewas ?? Math.round((b.fareAmountPesewas || 0) * (trip.commissionRate ?? 0.15))),
+    0,
+  );
+  return {
+    farePesewas,
+    driverEarningsPesewas: Math.max(0, farePesewas - commissionPesewas),
+    commissionPesewas,
+    // Already inside both numbers above; named so the card can say "+GH₵4 rider
+    // boost · 100% yours" — the raise only finds a car faster if it is seen.
+    boostPesewas,
+    // Not money, but it rides the same spread to every offer surface: how many
+    // people are waiting. A party of four looked exactly like one person, so a
+    // driver in a small car accepted and turned up short of seats. One on-demand
+    // row carries the whole party in `seats` (see Booking.seats).
+    partySize: trip.bookings.reduce((n, b) => n + (b.seats ?? 1), 0),
+  };
+}
+
+/**
+ * What riders added to find a driver faster, per trip: Σ FARE_BOOSTED. The
+ * same arithmetic `rides.service.boostFare` runs before writing the next one.
+ */
+async function boostsFor(tripIds) {
+  const out = new Map();
+  if (!tripIds.length) return out;
+  const rows = await prisma.tripEvent
+    .findMany({ where: { tripId: { in: tripIds }, type: 'FARE_BOOSTED' }, select: { tripId: true, payload: true } })
+    .catch(() => []);
+  for (const r of rows) out.set(r.tripId, (out.get(r.tripId) ?? 0) + (Number(r.payload?.addedPesewas) || 0));
+  return out;
+}
+
 /** Park an offer where `GET /rides/driver/state` can find it. */
 async function rememberOffer(driverId, payload, expiresAtMs) {
   const ms = Math.max(1000, expiresAtMs - Date.now());
@@ -342,6 +389,34 @@ async function getOfferForDriver(driverId) {
   } catch {
     return null;
   }
+}
+
+/**
+ * THE ROAD TO THE PICKUP, ADDED TO WHATEVER IS PARKED *NOW*.
+ *
+ * Fetched after the offer is out (a slow Mapbox reply must not eat the
+ * driver's window), so by the time it lands the rider may have boosted the fare
+ * or moved the pickup. This used to re-park the payload as it was BEFORE the
+ * fetch, with the road attached — which put the pre-boost fare back on the
+ * driver's card (caught by scripts/e2e/search-actions.mjs). It now reads the
+ * parked offer, adds only the road, and drops a road whose pickup has moved.
+ */
+function attachPickupRoad(driverId, tripId, expiresAtMs, from, pickup) {
+  if (![from?.lat, from?.lng, pickup?.lat, pickup?.lng].every((v) => Number.isFinite(v))) return;
+  getDirections(from.lng, from.lat, pickup.lng, pickup.lat)
+    .then(async (route) => {
+      const geometry = route?.geometry ?? null;
+      if (!geometry) return;
+      const current = await getOfferForDriver(driverId);
+      if (!current || current.tripId !== tripId || current.expiresAtServerMs !== expiresAtMs) return;
+      if (current.pickupLat !== pickup.lat || current.pickupLng !== pickup.lng) return;
+      const withGeometry = { ...current, geometry };
+      await rememberOffer(driverId, withGeometry, expiresAtMs);
+      publisher.publishOfferToDriver(driverId, withGeometry);
+    })
+    .catch((err) =>
+      logger.debug?.('[dispatch] pickup geometry unavailable', { tripId, driverId, error: err.message }),
+    );
 }
 
 /**
@@ -504,8 +579,8 @@ async function offerNext(tripId) {
     // Everything the driver's offer card renders is selected here, once. The
     // card used to get lat/lng and a tier and nothing else, so it could not
     // say where the ride was going or what it paid — the two facts a driver
-    // actually decides on.
-    const trip = await prisma.trip.findUnique({
+    // actually decides on. The boost total rides alongside, in parallel.
+    const [trip, boosts] = await Promise.all([prisma.trip.findUnique({
       where: { id: tripId },
       select: {
         id: true, status: true, tier: true, version: true,
@@ -526,6 +601,7 @@ async function offerNext(tripId) {
           select: {
             fareAmountPesewas: true,
             commissionAmountPesewas: true,
+            seats: true,
             // Needed for cashFloatPesewas — the wallet balance a driver must
             // already hold before this trip can be boarded. See drivers.service
             // .boardPassenger: a CASH seat debits its commission at boarding.
@@ -534,7 +610,7 @@ async function offerNext(tripId) {
           },
         },
       },
-    });
+    }), boostsFor([tripId])]);
     // The trip may have been accepted, cancelled or expired out from under us.
     if (!trip || ![TRIP_STATUS.MATCHING, TRIP_STATUS.REASSIGNING].includes(trip.status)) {
       await finish(tripId, 'resolved');
@@ -581,14 +657,8 @@ async function offerNext(tripId) {
         payload: { tripId, driverId: candidate.id, attempt: state.index },
       });
 
-      // What the driver nets if they take it: gross fare on the trip minus the
-      // platform's cut. Computed from the bookings that already exist rather
-      // than re-quoting, so the number cannot disagree with what gets paid out.
-      const grossPesewas = trip.bookings.reduce((n, b) => n + (b.fareAmountPesewas || 0), 0);
-      const commissionPesewas = trip.bookings.reduce(
-        (n, b) => n + (b.commissionAmountPesewas ?? Math.round((b.fareAmountPesewas || 0) * (trip.commissionRate ?? 0.15))),
-        0,
-      );
+      // What the driver nets if they take it — see `offerMoney`.
+      const money = offerMoney(trip, boosts.get(tripId) ?? 0);
 
       const offerPayload = {
         tripId,
@@ -600,9 +670,7 @@ async function offerNext(tripId) {
         // hidden downstream. See `directionHint` for why, and for what the
         // driver gets instead. The real drop-off reaches them at IN_PROGRESS.
         ...directionHint(trip),
-        farePesewas: grossPesewas,
-        driverEarningsPesewas: Math.max(0, grossPesewas - commissionPesewas),
-        commissionPesewas,
+        ...money,
         /**
          * What the driver's wallet must already hold to BOARD this ride. Zero
          * for a card/MoMo trip. See `cashFloatPesewas`.
@@ -641,17 +709,9 @@ async function offerNext(tripId) {
        * time and the clock is already running, so a slow Mapbox reply must not
        * eat the window: the offer goes out first, and the geometry follows as a
        * second publish if and when it arrives. A failure is silent and the map
-       * keeps the arc, which is exactly what it does today.
+       * keeps the arc, which is exactly what it does today. See
+       * `attachPickupRoad` for why it merges into the parked offer.
        */
-      const geometryFor = async () => {
-        const dLat = candidate.currentLat;
-        const dLng = candidate.currentLng;
-        const pLat = offerPayload.pickupLat;
-        const pLng = offerPayload.pickupLng;
-        if (![dLat, dLng, pLat, pLng].every((v) => Number.isFinite(v))) return null;
-        const route = await getDirections(dLng, dLat, pLng, pLat);
-        return route?.geometry ?? null;
-      };
 
       // Park it BEFORE publishing. If the driver's socket is down, the push
       // notification is what wakes the app, and the app's first act on wake is
@@ -659,23 +719,17 @@ async function offerNext(tripId) {
       await rememberOffer(candidate.id, offerPayload, expiresAtMs);
       publisher.publishOfferToDriver(candidate.id, offerPayload);
 
-      geometryFor()
-        .then((geometry) => {
-          if (!geometry) return;
-          // Re-park so a driver hydrating late gets the road too, then re-publish
-          // for the one already looking at the arc.
-          const withGeometry = { ...offerPayload, geometry };
-          return rememberOffer(candidate.id, withGeometry, expiresAtMs).then(() =>
-            publisher.publishOfferToDriver(candidate.id, withGeometry),
-          );
-        })
-        .catch((err) =>
-          logger.debug?.('[dispatch] pickup geometry unavailable', {
-            tripId,
-            driverId: candidate.id,
-            error: err.message,
-          }),
-        );
+      attachPickupRoad(
+        candidate.id,
+        tripId,
+        expiresAtMs,
+        { lat: candidate.currentLat, lng: candidate.currentLng },
+        { lat: offerPayload.pickupLat, lng: offerPayload.pickupLng },
+      );
+      // A boost or pickup move that committed between the trip read at the top
+      // and the park above found nothing parked to refresh. Catch it now, off
+      // the driver's clock; a no-op unless the ride really changed.
+      refreshHeldOffer(tripId).catch(() => {});
       pushToDriver(candidate, trip, expiresAtMs, offerPayload).catch(() => {});
 
       /**
@@ -1060,6 +1114,75 @@ async function resyncDriver(driverId) {
 }
 
 /**
+ * RE-SEND THE HELD OFFER AFTER THE RIDE CHANGED UNDER IT — a rider's fare
+ * boost or a moved pickup. Same deadline (the driver's clock does not restart),
+ * new money and pickup, re-parked so a late hydrate reads the same thing.
+ *
+ * Nothing to do when nobody holds it: board rows are rebuilt from the database
+ * on every poll, so they pick the change up on their own.
+ */
+async function refreshHeldOffer(tripId) {
+  const state = await readState(tripId);
+  const driverId = state?.currentDriverId;
+  if (!driverId) return;
+  // The slow reads FIRST (the database is a long way away), so the read-merge-
+  // write of the parked offer below happens back to back and cannot undo a road
+  // that `attachPickupRoad` parked in the meantime.
+  const [trip, boosts] = await Promise.all([
+    prisma.trip.findUnique({
+      where: { id: tripId },
+      select: {
+        commissionRate: true,
+        pickupLat: true, pickupLng: true, pickupAddress: true,
+        route: { select: { originName: true, originLat: true, originLng: true } },
+        bookings: {
+          where: livePassengerWhere(),
+          select: { fareAmountPesewas: true, commissionAmountPesewas: true, seats: true },
+        },
+      },
+    }),
+    boostsFor([tripId]),
+  ]);
+  if (!trip) return;
+  const held = await getOfferForDriver(driverId);
+  if (!held || held.tripId !== tripId) return;
+  const money = offerMoney(trip, boosts.get(tripId) ?? 0);
+  const pickup = {
+    pickupLat: trip.pickupLat ?? trip.route?.originLat ?? held.pickupLat,
+    pickupLng: trip.pickupLng ?? trip.route?.originLng ?? held.pickupLng,
+    pickupAddress: trip.pickupAddress ?? trip.route?.originName ?? held.pickupAddress,
+  };
+  const pickupMoved = pickup.pickupLat !== held.pickupLat || pickup.pickupLng !== held.pickupLng;
+  const changed =
+    pickupMoved ||
+    pickup.pickupAddress !== held.pickupAddress ||
+    money.farePesewas !== held.farePesewas ||
+    money.driverEarningsPesewas !== held.driverEarningsPesewas;
+  if (!changed) return;
+  const next = {
+    ...held,
+    ...money,
+    ...pickup,
+    // A road to where the pickup USED to be is worse than the arc: null says
+    // "no road yet" (the driver app keeps a road only when the field is absent).
+    ...(pickupMoved ? { geometry: null } : {}),
+    serverNowMs: Date.now(),
+  };
+  await rememberOffer(driverId, next, held.expiresAtServerMs);
+  publisher.publishOfferToDriver(driverId, next);
+  if (pickupMoved) {
+    const me = (state.candidates ?? []).find((c) => c.id === driverId);
+    attachPickupRoad(
+      driverId,
+      tripId,
+      held.expiresAtServerMs,
+      { lat: me?.currentLat, lng: me?.currentLng },
+      { lat: next.pickupLat, lng: next.pickupLng },
+    );
+  }
+}
+
+/**
  * Every live search this driver could still be given, whether or not it is
  * currently offered to them.
  *
@@ -1131,6 +1254,7 @@ async function listSearchesForDriver(driverId, { limit = 10 } = {}) {
           select: {
             fareAmountPesewas: true,
             commissionAmountPesewas: true,
+            seats: true,
             // Needed for cashFloatPesewas — the wallet balance a driver must
             // already hold before this trip can be boarded. See drivers.service
             // .boardPassenger: a CASH seat debits its commission at boarding.
@@ -1142,7 +1266,10 @@ async function listSearchesForDriver(driverId, { limit = 10 } = {}) {
     });
     if (trips.length === 0) return [];
 
-    const held = await getOfferForDriver(driverId).catch(() => null);
+    const [held, boosts] = await Promise.all([
+      getOfferForDriver(driverId).catch(() => null),
+      boostsFor(trips.map((t) => t.id)),
+    ]);
 
     /**
      * ── THE BOARD MUST ONLY ADVERTISE WORK THIS DRIVER COULD ACTUALLY TAKE ────
@@ -1250,14 +1377,7 @@ async function listSearchesForDriver(driverId, { limit = 10 } = {}) {
         if (haversineKm(me.lat, me.lng, pickLat, pickLng) > boardRadiusKm) continue;
       }
 
-      const grossPesewas = trip.bookings.reduce((n, b) => n + (b.fareAmountPesewas || 0), 0);
-      const commissionPesewas = trip.bookings.reduce(
-        (n, b) =>
-          n +
-          (b.commissionAmountPesewas ??
-            Math.round((b.fareAmountPesewas || 0) * (trip.commissionRate ?? 0.15))),
-        0,
-      );
+      const money = offerMoney(trip, boosts.get(trip.id) ?? 0);
 
       out.push({
         tripId: trip.id,
@@ -1271,9 +1391,7 @@ async function listSearchesForDriver(driverId, { limit = 10 } = {}) {
         // hidden downstream. See `directionHint` for why, and for what the
         // driver gets instead. The real drop-off reaches them at IN_PROGRESS.
         ...directionHint(trip),
-        farePesewas: grossPesewas,
-        driverEarningsPesewas: Math.max(0, grossPesewas - commissionPesewas),
-        commissionPesewas,
+        ...money,
         /** Wallet balance needed to board this one — see `cashFloatPesewas`. */
         walletRequiredPesewas: cashFloatPesewas(trip),
         /** True when THIS driver is the one the cascade is currently asking. */
@@ -1650,6 +1768,18 @@ async function getCascadeState(tripId) {
     attempt: state.index,
     totalCandidates: state.candidates.length,
     done: state.done,
+    /**
+     * What a rider app re-opening a live search needs to DRAW it. Without these
+     * a resumed search with nobody in range hydrated to `dispatch: null` — no
+     * ring, no copy, a pin on an empty map: the "dead" searching page.
+     */
+    radiusKm: state.widenedFinal
+      ? dispatchFinalRadiusKm()
+      : state.widened
+        ? dispatchExtendedRadiusKm()
+        : dispatchRadiusKm(),
+    waiting: state.waiting === true,
+    searchExpiresAtServerMs: (state.startedAtMs ?? Date.now()) + searchTimeoutSeconds() * 1000,
   };
 }
 
@@ -1730,6 +1860,7 @@ scheduledTasks.registerHandler(TASK_RESWEEP, async (task) => {
 
 module.exports = {
   startCascade,
+  refreshHeldOffer,
   resweep,
   notifySupplyAvailable,
   resyncDriver,

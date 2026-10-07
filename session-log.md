@@ -452,3 +452,25 @@ Decisions:
 - Seat pricing has one path (priceSeat) with a preview endpoint; free drop-off pin measured ALONG the polyline (≤150 m), new Booking columns + migration.
 Rejected: tuning useMapCamera's frame loop again for the driver; a fourth offer surface; per-caller show()-on-focus hacks for hidden morph sources.
 Open: yarn install timed out — regenerate both locks; apply migration + new native build before device test.
+
+## 2026-10-07 14:00 [saved]
+Goal: 7-item device report + whole-system money audit + realistic seat cabin.
+Decisions:
+- Late async enrichment merges into the CURRENTLY parked offer (attachPickupRoad); never re-park a pre-fetch snapshot.
+- Refunds credit the PAYER of record (payerOf), never booking.userId — group hosts pay for guests' seats.
+- Every rider-balance move goes through riderWallet.record; INTENT rows are closed (SETTLED/ABANDONED/FAILED) and are the refund lock.
+- Tips settle via settleTip (webhook/verify/simulated) — 100% to driver, push only once credited.
+- No-drivers on the request stage is answered in place; hydrate falls back to /rides/:id/events for an ended watched trip.
+Rejected: reversing a payout on any Paystack error (timeout ≠ refusal); bare walletBalancePesewas increments; driver-funded promos.
+Open: promo discount above commission still costs the driver the excess; commit + OTA/build pending user.
+
+## 2026-10-07 16:30 [saved]
+Goal: finish the audit (pass 3): promo subsidy, refunds in one place, account deletion, hook CPU hang.
+Decisions:
+- Platform funds the promo excess (Booking.promoSubsidyPesewas → PROMO_SUBSIDY at completion); Promotion.perUserLimit (null = reusable).
+- Undriven endings refund in the state machine's terminal release only; group completion = completeTrip (one settlement).
+- Account deletion: live ride/trip and driver debt are walls; a positive balance is a confirmable 409 (acknowledgeBalance) — the balance stays on the anonymised row. Delete, then blacklist.
+- Driver deletion clears photo/DOB/emergency contact; KYC retention left to a legal decision.
+- Scheduled intents hold no money; a stale expiry now tells the rider.
+Rejected: hard wallet block on deletion (impossible below withdrawal minimum / no rider withdrawal); blacklisting before the guard.
+Open: KYC retention period; migration 20261007120000 needs `prisma migrate deploy`; new build/OTA for client changes.

@@ -187,8 +187,9 @@ export const userApi = {
   updateFcmToken: (data: { fcmToken: string }) =>
     apiClient.post<ApiResponse<void>>('/user/fcm-token', data),
 
-  deleteAccount: () =>
-    apiClient.delete<ApiResponse<null>>('/user/me'),
+  /** `acknowledgeBalance`: the rider confirmed giving up a wallet balance (server 409 WALLET_NOT_EMPTY). */
+  deleteAccount: (opts: { acknowledgeBalance?: boolean } = {}) =>
+    apiClient.delete<ApiResponse<null>>('/user/me', { data: opts }),
 
   getEmergencyContacts: () =>
     apiClient.get<ApiResponse<{ contacts: EmergencyContact[] }>>('/user/me/emergency-contacts'),

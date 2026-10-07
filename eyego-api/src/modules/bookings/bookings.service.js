@@ -2,7 +2,7 @@
 
 const prisma = require('../../config/database');
 const env = require('../../config/env');
-const { calculateFare, calculateSegmentFare, calculateSegmentFareByRatio, detourKm, calculateDeviationSurcharge, pinnedRatesFor } = require('../trips/fare.calculator');
+const { calculateFare, calculateSegmentFare, calculateSegmentFareByRatio, detourKm, calculateDeviationSurcharge, pinnedRatesFor, commissionRateFor } = require('../trips/fare.calculator');
 const { SeatTakenError, NotFoundError, AppError, ForbiddenError } = require('../../utils/errors');
 const tripState = require('../../services/trip-state.service');
 const { seatOccupyingWhere, SEAT_RELEASING_STATUSES } = require('../../utils/booking-status');
@@ -61,7 +61,7 @@ function applyFareAddons(baseFarePerPerson, { trip, pickupLat, pickupLng, heavyC
   // All three terms are already whole pesewas, so the sum is exact — no
   // rounding step, and therefore no place for a rounding disagreement.
   const fareAmountPesewas = sum(baseFarePerPerson, deviationSurchargePesewas, cargoSurcharge);
-  const commissionAmountPesewas = percentOf(fareAmountPesewas, env.PLATFORM_COMMISSION);
+  const commissionAmountPesewas = percentOf(fareAmountPesewas, commissionRateFor(trip));
   return { fareAmountPesewas, commissionAmountPesewas, deviationSurchargePesewas, cargoSurcharge };
 }
 
@@ -294,7 +294,7 @@ function priceSeat(trip, { pickupStopId = null, dropoffStopId = null, dropoff = 
       ratio: resolvedDropoff.ratio,
     });
     finalFareAmount = segment.farePerSeatPesewas;
-    finalCommission = percentOf(finalFareAmount, env.PLATFORM_COMMISSION);
+    finalCommission = percentOf(finalFareAmount, commissionRateFor(trip));
     enRouteRatio = segment.ratio;
     resolvedPickupStopId = pickupStopId ?? null;
   } else if (pickupStopId || dropoffStopId) {
@@ -322,7 +322,7 @@ function priceSeat(trip, { pickupStopId = null, dropoffStopId = null, dropoff = 
       totalRouteKm: trip.route.distanceKm,
     });
     finalFareAmount = segment.farePerSeatPesewas;
-    finalCommission = percentOf(finalFareAmount, env.PLATFORM_COMMISSION);
+    finalCommission = percentOf(finalFareAmount, commissionRateFor(trip));
     enRouteRatio = segment.ratio;
     resolvedPickupStopId = pickupStopId ?? null;
     resolvedDropoffStopId = dropoffStopId ?? null;
@@ -1302,16 +1302,61 @@ async function applyPromoCode(userId, bookingId, code) {
 
     const newFare = Math.max(0, booking.fareAmountPesewas - discount);
 
-    const [updatedBooking] = await Promise.all([
-      tx.booking.update({
-        where: { id: bookingId },
-        data: { promotionId: promo.id, fareAmountPesewas: newFare },
-      }),
-      tx.promotion.update({
-        where: { id: promo.id },
+    // Per-rider limit (`perUserLimit`, default 1; null = reusable). Without it
+    // a single account could spend a global code on every booking it made.
+    if (promo.perUserLimit != null) {
+      const usedBefore = await tx.booking.count({
+        where: {
+          userId,
+          promotionId: promo.id,
+          id: { not: bookingId },
+          status: { notIn: ['CANCELLED', 'EXPIRED'] },
+        },
+      });
+      if (usedBefore >= promo.perUserLimit) {
+        throw new AppError(
+          promo.perUserLimit === 1
+            ? 'You have already used this promo code'
+            : `You have used this promo code the maximum ${promo.perUserLimit} times`,
+          400,
+          'PROMO_ALREADY_USED',
+        );
+      }
+    }
+
+    // The limit checked AND taken in one statement. Read-then-increment let
+    // two riders at the last redemption both through.
+    if (promo.maxRedemptions != null) {
+      const taken = await tx.promotion.updateMany({
+        where: { id: promo.id, usageCount: { lt: promo.maxRedemptions } },
         data: { usageCount: { increment: 1 } },
-      }),
-    ]);
+      });
+      if (taken.count === 0) throw new AppError('Promo code has reached its usage limit', 400);
+    } else {
+      await tx.promotion.update({ where: { id: promo.id }, data: { usageCount: { increment: 1 } } });
+    }
+
+    /**
+     * THE PLATFORM PAYS FOR ITS PROMO, NOT THE DRIVER.
+     *
+     * Driver pay is `fare − stored commission` everywhere. Lowering the fare
+     * and leaving the commission as quoted made every discount come straight
+     * out of the driver's earnings. The commission absorbs the discount; what
+     * it cannot absorb (commission floors at 0 — the money schemas reject
+     * negatives) is recorded as `promoSubsidyPesewas` and credited to the
+     * driver at settlement. Driver pay is therefore unchanged by any promo.
+     */
+    const commission = booking.commissionAmountPesewas ?? 0;
+    const absorbed = Math.min(commission, discount);
+    const updatedBooking = await tx.booking.update({
+      where: { id: bookingId },
+      data: {
+        promotionId: promo.id,
+        fareAmountPesewas: newFare,
+        commissionAmountPesewas: commission - absorbed,
+        promoSubsidyPesewas: discount - absorbed,
+      },
+    });
 
     return { booking: updatedBooking, discountAppliedPesewas: discount };
   });
@@ -1413,7 +1458,7 @@ async function tipDriver(userId, bookingId, { amountPesewas, phone }) {
   assertPesewas(amountPesewas, 'tip amount', { client: true });
   if (amountPesewas <= 0) throw new AppError('Tip amount must be greater than 0', 400);
 
-  return prisma.$transaction(async (tx) => {
+  const prepared = await prisma.$transaction(async (tx) => {
     const booking = await tx.booking.findUnique({
       where: { id: bookingId },
       include: { user: true, trip: { include: { driver: { select: { fcmToken: true } } } } },
@@ -1464,15 +1509,8 @@ async function tipDriver(userId, bookingId, { amountPesewas, phone }) {
      */
     const method = MOMO_METHODS.has(booking.paymentMethod) ? booking.paymentMethod : DEFAULT_TIP_MOMO_METHOD;
 
-    const result = await paystack.initiateMomoCharge({
-      email,
-      amountPesewas,
-      phone: payPhone,
-      method,
-      reference,
-      metadata: { bookingId, userId, type: 'TIP' },
-    });
-
+    // The intent is written FIRST, inside the transaction: a charge with no
+    // record of it is money nobody can trace back to a driver.
     await tx.paymentTransaction.create({
       data: {
         bookingId,
@@ -1483,31 +1521,38 @@ async function tipDriver(userId, bookingId, { amountPesewas, phone }) {
         gatewayResponse: 'TIP',
       },
     });
-
-    // ── Push notification to driver ───────────────────────────────────
-    setImmediate(async () => {
-      try {
-        const pushService = require('../../services/push.service');
-        if (booking.trip?.driver?.fcmToken) {
-          const driver = await prisma.driver.findUnique({
-            where: { id: booking.trip.driverId },
-            select: { name: true },
-          });
-          const riderName = booking.user?.name || 'A rider';
-          await pushService.sendPush(
-            booking.trip.driver.fcmToken,
-            `💰 ${riderName} sent you a tip!`,
-            `${formatGhs(amountPesewas)} tip received for trip #${booking.tripId.slice(0, 8)}`,
-            { type: 'TIP', bookingId, amountPesewas: String(amountPesewas) },
-          );
-        }
-      } catch (err) {
-        // Non-blocking
-      }
-    });
-
-    return { reference, ...result };
+    return { reference, email, payPhone, method };
   });
+
+  /**
+   * The gateway call OUTSIDE the transaction. It used to run inside one, and
+   * Paystack's 30 s timeout outlives Prisma's 5 s transaction: a slow prompt
+   * charged the rider and then rolled back the only record of it.
+   */
+  const payments = require('../payments/payments.service');
+  if (env.PAYMENTS_SIMULATED || paystack.isMock) {
+    // No gateway will call back — settle now, as every simulated charge does.
+    await payments.settleTip(prepared.reference);
+    return { reference: prepared.reference, simulated: true, status: 'success' };
+  }
+  try {
+    const result = await paystack.initiateMomoCharge({
+      email: prepared.email,
+      amountPesewas,
+      phone: prepared.payPhone,
+      method: prepared.method,
+      reference: prepared.reference,
+      metadata: { bookingId, userId, type: 'TIP' },
+    });
+    // The driver hears about it when the money lands (`settleTip`), not now.
+    return { reference: prepared.reference, ...result };
+  } catch (err) {
+    await prisma.paymentTransaction.updateMany({
+      where: { paystackRef: prepared.reference, status: 'INTENT' },
+      data: { status: 'FAILED' },
+    });
+    throw err;
+  }
 }
 
 async function submitDispute(userId, bookingId, { type, description }) {

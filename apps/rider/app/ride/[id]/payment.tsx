@@ -16,6 +16,7 @@ import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { queryKeys } from '@eyego/api';
 import { Ionicons } from '@expo/vector-icons';
 import { bookingsApi, paymentsApi, socketEvents, walletApi, userApi } from '@eyego/api';
+import { useWalletBalance } from '../../../hooks/useWalletBalance';
 import * as Haptics from 'expo-haptics';
 import { useShallow } from 'zustand/react/shallow';
 import { useRideStore } from '../../../stores/ride.store';
@@ -51,8 +52,15 @@ export default function PaymentScreen() {
 
   const [activeTab, setActiveTab] = useState<PaymentTab>('momo');
   const [momoPhone, setMomoPhone] = useState('');
-  const [walletBalancePesewas, setWalletBalancePesewas] = useState(0);
-  const [walletLoading, setWalletLoading] = useState(false);
+  /**
+   * The shared balance query, read only while the Wallet tab is open. This was
+   * a local fetch that fell back to 0 on any failure, so a slow network told the
+   * rider "Insufficient wallet balance (GH₵0.00)" and disabled Pay. Null now
+   * means "we could not check" and says so.
+   */
+  const walletQ = useWalletBalance({ enabled: activeTab === 'wallet' });
+  const walletBalancePesewas = walletQ.data ?? null;
+  const walletLoading = activeTab === 'wallet' && walletQ.isPending;
   const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
   const [paymentRef, setPaymentRef] = useState<string | null>(null);
   const [isPolling, setIsPolling] = useState(false);
@@ -105,18 +113,6 @@ export default function PaymentScreen() {
     idempotencyKeyRef.current = null;
   }, [activeTab]);
 
-  // Fetch wallet balance on mount when wallet tab is active
-  useEffect(() => {
-    if (activeTab === 'wallet') {
-      setWalletLoading(true);
-      walletApi.getBalance().then((res) => {
-        const bal = (res?.data as any)?.data?.balancePesewas ?? (res?.data as any)?.balancePesewas ?? 0;
-        setWalletBalancePesewas(bal);
-      }).catch((err: any) => {
-        console.warn('[Payment] Failed to fetch wallet balance:', err?.message ?? err);
-      }).finally(() => setWalletLoading(false));
-    }
-  }, [activeTab]);
 
   // Fare is server-calculated. Order: booking.fareAmountPesewas → Zustand computedFare →
   // trip.farePerSeatPesewas. Never compute on the client — env-driven rates on the
@@ -426,7 +422,8 @@ export default function PaymentScreen() {
       if (data.requiresVerification === false) {
         setStatus('success');
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        walletApi.getBalance().catch(() => {});
+        // The wallet paid: every screen showing the balance re-reads it.
+        queryClient.invalidateQueries({ queryKey: queryKeys.wallet.balance() });
         setGuestInfo(null); // clear guest info after successful booking
         queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });
         queryClient.invalidateQueries({ queryKey: queryKeys.bookings.active() });
@@ -878,6 +875,8 @@ export default function PaymentScreen() {
                   <Text variant="bodySmall" color={colors.onSurfaceVariant}>
                     {walletLoading
                       ? 'Checking wallet balance...'
+                      : walletBalancePesewas == null
+                      ? 'Couldn’t check your wallet balance. Try again in a moment, or pay another way.'
                       : walletBalancePesewas >= fareAmountPesewas
                       ? `You have ${formatGhs(walletBalancePesewas)} in your wallet. Sufficient balance!`
                       : `Insufficient wallet balance (${formatGhs(walletBalancePesewas)}). Please top up or use another method.`}
@@ -1056,7 +1055,7 @@ export default function PaymentScreen() {
                 initPayment.mutate();
               }}
               loading={initPayment.isPending || isPolling}
-              disabled={activeTab === 'momo' && (momoPhone.length < 8 || momoPhone.length > 12) || activeTab === 'wallet' && walletBalancePesewas < fareAmountPesewas || (activeTab === 'card' && !user?.email)}
+              disabled={activeTab === 'momo' && (momoPhone.length < 8 || momoPhone.length > 12) || activeTab === 'wallet' && (walletBalancePesewas == null || walletBalancePesewas < fareAmountPesewas) || (activeTab === 'card' && !user?.email)}
             />
           </View>
 

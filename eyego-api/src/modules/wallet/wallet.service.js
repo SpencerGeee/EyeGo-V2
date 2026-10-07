@@ -211,23 +211,31 @@ async function withdraw(driverId, amountPesewas) {
       throw new AppError('Insufficient wallet balance', 402, 'INSUFFICIENT_WALLET');
     }
 
+    // The balance AFTER our debit, read under the row lock our update holds.
+    // `current` was read before it: two concurrent withdrawals both logged the
+    // same "before" and the ledger stopped adding up.
+    const { walletBalancePesewas: after } = await tx.driver.findUnique({
+      where: { id: driverId },
+      select: { walletBalancePesewas: true },
+    });
     await tx.walletTransaction.create({
       data: {
         driverId,
         type: 'WITHDRAWAL',
         amountPesewas: safeAmount,
         description: 'Withdrawal to MoMo',
-        balanceBeforePesewas: current.walletBalancePesewas,
-        balanceAfterPesewas: current.walletBalancePesewas - safeAmount,
+        balanceBeforePesewas: after + safeAmount,
+        balanceAfterPesewas: after,
         paystackRef: reference,
       },
     });
 
-    return current;
+    return { ...current, walletBalancePesewas: after + safeAmount };
   });
 
-  // Step 2: Initiate Paystack transfer OUTSIDE transaction
-  // If this fails, we run a compensating credit to restore the driver's balance.
+  // Step 2: Initiate Paystack transfer OUTSIDE transaction.
+  // Recipient set-up failing means no transfer can exist — reverse at once.
+  let recipientCode;
   try {
     // Route to the driver's saved payout preference (bank or a specific MoMo
     // network) instead of always defaulting to MTN via their phone number.
@@ -249,40 +257,53 @@ async function withdraw(driverId, amountPesewas) {
         };
       }
     }
+    recipientCode = (await paystack.createTransferRecipient(recipientParams)).data.recipient_code;
+  } catch {
+    await reverseWithdrawal(reference, 'Withdrawal reversal — payout account could not be set up');
+    throw new AppError('Withdrawal failed. Your balance has been restored.', 502, 'WITHDRAWAL_FAILED');
+  }
 
-    const recipient = await paystack.createTransferRecipient(recipientParams);
-
+  try {
     await paystack.initiateTransfer({
       amountPesewas: safeAmount,
-      recipient: recipient.data.recipient_code,
+      recipient: recipientCode,
       reason: 'EyeGo Driver earnings withdrawal',
       reference,
     });
   } catch (paystackErr) {
-    // Compensating transaction — credit wallet back and record the reversal.
-    // Must use safeAmount, the exact integer that was debited in step 1. (When
-    // this was floating-point cedis the note here warned about crediting back
-    // an unrounded value and leaving the wallet off by a fraction of a pesewa;
-    // integers make that impossible, but the debit and the credit must still
-    // be literally the same number, not two computations of it.)
-    await prisma.$transaction(async (tx) => {
-      await tx.driver.update({
-        where: { id: driverId },
-        data: { walletBalancePesewas: { increment: safeAmount } },
-      });
-      await tx.walletTransaction.create({
-        data: {
-          driverId,
-          type: 'WITHDRAWAL_REVERSAL',
-          amountPesewas: safeAmount,
-          description: 'Withdrawal reversal — Paystack transfer failed',
-          balanceBeforePesewas: driver.walletBalancePesewas - safeAmount,
-          balanceAfterPesewas: driver.walletBalancePesewas,
-          paystackRef: `${reference}_reversal`,
-        },
-      });
+    /**
+     * A REFUSAL IS NOT THE SAME AS NO ANSWER.
+     *
+     * This used to restore the balance on ANY error — including a timeout on a
+     * transfer Paystack had in fact accepted, which paid the driver AND gave the
+     * money back. Only a definite refusal (the gateway answered 4xx) reverses
+     * here. Anything else is asked again by reference; if Paystack never saw
+     * it, reverse; if it did, the transfer webhook settles it either way.
+     */
+    const refused = paystackErr?.statusCode === 402;
+    let neverArrived = false;
+    let failed = false;
+    if (!refused) {
+      try {
+        const v = await paystack.verifyTransfer(reference);
+        failed = ['failed', 'reversed', 'abandoned'].includes(String(v?.data?.status ?? '').toLowerCase());
+      } catch (verifyErr) {
+        neverArrived = verifyErr?.cause?.response?.status === 404;
+      }
+    }
+    if (refused || neverArrived || failed) {
+      await reverseWithdrawal(reference, 'Withdrawal reversal — Paystack transfer failed');
+      throw new AppError('Withdrawal failed. Your balance has been restored.', 502, 'WITHDRAWAL_FAILED');
+    }
+    await prisma.walletTransaction.updateMany({
+      where: { paystackRef: reference, type: 'WITHDRAWAL' },
+      data: { description: 'Withdrawal processing — awaiting confirmation' },
     });
-    throw new AppError('Withdrawal failed. Your balance has been restored.', 502, 'WITHDRAWAL_FAILED');
+    return {
+      message: 'Withdrawal is processing. If it does not arrive, the amount returns to your wallet automatically.',
+      reference,
+      pending: true,
+    };
   }
 
   // notifications.lowWallet was defined but never called — nudge the driver if this
@@ -297,6 +318,43 @@ async function withdraw(driverId, amountPesewas) {
   }
 
   return { message: 'Withdrawal initiated. You will receive your MoMo payment shortly.', reference };
+}
+
+/**
+ * Give a withdrawal back — ONCE, whoever asks first: the failed synchronous
+ * call above, or Paystack's `transfer.failed` / `transfer.reversed` webhook
+ * (MoMo payouts often fail after being accepted; those were never returned).
+ * The reversal row's reference is the idempotency key.
+ */
+async function reverseWithdrawal(reference, description = 'Withdrawal reversal — transfer failed') {
+  return prisma.$transaction(async (tx) => {
+    const original = await tx.walletTransaction.findFirst({
+      where: { paystackRef: reference, type: 'WITHDRAWAL' },
+      select: { driverId: true, amountPesewas: true },
+    });
+    if (!original) return null;
+    const done = await tx.walletTransaction.findFirst({
+      where: { paystackRef: `${reference}_reversal`, type: 'WITHDRAWAL_REVERSAL' },
+      select: { id: true },
+    });
+    if (done) return null;
+    const { walletBalancePesewas: after } = await tx.driver.update({
+      where: { id: original.driverId },
+      data: { walletBalancePesewas: { increment: original.amountPesewas } },
+      select: { walletBalancePesewas: true },
+    });
+    return tx.walletTransaction.create({
+      data: {
+        driverId: original.driverId,
+        type: 'WITHDRAWAL_REVERSAL',
+        amountPesewas: original.amountPesewas,
+        description,
+        balanceBeforePesewas: after - original.amountPesewas,
+        balanceAfterPesewas: after,
+        paystackRef: `${reference}_reversal`,
+      },
+    });
+  });
 }
 
 async function getPayoutAccount(driverId) {
@@ -343,6 +401,7 @@ module.exports = {
   creditTopUp,
   confirmTopUp,
   withdraw,
+  reverseWithdrawal,
   getPayoutAccount,
   updatePayoutAccount,
   MAX_TOPUP_PESEWAS,
