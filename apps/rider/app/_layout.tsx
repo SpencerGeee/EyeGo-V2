@@ -504,6 +504,9 @@ export default function RootLayout() {
           );
         } else if (type === 'TRIP_CANCELLED_NO_SHOW') {
           router.push('/(tabs)/trips' as Href);
+        } else if (type === 'TRIP_ALERT' && tripId) {
+          // "Notify me" fired: open the trip that matched, ready to reserve.
+          router.push(`/ride/${tripId}` as Href);
         } else if (tripId) {
           router.push('/trip?stage=assigned' as Href);
         } else if (screen) {

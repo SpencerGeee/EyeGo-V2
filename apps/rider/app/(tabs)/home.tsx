@@ -31,6 +31,7 @@ import { useThemeStore } from '../../stores/theme.store';
 import { useRideStore } from '../../stores/ride.store';
 import { useToastStore } from '../../stores/toast.store';
 import { RideEndedSheet } from '../../components/RideEndedSheet';
+import { clockTime, departureLabel as sharedDepartureLabel } from '../../utils/tripGroups';
 
 // Accra fallback center — same default used by apps/driver/app/(tabs)/home.tsx
 // when no coordinate is available.
@@ -217,27 +218,15 @@ const departureOf = (trip: any): Date | null => {
 const groupOf = (trip: any): TripGroup =>
   String(trip?.status ?? '').toUpperCase() === 'FILLING' ? 'boarding' : 'scheduled';
 
-/** "in 8 min" / "in 2 h 10" / "18:40 tomorrow" — what a rider needs to decide. */
-function departureLabel(trip: any): string {
-  const at = departureOf(trip);
-  if (!at) return 'Departing soon';
-  const mins = Math.round((at.getTime() - Date.now()) / 60000);
-  if (mins <= 0) return 'Leaving now';
-  if (mins < 60) return `Leaves in ${mins} min`;
-  const time = at.toLocaleTimeString('en-GH', { hour: '2-digit', minute: '2-digit' });
-  const today = new Date();
-  const sameDay = at.toDateString() === today.toDateString();
-  if (sameDay) return `Today ${time}`;
-  const tomorrow = new Date(today.getTime() + 86400000);
-  if (at.toDateString() === tomorrow.toDateString()) return `Tomorrow ${time}`;
-  return `${at.toLocaleDateString('en-GH', { weekday: 'short', day: 'numeric', month: 'short' })} ${time}`;
-}
+/** One label for home, browse and the request stage — see utils/tripGroups. */
+const departureLabel = sharedDepartureLabel;
 
-/** "Thu" / "Tomorrow" / "Today" plus "06:40" — a departure, split for a stub. */
+/** "Thu" / "Tomorrow" / "Today" plus "6:40 PM" — a departure, split for a stub. */
 function departureParts(trip: any): { day: string; time: string; away: string | null } {
   const at = departureOf(trip);
   if (!at) return { day: 'Soon', time: '--:--', away: null };
-  const time = at.toLocaleTimeString('en-GH', { hour: '2-digit', minute: '2-digit' });
+  // Hand-built, not toLocale*: each platform's ICU formats these differently.
+  const time = clockTime(at);
   const today = new Date();
   const tomorrow = new Date(today.getTime() + 86400000);
   const day =
@@ -245,9 +234,10 @@ function departureParts(trip: any): { day: string; time: string; away: string | 
       ? 'Today'
       : at.toDateString() === tomorrow.toDateString()
         ? 'Tomorrow'
-        : at.toLocaleDateString('en-GH', { weekday: 'short', day: 'numeric', month: 'short' });
+        : `${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][at.getDay()]} ${at.getDate()}`;
 
   const mins = Math.round((at.getTime() - Date.now()) / 60000);
+  const days = Math.round(mins / (60 * 24));
   const away =
     mins <= 0
       ? 'Leaving now'
@@ -255,7 +245,9 @@ function departureParts(trip: any): { day: string; time: string; away: string | 
         ? `in ${mins} min`
         : mins < 60 * 24
           ? `in ${Math.floor(mins / 60)} h ${mins % 60 ? `${mins % 60}` : ''}`.trim()
-          : `in ${Math.round(mins / (60 * 24))} days`;
+          : days <= 1
+            ? 'in 1 day'
+            : `in ${days} days`;
 
   return { day, time, away };
 }

@@ -370,4 +370,17 @@ const getNearbyDrivers = async (req, res) => {
   return ok(res, drivers);
 };
 
-module.exports = { getNearbyDrivers, createTrip, getTrip, getTripContact, getTripByShareToken, getSeatMap, getPulseSchedules, searchTrips, getActiveTrip, getFareEstimate, getDeviationEstimate, emergencyAlert, getTripReceipt, driverNoShow, riderNoShow, scheduleTrip, getScheduledRides, cancelScheduledRide, getTrackingData, getJoinData, requestTrip, getTripRequestStatus, cancelTripRequest, saveLiveActivityToken };
+const createTripAlert = async (req, res) => {
+  const alert = await tripsService.createTripAlert(req.user.userId, req.body);
+  ok(res, { alert }, 'We’ll let you know');
+};
+
+const listTripAlerts = async (req, res) => {
+  ok(res, { alerts: await tripsService.listTripAlerts(req.user.userId) });
+};
+
+const deleteTripAlert = async (req, res) => {
+  ok(res, await tripsService.deleteTripAlert(req.user.userId, req.params.id), 'Alert removed');
+};
+
+module.exports = { createTripAlert, listTripAlerts, deleteTripAlert, getNearbyDrivers, createTrip, getTrip, getTripContact, getTripByShareToken, getSeatMap, getPulseSchedules, searchTrips, getActiveTrip, getFareEstimate, getDeviationEstimate, emergencyAlert, getTripReceipt, driverNoShow, riderNoShow, scheduleTrip, getScheduledRides, cancelScheduledRide, getTrackingData, getJoinData, requestTrip, getTripRequestStatus, cancelTripRequest, saveLiveActivityToken };

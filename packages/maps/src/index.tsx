@@ -1066,10 +1066,19 @@ export interface ShapeSourceProps {
   id?: string;
   shape: any;
   children?: React.ReactNode;
+  /** Native point clustering — cluster features carry `cluster_id` + `point_count`. */
+  cluster?: boolean;
+  clusterRadius?: number;
+  clusterMaxZoom?: number;
+  /** A tap on any feature of this source's layers; `nativeEvent.features` holds them. */
+  onPress?: (e: { nativeEvent: { features: any[] } }) => void;
+  hitbox?: { top?: number; right?: number; bottom?: number; left?: number };
+  /** React 19 ref-as-prop: exposes `getClusterExpansionZoom(clusterId)`. */
+  ref?: React.Ref<{ getClusterExpansionZoom: (clusterId: number) => Promise<number> }>;
 }
 
-export const ShapeSource = ({ id, shape, children }: ShapeSourceProps) => (
-  <NativeGeoJSONSource id={id ?? 'shape-source'} data={shape}>
+export const ShapeSource = ({ id, shape, children, ...rest }: ShapeSourceProps) => (
+  <NativeGeoJSONSource id={id ?? 'shape-source'} data={shape} {...rest}>
     {children}
   </NativeGeoJSONSource>
 );
@@ -1157,26 +1166,64 @@ export interface CircleLayerStyle {
   circleRadius?: number | any[];
   circleColor?: string | any[];
   circleOpacity?: number | any[];
+  circleStrokeWidth?: number | any[];
+  circleStrokeColor?: string | any[];
 }
 
 export interface CircleLayerProps {
   id?: string;
   style?: CircleLayerStyle;
+  /** A style-spec filter expression, e.g. `['has', 'point_count']`. */
+  filter?: any[];
   /** Auto-injected by the parent ShapeSource — don't pass explicitly. */
   source?: string;
 }
 
-export const CircleLayer = ({ id, style, source }: CircleLayerProps) => (
+export const CircleLayer = ({ id, style, filter, source }: CircleLayerProps) => (
   <NativeLayer
     id={id ?? 'circle-layer'}
     type="circle"
     source={source}
+    {...(filter ? { filter } : {})}
     paint={{
       'circle-radius': style?.circleRadius ?? 10,
       'circle-color': style?.circleColor ?? '#3B82F6',
       'circle-opacity': style?.circleOpacity ?? 0.5,
-      'circle-stroke-width': 0,
+      'circle-stroke-width': style?.circleStrokeWidth ?? 0,
+      ...(style?.circleStrokeColor ? { 'circle-stroke-color': style.circleStrokeColor } : {}),
     }}
+  />
+);
+
+// ── SymbolLayer (text only) ──────────────────────────────────────────────
+// Cluster counts. `textFont` must be a fontstack the style's glyph server
+// has — @eyego/map-styles serve "Noto Sans Regular/Bold/Italic".
+
+export interface SymbolLayerProps {
+  id?: string;
+  filter?: any[];
+  textField: string | any[];
+  textSize?: number;
+  textColor?: string;
+  textFont?: string[];
+  /** Auto-injected by the parent ShapeSource — don't pass explicitly. */
+  source?: string;
+}
+
+export const SymbolLayer = ({ id, filter, textField, textSize = 12, textColor = '#FFFFFF', textFont = ['Noto Sans Bold'], source }: SymbolLayerProps) => (
+  <NativeLayer
+    id={id ?? 'symbol-layer'}
+    type="symbol"
+    source={source}
+    {...(filter ? { filter } : {})}
+    layout={{
+      'text-field': textField,
+      'text-size': textSize,
+      'text-font': textFont,
+      'text-allow-overlap': true,
+      'text-ignore-placement': true,
+    }}
+    paint={{ 'text-color': textColor }}
   />
 );
 
@@ -1225,6 +1272,7 @@ function buildFallback(bgColor: string, fgColor: string) {
     LineLayer: () => null,
     FillLayer: () => null,
     CircleLayer: () => null,
+    SymbolLayer: () => null,
     UserLocation: () => null,
   };
 }
@@ -1249,5 +1297,5 @@ export const MapAvailable = !!(NativeMap && NativeCamera && NativeViewAnnotation
 const fallback = MapAvailable ? null : buildFallback('#0A0A0B', '#3B82F6');
 
 export default MapAvailable
-  ? { MapView, Camera, NavCamera, MarkerView, AnimatedMarkerView, PointAnnotation, ShapeSource, LineLayer, FillLayer, CircleLayer, UserLocation }
+  ? { MapView, Camera, NavCamera, MarkerView, AnimatedMarkerView, PointAnnotation, ShapeSource, LineLayer, FillLayer, CircleLayer, SymbolLayer, UserLocation }
   : fallback!;

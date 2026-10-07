@@ -1,34 +1,31 @@
-# State — 2026-10-07 (UI pass)
+# State — 2026-10-07 (UI + bug pass for client demo 2026-10-08)
 
 ## Current Goal
-Uber/Bolt-grade UI pass across rider + driver apps (user: "make me proud"). Grilled + locked:
-- Look: Onyx (dark; rider green, driver blue) + Uber RESTRAINT — max one glow per screen, flat rows,
-  strong type hierarchy, one template. Light + dark both must hold.
-- Kit (packages/ui): ScreenHeader (large title → collapses on scroll), ListSection, ListRow,
-  ScreenState (skeleton | empty | error+retry). Every secondary page migrates. 33 rider + several
-  driver screens hand-roll headers today.
-- IA: rider Settings hub (Appearance, Notifications, Privacy, Safety, Legal, Delete account; privacy.tsx
-  duplicate delete flow removed). Driver "Ratings & performance" (merge performance+ratings; weekly
-  goal → Earnings). Old routes redirect.
-- Browse (apps/rider/app/browse/[group].tsx): full map + draggable sheet, clustered pins (ShapeSource,
-  not 30 MarkerViews), "Where to?" search + sort (soonest/nearest/cheapest), richer rows (walk time
-  to pickup, live countdown, driver rating + vehicle, seat dots), leaving-soon strip + one-tap reserve,
-  live seat counts, useful empty state, NOTIFY ME (new table + check on trip publish + push; migration).
-- Reference: extend docs/research/2026-10-06-rival-ux-spec.md page-by-page (it only covered 5
-  surfaces) BEFORE touching pages.
-- Delivery: 4 batches, commit+push each for OTA: ① kit + driver account/auth/onboarding
-  ② rider account/settings ③ browse + Notify me ④ consistency sweep. No subagents.
+Uber/Bolt-grade UI across rider + driver AND hunt hidden bugs everywhere (user: client demo tomorrow,
+iOS + Android parity, no subagents). Grilled + locked:
+- Look: Onyx (dark; rider green, driver blue) + Uber RESTRAINT — max one glow per screen, flat rows.
+- Kit: packages/ui/src/page/Page.tsx (Screen, ScreenHeader, LargeTitle, ListSection, ListRow,
+  SkeletonRows) + QueryBoundary. ListRow holds pressed state itself (no style functions).
+- Delivery: 4 batches, commit+push each for OTA.
 
-## Done this pass (uncommitted)
-- rider profile/account-deletion.tsx: WALLET_NOT_EMPTY confirm flow + truthful copy (it was the
-  primary delete path and bypassed the confirm; onPress passed the event as acknowledgeBalance).
-- trips.service searchTrips: driver currentLat/currentLng removed from public listing (privacy leak).
+## Plan status
+- ① DONE 0278583 — kit + driver account/settings/perf/docs/vehicle/payout/edit/help/safety/privacy/
+  terms/delete/earnings, driver+rider phone/OTP, driver register→setup wizard.
+- ② DONE 776f0ce — rider account tab, settings hub, privacy(+policy page), notifications, safety,
+  trusted contacts, edit, wallet, payment methods, promotions, help, business, send credits, scan&pay
+  (header/permission), saved places; schedule Android picker.
+- ③ DONE (this commit) — browse = full map + 3-stop sheet, native clusters, Where-to search + place filter,
+  sort soonest/nearest/cheapest, boarding strip, rich rows, Notify me (TripAlert model + migration
+  20261007180000 + publish hook + push), calendar-correct departure labels, platform-identical clock.
+- ④ NEXT — consistency + bug sweep: driver tabs (home/trips/notifications/quests), trip flows (both apps),
+  rider tabs (home/services/activity/notifications/trips), place-picker, location-picker, guest-selection.
 
-## Unpassed clusters (measured: 0 design-system components)
-- driver: (profile)/* all 13, (auth)/*, (onboarding), (trip)/location-picker
-- rider: profile/{account-deletion,business,notification-preferences,privacy,safety,send-money,terms,
-  scan-pay,place-picker}, ride/guest-selection
+## Evidence
+- tsc rider/driver/admin clean; static suites green; e2e driver-features 42, wallet-commission 18,
+  money-flows 10, trip-alerts 10, driver-happy-path 32, rider-settings 83, rider-features 30, rider-edges 30.
 
-## Next
-1. Rival spec extension (web research, concise, one entry per page).
-2. Batch ①.
+## Open / tell the user
+- Restart Claude Code (ECC env change). `prisma migrate deploy` (20261007120000 + 20261007180000_trip_alerts).
+- Share-trip SMS fires only on online-paid confirmations; tracking link domain eyego.app unverified.
+- No email service exists (business receipts by email, referral programme: removed from UI).
+- KYC retention decision.

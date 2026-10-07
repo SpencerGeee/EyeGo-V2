@@ -73,19 +73,78 @@ export function groupTrips(trips: any[]): GroupedTrips {
   };
 }
 
-/** "in 8 min" / "in 2 h 10" / "18:40 tomorrow" — what a rider needs to decide. */
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * "6:40 PM", built by hand: `toLocaleTimeString` answers from each platform's
+ * own ICU data, so the same trip read "18:40" on one phone and "6:40 pm" on
+ * another.
+ */
+export function clockTime(d: Date): string {
+  const h = d.getHours();
+  const m = String(d.getMinutes()).padStart(2, '0');
+  return `${h % 12 === 0 ? 12 : h % 12}:${m} ${h < 12 ? 'AM' : 'PM'}`;
+}
+
+/** Whole calendar days from today to `d` (0 = today, 1 = tomorrow). */
+function calendarDaysFromToday(d: Date): number {
+  const today = new Date();
+  const a = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+  const b = Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
+  return Math.round((b - a) / 86_400_000);
+}
+
+/**
+ * "Leaves in 8 min" / "Leaves in 2 h 10" / "Tomorrow, 6:40 PM" / "Thu, 6:40 PM".
+ *
+ * The old label called anything a day or more away "tomorrow" — a Friday bus
+ * read "18:40 tomorrow" on a Monday — and a 9 PM bus seen at 10 AM counted
+ * as today only because the arithmetic was in hours, not calendar days.
+ */
 export function departureLabel(trip: any): string {
   const at = departureOf(trip);
   if (!at) return 'Departing soon';
   const mins = Math.round((at.getTime() - Date.now()) / 60000);
-  if (mins <= 0) return 'Leaving now';
+  if (mins <= 0) return groupOf(trip) === 'boarding' ? 'Boarding now' : 'Leaving now';
   if (mins < 60) return `Leaves in ${mins} min`;
-  const time = at.toLocaleTimeString('en-GH', { hour: '2-digit', minute: '2-digit' });
-  const days = Math.floor((at.getTime() - Date.now()) / 86_400_000);
-  if (days >= 1) return `${time} tomorrow`;
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  return m === 0 ? `Leaves in ${h} h` : `Leaves in ${h} h ${m}`;
+  const days = calendarDaysFromToday(at);
+  const time = clockTime(at);
+  if (days <= 0) {
+    if (mins >= 180) return `Today, ${time}`;
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return m === 0 ? `Leaves in ${h} h` : `Leaves in ${h} h ${m}`;
+  }
+  if (days === 1) return `Tomorrow, ${time}`;
+  if (days < 7) return `${WEEKDAYS[at.getDay()]}, ${time}`;
+  return `${at.getDate()} ${MONTHS[at.getMonth()]}, ${time}`;
+}
+
+/** Great-circle km — good enough to rank pickups and estimate a walk. */
+export function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const R = 6371;
+  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
+  const dLng = ((b.lng - a.lng) * Math.PI) / 180;
+  const s =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((a.lat * Math.PI) / 180) * Math.cos((b.lat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
+
+/** "4 min walk" / "2.3 km away" — streets are ~25 % longer than the crow flies. */
+export function walkLabel(km: number): string {
+  const mins = Math.max(1, Math.round((km * 1.25 * 1000) / 80));
+  if (mins <= 25) return `${mins} min walk`;
+  return `${km < 10 ? km.toFixed(1) : Math.round(km)} km away`;
+}
+
+/** "Silver Toyota Corolla", or null when the trip carried no vehicle. */
+export function vehicleLabel(trip: any): string | null {
+  const v = trip?.vehicle;
+  if (!v) return null;
+  const label = [v.colour, v.make, v.model].filter((x) => typeof x === 'string' && x.trim()).join(' ');
+  return label || null;
 }
 
 /**

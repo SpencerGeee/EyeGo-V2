@@ -169,6 +169,33 @@ model User {
   requestedTrips        Trip[]            @relation("RequestedTrips")
   walletTransactions    RiderWalletTransaction[]
   refunds               Refund[]
+  tripAlerts            TripAlert[]
+}
+
+/// "NOTIFY ME" — a rider asks to hear when a shared trip to somewhere opens.
+///
+/// Checked when a driver publishes a trip (trip-notify.service
+/// notifyTripAlertMatches). One-shot: the first matching trip pushes and stamps
+/// `notifiedAt`; an alert nobody matches lapses at `expiresAt`.
+model TripAlert {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  destName   String
+  destLat    Float
+  destLng    Float
+  /// Optional: only trips leaving near here. Null = any pickup.
+  originLat  Float?
+  originLng  Float?
+  radiusKm   Float     @default(3)
+  expiresAt  DateTime
+  notifiedAt DateTime?
+  /// The trip that satisfied the alert.
+  tripId     String?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 model SavedPlace {

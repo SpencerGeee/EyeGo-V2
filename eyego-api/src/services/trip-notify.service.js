@@ -395,8 +395,70 @@ function notifyTransition(trip, event) {
   void event;
 }
 
+/**
+ * "NOTIFY ME" — a just-published shared trip tells every rider waiting for one.
+ *
+ * Called once, after a driver creates a trip. An alert matches when the trip
+ * ends within its radius of the rider's destination (and, if the rider gave a
+ * pickup, starts within reach of it). One-shot: the alert is claimed with a
+ * conditional update, so two trips published at once cannot both push for it.
+ * The rider asked for this, so no preference gates it.
+ *
+ * ponytail: scans every open alert per publish; index by geohash/H3 when the
+ * open-alert count reaches the thousands.
+ */
+async function notifyTripAlertMatches(tripId) {
+  const { haversineKm } = require('../modules/trips/fare.calculator');
+  const trip = await prisma.trip.findUnique({
+    where: { id: tripId },
+    select: {
+      id: true,
+      status: true,
+      departureTime: true,
+      route: { select: { isActive: true, originLat: true, originLng: true, destLat: true, destLng: true, destinationName: true } },
+    },
+  });
+  const r = trip?.route;
+  if (!r?.isActive || !['SCHEDULED', 'FILLING'].includes(trip.status)) return 0;
+
+  const now = new Date();
+  const alerts = await prisma.tripAlert.findMany({
+    where: { notifiedAt: null, expiresAt: { gt: now } },
+    select: { id: true, destName: true, destLat: true, destLng: true, originLat: true, originLng: true, radiusKm: true, user: { select: { fcmToken: true } } },
+  });
+  const matches = alerts.filter(
+    (a) =>
+      haversineKm(a.destLat, a.destLng, r.destLat, r.destLng) <= a.radiusKm &&
+      (a.originLat == null || a.originLng == null || haversineKm(a.originLat, a.originLng, r.originLat, r.originLng) <= Math.max(a.radiusKm, 3)),
+  );
+
+  const when = trip.departureTime
+    ? new Date(trip.departureTime).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Accra' })
+    : null;
+  let sent = 0;
+  for (const a of matches) {
+    const claimed = await prisma.tripAlert.updateMany({
+      where: { id: a.id, notifiedAt: null },
+      data: { notifiedAt: now, tripId: trip.id },
+    });
+    if (claimed.count === 0 || !a.user?.fcmToken) continue;
+    await pushService
+      .sendPush(
+        a.user.fcmToken,
+        `A ride to ${a.destName.split(',')[0]} just opened`,
+        `${when ? `Leaves ${when}. ` : ''}Tap to reserve your seat before it fills.`,
+        { type: 'TRIP_ALERT', tripId: trip.id },
+      )
+      .then(() => { sent += 1; })
+      .catch((err) => logger.debug(`[trip-notify] trip alert push failed: ${err?.message ?? err}`));
+  }
+  if (matches.length) logger.info(`[trip-notify] trip ${trip.id} matched ${matches.length} alert(s), ${sent} pushed`);
+  return matches.length;
+}
+
 module.exports = {
   notifyTransition,
+  notifyTripAlertMatches,
   LIVE_ACTIVITY_STATUS_TEXT,
   PUSHABLE,
 };

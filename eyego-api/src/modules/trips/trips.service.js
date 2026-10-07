@@ -15,7 +15,7 @@ const logger = require('../../utils/logger');
 const mapboxService = require('../../services/mapbox.service');
 const ratingIntegrity = require('../../services/rating-integrity.service');
 const tripState = require('../../services/trip-state.service');
-const { seatOccupyingWhere } = require('../../utils/booking-status');
+const { seatOccupyingWhere, sumSeats } = require('../../utils/booking-status');
 const routeGeometry = require('../../services/route-geometry.service');
 const { ensureVirtualStops } = require('../../services/virtual-stops.service');
 
@@ -270,6 +270,12 @@ async function createTrip(driverId, data) {
    * only offered "ride to the end" — exactly the behaviour before this existed.
    */
   if (trip.routeId) void ensureVirtualStops(trip.routeId);
+
+  // "Notify me": riders waiting for a trip like this hear about it now.
+  // Unawaited — publishing must never wait on pushes.
+  require('../../services/trip-notify.service')
+    .notifyTripAlertMatches(trip.id)
+    .catch((err) => logger.warn(`[trips] trip-alert match failed for ${trip.id}: ${err?.message ?? err}`));
 
   // Attach farePerSeatPesewas + totalTripCostPesewas immediately so the driver app shows the
   // same per-seat price the rider will see — no waiting for the next refetch.
@@ -724,22 +730,33 @@ async function searchTrips(query) {
   // get an ad-hoc route that is active (and so stay listed — that is the
   // group/on-demand product); routes minted for a specific rider's request are
   // created with `isActive: false` precisely so they never surface here.
+  //
+  // A FILLING TRIP IS STILL BOARDING AFTER ITS PLANNED TIME. `departureTime >=
+  // now` for every status hid exactly the trips "Boarding now" exists for: a
+  // van waiting at the kerb to fill has outlived its planned minute by
+  // definition. Scheduled trips still need a future departure; a filling one
+  // stays listed for three hours past it (the lifecycle sweep expires the
+  // abandoned ones).
+  const now = new Date();
   const where = {
-    status: { in: ['SCHEDULED', 'FILLING'] },
-    departureTime: { gte: new Date() },
+    OR: [
+      { status: 'SCHEDULED', departureTime: { gte: now } },
+      { status: 'FILLING', departureTime: { gte: new Date(now.getTime() - 3 * 60 * 60 * 1000) } },
+    ],
     route: { isActive: true },
   };
 
   if (destination) {
     // Merge, don't overwrite — reassigning `where.route` here would have
     // dropped the `isActive` public-listing gate set above and put private
-    // on-demand routes back into text searches.
+    // on-demand routes back into text searches. Postgres `contains` is
+    // case-sensitive, so "osu" used to miss "Osu".
     where.route = {
       ...where.route,
       OR: [
-        { destinationName: { contains: destination } }, // SQLite contains is case-insensitive by default in Prisma if configured, but let's just use contains
-        { virtualStops: { some: { name: { contains: destination } } } }
-      ]
+        { destinationName: { contains: destination, mode: 'insensitive' } },
+        { virtualStops: { some: { name: { contains: destination, mode: 'insensitive' } } } },
+      ],
     };
   }
 
@@ -756,7 +773,7 @@ async function searchTrips(query) {
     driver: { select: { id: true, name: true, profilePhoto: true } },
     bookings: {
       where: { ...seatOccupyingWhere() },
-      select: { id: true, seatNumber: true, status: true },
+      select: { id: true, seatNumber: true, status: true, seats: true },
     },
   };
 
@@ -840,8 +857,21 @@ async function searchTrips(query) {
      * the real occupancy. Same derivation as `getTrip`, so the listing and the
      * detail page can no longer disagree.
      */
-    trip.availableSeats = Math.max(0, trip.maxSeats - (trip.bookings?.length ?? 0));
-    trip.occupiedSeats = trip.bookings?.length ?? 0;
+    // Seats, not rows: one booking can hold several (Booking.seats).
+    const occupied = sumSeats(trip.bookings ?? []);
+    trip.availableSeats = Math.max(0, trip.maxSeats - occupied);
+    trip.occupiedSeats = occupied;
+  });
+
+  // The driver's rating, for the browse row — same integrity filter as the
+  // profile, one grouped query for the page.
+  const ratings = await ratingIntegrity.getDriverRatings([...new Set(trips.map((t) => t.driverId).filter(Boolean))]);
+  trips.forEach((trip) => {
+    const r = ratings.get(trip.driverId);
+    if (trip.driver) {
+      trip.driver.rating = r?.rating ?? null;
+      trip.driver.ratingCount = r?.ratingCount ?? 0;
+    }
   });
 
   return { trips, total: totalCount, page: Number(page), totalPages: Math.ceil(totalCount / take) };
@@ -2190,4 +2220,59 @@ async function getNearbyAvailableDrivers({ lat, lng, radiusKm = 6 }) {
     .map(({ id, latitude, longitude }) => ({ id, latitude, longitude }));
 }
 
-module.exports = { getNearbyAvailableDrivers, createTrip, getTrip, getTripDriverPhone, getTripByShareToken, getSeatMap, getPulseSchedules, searchTrips, getActiveTrip, completeTrip, getTripReceipt, driverNoShow, riderNoShow, scheduleTrip, getTrackingData, getScheduledRides, cancelScheduledRide, processScheduledRideIntents, saveLiveActivityToken, clearLiveActivityToken, estimateDeviationSurcharge };
+// ── "Notify me" alerts ──────────────────────────────────────────────────────
+const TRIP_ALERT_TTL_MS = 24 * 60 * 60 * 1000;
+const MAX_OPEN_TRIP_ALERTS = 5;
+
+/** A rider asks to hear when a shared trip to `destName` opens (24 h, one-shot). */
+async function createTripAlert(userId, body = {}) {
+  const num = (v) => (v === undefined || v === null || v === '' ? null : Number(v));
+  const destLat = num(body.destinationLat ?? body.destLat);
+  const destLng = num(body.destinationLng ?? body.destLng);
+  const destName = String(body.destinationName ?? body.destName ?? '').trim();
+  if (!Number.isFinite(destLat) || !Number.isFinite(destLng) || !destName) {
+    throw new AppError('Choose where you want to go', 400, 'VALIDATION_ERROR');
+  }
+  const originLat = num(body.originLat);
+  const originLng = num(body.originLng);
+  const now = new Date();
+
+  const open = await prisma.tripAlert.findMany({
+    where: { userId, notifiedAt: null, expiresAt: { gt: now } },
+    select: { id: true, destLat: true, destLng: true },
+  });
+  // The same place twice is a refresh, not a second alert.
+  const same = open.find((a) => haversineKm(a.destLat, a.destLng, destLat, destLng) < 0.5);
+  if (same) {
+    return prisma.tripAlert.update({ where: { id: same.id }, data: { expiresAt: new Date(now.getTime() + TRIP_ALERT_TTL_MS), destName } });
+  }
+  if (open.length >= MAX_OPEN_TRIP_ALERTS) {
+    throw new AppError(`You can watch up to ${MAX_OPEN_TRIP_ALERTS} places at a time. Remove one first.`, 409, 'TOO_MANY_ALERTS');
+  }
+  return prisma.tripAlert.create({
+    data: {
+      userId,
+      destName,
+      destLat,
+      destLng,
+      originLat: Number.isFinite(originLat) ? originLat : null,
+      originLng: Number.isFinite(originLng) ? originLng : null,
+      expiresAt: new Date(now.getTime() + TRIP_ALERT_TTL_MS),
+    },
+  });
+}
+
+async function listTripAlerts(userId) {
+  return prisma.tripAlert.findMany({
+    where: { userId, notifiedAt: null, expiresAt: { gt: new Date() } },
+    orderBy: { createdAt: 'desc' },
+  });
+}
+
+async function deleteTripAlert(userId, id) {
+  const { count } = await prisma.tripAlert.deleteMany({ where: { id, userId } });
+  if (count === 0) throw new NotFoundError('Alert');
+  return { deleted: true };
+}
+
+module.exports = { createTripAlert, listTripAlerts, deleteTripAlert, getNearbyAvailableDrivers, createTrip, getTrip, getTripDriverPhone, getTripByShareToken, getSeatMap, getPulseSchedules, searchTrips, getActiveTrip, completeTrip, getTripReceipt, driverNoShow, riderNoShow, scheduleTrip, getTrackingData, getScheduledRides, cancelScheduledRide, processScheduledRideIntents, saveLiveActivityToken, clearLiveActivityToken, estimateDeviationSurcharge };

@@ -1283,7 +1283,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                     />
                     <Text style={styles.hint}>
                       {[
-                        `Next ${departureLabel(nextBus)}`,
+                        `Next bus ${departureLabel(nextBus).replace(/^./, (c) => c.toLowerCase())}`,
                         seatsLeft(nextBus) != null ? `${seatsLeft(nextBus)} seat${seatsLeft(nextBus) === 1 ? '' : 's'} left` : null,
                         busTrips.length > 1 ? `${busTrips.length} going your way` : null,
                       ]

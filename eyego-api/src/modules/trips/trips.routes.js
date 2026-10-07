@@ -44,6 +44,10 @@ router.get('/nearby-drivers', authenticate, tripsController.getNearbyDrivers);
 // yet") even though the POST /trips/schedule that created the ride had
 // already succeeded.
 router.get('/scheduled', authenticate, tripsController.getScheduledRides);
+// "Notify me" — before '/:id' for the same reason as '/scheduled'.
+router.get('/alerts', authenticate, tripsController.listTripAlerts);
+router.post('/alerts', authenticate, tripsController.createTripAlert);
+router.delete('/alerts/:id', authenticate, tripsController.deleteTripAlert);
 router.get('/:id', authenticate, tripsController.getTrip);
 router.get('/:id/contact', authenticate, tripsController.getTripContact);
 router.get('/:id/seats', authenticate, tripsController.getSeatMap);

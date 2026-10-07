@@ -1,6 +1,18 @@
 import { apiClient } from './client';
 import type { ApiResponse, Trip, Seat, FareEstimate, SearchTripsParams } from '@eyego/types';
 
+export interface TripAlert {
+  id: string;
+  destName: string;
+  destLat: number;
+  destLng: number;
+  originLat: number | null;
+  originLng: number | null;
+  radiusKm: number;
+  expiresAt: string;
+  createdAt: string;
+}
+
 export const tripsApi = {
   search: (params: SearchTripsParams) =>
     apiClient.get<ApiResponse<{ trips: Trip[]; total: number; page: number; totalPages: number }>>('/trips', { params }),
@@ -117,6 +129,15 @@ export const tripsApi = {
 
   cancelScheduledRide: (id: string) =>
     apiClient.delete<ApiResponse<{ id: string; status: string }>>(`/trips/scheduled/${id}`),
+
+  /**
+   * "Notify me" — hear when a shared trip to a destination opens. One-shot,
+   * 24 h; asking again for the same place refreshes it.
+   */
+  createTripAlert: (data: { destinationName: string; destinationLat: number; destinationLng: number; originLat?: number; originLng?: number }) =>
+    apiClient.post<ApiResponse<{ alert: TripAlert }>>('/trips/alerts', data),
+  listTripAlerts: () => apiClient.get<ApiResponse<{ alerts: TripAlert[] }>>('/trips/alerts'),
+  deleteTripAlert: (id: string) => apiClient.delete<ApiResponse<{ deleted: boolean }>>(`/trips/alerts/${id}`),
 
   // iOS Live Activity (ActivityKit) — registers the per-device push token
   // yielded by Activity.pushTokenUpdates so the backend can push lock-screen
