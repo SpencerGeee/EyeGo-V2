@@ -1,12 +1,9 @@
-﻿import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { View, StyleSheet, ScrollView, Pressable, Switch } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';import { Ionicons } from '@expo/vector-icons';
-import { fonts, spacing, radii, withOpacity } from '@eyego/config';
-import { Text, goBack } from '@eyego/ui';
-import { useColors, Colors } from '../../utils/useColors';
-import { apiClient } from '@eyego/api';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Switch } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { apiClient } from '@eyego/api';
+import { Screen, ListSection, ListRow } from '@eyego/ui';
+import { useColors } from '../../utils/useColors';
 
 const STORAGE_KEY = 'eyego_notif_prefs';
 
@@ -32,73 +29,59 @@ const DEFAULT_PREFS: NotifPrefs = {
   safetyAlerts: true,
 };
 
-interface SectionItem {
-  key: keyof NotifPrefs;
-  label: string;
-  locked?: boolean;
-}
-
-interface Section {
-  title: string;
-  items: SectionItem[];
-}
-
-const SECTIONS: Section[] = [
+const SECTIONS: { title: string; footer?: string; items: { key: keyof NotifPrefs; label: string; hint?: string; locked?: boolean }[] }[] = [
   {
-    title: 'TRIPS',
+    title: 'Trips',
     items: [
-      { key: 'driverArriving', label: 'Driver Arriving' },
-      { key: 'tripStarted', label: 'Trip Started' },
-      { key: 'tripCompleted', label: 'Trip Completed' },
+      { key: 'driverArriving', label: 'Driver on the way', hint: 'Matched, en route, arrived' },
+      { key: 'tripStarted', label: 'Trip started' },
+      { key: 'tripCompleted', label: 'Trip completed', hint: 'Receipt and rating' },
     ],
   },
   {
-    title: 'MESSAGES',
+    title: 'Messages',
     items: [
-      { key: 'chatMessages', label: 'Chat Messages' },
-      { key: 'paymentConfirmations', label: 'Payment Confirmations' },
+      { key: 'chatMessages', label: 'Chat messages', hint: 'From your driver' },
+      { key: 'paymentConfirmations', label: 'Payments', hint: 'Top-ups, transfers, refunds' },
     ],
   },
   {
-    title: 'MARKETING',
+    title: 'Offers',
     items: [
-      { key: 'promotions', label: 'Promotions & Offers' },
-      { key: 'newFeatures', label: 'New Features' },
+      { key: 'promotions', label: 'Promotions and offers' },
+      { key: 'newFeatures', label: 'New features' },
     ],
   },
   {
-    title: 'SAFETY',
-    items: [{ key: 'safetyAlerts', label: 'Safety Alerts', locked: true }],
+    title: 'Safety',
+    footer: 'Safety alerts can’t be turned off.',
+    items: [{ key: 'safetyAlerts', label: 'Safety alerts', locked: true }],
   },
 ];
 
+/**
+ * NOTIFICATIONS — each switch is enforced by the server before it pushes
+ * (push.service prefAllows; chat now included). Local copy paints instantly,
+ * the account's copy wins.
+ */
 export default function NotificationPreferencesScreen() {
   const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
-  const router = useRouter();
-
   const [prefs, setPrefs] = useState<NotifPrefs>(DEFAULT_PREFS);
   const [syncError, setSyncError] = useState(false);
 
   const loadPrefs = useCallback(async () => {
-    // Local cache first for instant paint…
     try {
       const raw = await AsyncStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        setPrefs({ ...DEFAULT_PREFS, ...JSON.parse(raw) });
-      }
+      if (raw) setPrefs({ ...DEFAULT_PREFS, ...JSON.parse(raw) });
     } catch {
-      // ignore
+      /* first run */
     }
-    // …then the server copy wins so prefs follow the account across devices.
     try {
-      const res = await apiClient.get<{ success: boolean; data?: { prefs?: Partial<NotifPrefs> } }>(
-        '/user/me/notifications'
-      );
-      const serverPrefs = res.data?.data?.prefs;
-      if (serverPrefs && Object.keys(serverPrefs).length > 0) {
+      const res = await apiClient.get<{ data?: { prefs?: Partial<NotifPrefs> } }>('/user/me/notifications');
+      const server = res.data?.data?.prefs;
+      if (server && Object.keys(server).length > 0) {
         setPrefs((p) => {
-          const merged = { ...p, ...serverPrefs };
+          const merged = { ...p, ...server };
           AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(merged)).catch(() => {});
           return merged;
         });
@@ -109,145 +92,41 @@ export default function NotificationPreferencesScreen() {
   }, []);
 
   useEffect(() => {
-    loadPrefs();
+    void loadPrefs();
   }, [loadPrefs]);
 
-  const handleToggle = async (key: keyof NotifPrefs, value: boolean) => {
+  const toggle = (key: keyof NotifPrefs, value: boolean) => {
     const updated = { ...prefs, [key]: value };
     setPrefs(updated);
     setSyncError(false);
-    try {
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-      apiClient.patch('/user/me/notifications', updated).catch(() => {
-        setSyncError(true);
-      });
-    } catch {
-      // ignore local storage errors
-    }
+    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated)).catch(() => {});
+    apiClient.patch('/user/me/notifications', updated).catch(() => setSyncError(true));
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <View style={styles.header}>
-        <Pressable onPress={() => goBack()} style={styles.backBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Go back">
-          <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
-        </Pressable>
-        <Text variant="titleSmall" style={{ color: colors.onSurface }}>Notification Preferences</Text>
-        <View style={{ width: 44 }} />
-      </View>
-
-      {syncError && (
-        <View style={styles.syncErrorBanner}>
-          <Ionicons name="warning-outline" size={14} color={colors.statusWarning} style={{ marginRight: spacing.sm }} />
-          <Text variant="caption" style={{ color: colors.statusWarning, flex: 1 }}>
-            Preferences saved locally — sync failed. Will retry next time.
-          </Text>
-        </View>
-      )}
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <View
-          >
-          {SECTIONS.map((section) => (
-            <View key={section.title} style={{ marginBottom: spacing['2xl'] }}>
-              <Text variant="labelCaps" style={styles.sectionLabel}>{section.title}</Text>
-              <View style={styles.card}>
-                {section.items.map((item, index) => (
-                  <React.Fragment key={item.key}>
-                    {index > 0 && <View style={styles.divider} />}
-                    <View style={styles.row}>
-                      <View style={styles.rowLeft}>
-                        <Text variant="bodyMedium" style={{ color: colors.onSurface }}>
-                          {item.label}
-                        </Text>
-                        {item.locked && (
-                          <Ionicons
-                            name="lock-closed"
-                            size={14}
-                            color={colors.onSurfaceVariant}
-                            style={{ marginLeft: spacing.sm }}
-                          />
-                        )}
-                      </View>
-                      <Switch
-                        value={prefs[item.key]}
-                        onValueChange={
-                          item.locked ? undefined : (val) => handleToggle(item.key, val)
-                        }
-                        disabled={item.locked}
-                        thumbColor={prefs[item.key] ? colors.primary : colors.outline}
-                        trackColor={{
-                          false: colors.outlineVariant,
-                          true: withOpacity(colors.primary, 0.25),
-                        }}
-                      />
-                    </View>
-                  </React.Fragment>
-                ))}
-              </View>
-            </View>
+    <Screen title="Notifications" subtitle={syncError ? 'Saved on this phone — we couldn’t reach your account. It’ll sync on your next change.' : undefined}>
+      {SECTIONS.map((section) => (
+        <ListSection key={section.title} title={section.title} footer={section.footer}>
+          {section.items.map((item) => (
+            <ListRow
+              key={item.key}
+              title={item.label}
+              subtitle={item.hint}
+              right={
+                <Switch
+                  value={prefs[item.key]}
+                  onValueChange={item.locked ? undefined : (v) => toggle(item.key, v)}
+                  disabled={item.locked}
+                  trackColor={{ false: colors.surfaceContainerHighest, true: colors.primary }}
+                  thumbColor="#fff"
+                  ios_backgroundColor={colors.surfaceContainerHighest}
+                  accessibilityLabel={item.label}
+                />
+              }
+            />
           ))}
-        </View>
-      </ScrollView>
-    </SafeAreaView>
+        </ListSection>
+      ))}
+    </Screen>
   );
 }
-
-const makeStyles = (colors: Colors) =>
-  StyleSheet.create({
-    safe: { flex: 1, backgroundColor: 'transparent' },
-    header: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      paddingHorizontal: spacing['2xl'],
-      paddingVertical: spacing.base,
-    },
-    backBtn: {
-      width: 44,
-      height: 44,
-      borderRadius: 22,
-      backgroundColor: colors.surfaceCard,
-      borderWidth: 1,
-      borderColor: colors.rimLight,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    scroll: {
-      paddingHorizontal: spacing['2xl'],
-      paddingTop: spacing.lg,
-      paddingBottom: spacing['3xl'],
-    },
-    sectionLabel: {
-      fontFamily: fonts.semiBold,
-      fontSize: 10,
-      lineHeight: 13,
-      letterSpacing: 1.4,
-      color: colors.outline,
-      marginBottom: spacing.sm,
-      marginLeft: spacing.xs,
-    },
-    card: {
-      backgroundColor: colors.surfaceCard,
-      borderRadius: radii.lg,
-      borderWidth: 1,
-      borderColor: colors.rimLightSubtle,
-      overflow: 'hidden',
-    },
-    row: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      padding: spacing.base,
-    },
-    rowLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-    divider: { height: 1, backgroundColor: colors.rimLightSubtle, marginHorizontal: spacing.base },
-    syncErrorBanner: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: withOpacity(colors.statusWarning, 0.15),
-      paddingHorizontal: spacing['2xl'],
-      paddingVertical: spacing.sm,
-      borderBottomWidth: 1,
-      borderBottomColor: withOpacity(colors.statusWarning, 0.4),
-    },
-  });

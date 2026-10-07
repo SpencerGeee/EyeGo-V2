@@ -1,550 +1,349 @@
-﻿import React, { useState, useMemo } from 'react';
-import { View, StyleSheet, Platform, Modal, TextInput } from 'react-native';
-import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
+import React, { useState, useMemo } from 'react';
+import { View, StyleSheet, TextInput, Pressable, Keyboard, RefreshControl } from 'react-native';
+import { KeyboardStickyView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { walletApi, bookingsApi, paymentsApi, queryKeys } from '@eyego/api';
-import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
+import { walletApi, paymentsApi, queryKeys, MOMO_NETWORKS, type MomoNetwork } from '@eyego/api';
+import { fonts, radii, spacing } from '@eyego/config';
+import {
+  Text,
+  Button,
+  Skeleton,
+  GradientGlowBorder,
+  PREMIUM_RING_LOCATIONS,
+  PanelSheet,
+  Screen,
+  ListSection,
+  ListRow,
+  SkeletonRows,
+  goDeeper,
+  notify,
+  useBiometricGate,
+  BiometricLock,
+} from '@eyego/ui';
+import { formatGhs, pesewasFromCedis, pesewasToDecimalString, ghanaLocalDigits, describeError } from '@eyego/utils';
 import { useColors, Colors } from '../../utils/useColors';
-// `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
-// drops the `({ pressed }) => style` function form on RN's Pressable, which
-// silently deletes the whole style. See components/trip/stages/SearchStage.tsx.
-import { Text, Button, Pressable, Skeleton, GlassSurface, GradientGlowBorder, PREMIUM_RING_LOCATIONS, goDeeper, goBack, notify , useBiometricGate, BiometricLock } from '@eyego/ui';
-import { formatGhs, pesewasFromCedis, pesewasToDecimalString } from "@eyego/utils";
 import { useWalletBalance } from '../../hooks/useWalletBalance';
+import { useAuthStore } from '../../stores/auth.store';
 
-// Green-accent variant of the premium ring sweep — two narrow emerald arcs
-// (brand green core) orbiting a near-black ring, matching the house
-// PREMIUM_RING technique but tuned to the wallet's green identity.
+// Two emerald arcs orbiting a near-black ring — the page's one glow.
 const GREEN_RING_COLORS = [
   '#0A0A0C', '#0A0A0C', '#4be277', '#b1f2c5', '#4be277', '#0A0A0C',
   '#0A0A0C', '#4be277', '#b1f2c5', '#4be277', '#0A0A0C', '#0A0A0C',
 ] as const;
 
+const PRESETS_PESEWAS = [2000, 5000, 10000, 20000];
+const MIN_TOPUP_PESEWAS = 100;
+const MAX_TOPUP_PESEWAS = 500_000;
+
+/** The network a Ghanaian number is on, from its prefix — the default chip. */
+function networkFor(local9: string): MomoNetwork {
+  const p = local9.slice(0, 2);
+  if (['20', '50'].includes(p)) return 'MOMO_TELECEL';
+  if (['26', '56', '27', '57'].includes(p)) return 'MOMO_AIRTELTIGO';
+  return 'MOMO_MTN';
+}
+
+/**
+ * WALLET (rival spec §8) — balance hero + Top up, then money actions, then
+ * activity with signed amounts and pending/failed in grey.
+ *
+ * Top-up used to send `method: "MOMO"`, which the live gateway rejects
+ * ("Unsupported MoMo method") — every real rider top-up failed. The rider now
+ * picks the network and number; the server also reads the network off the
+ * number as a fallback. The "Standard / Silver / Gold Rider" chip was invented
+ * here from trip counts the server knows nothing about, so it is gone.
+ */
 export default function WalletScreen() {
   const gate = useBiometricGate({ reason: 'Unlock your wallet' });
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const router = useRouter();
-  const queryClient = useQueryClient();
-  const [modalVisible, setModalVisible] = useState(false);
-  const [topUpAmount, setTopUpAmount] = useState('');
+  const qc = useQueryClient();
+  const user = useAuthStore((s) => s.user);
 
-  // `isPending`, not `isLoading`: a query re-trying after a failure is not
-  // "loading" to v5, and the old check drew GH₵0.00 through every retry.
-  const {
-    data: balancePesewas,
-    isPending: balanceLoading,
-    isError: balanceFailed,
-    refetch: refetchBalance,
-    dataUpdatedAt: balanceUpdatedAt,
-  } = useWalletBalance({ refetchInterval: 15_000 });
+  const myLocal = ghanaLocalDigits(user?.phone ?? '');
+  const [sheet, setSheet] = useState(false);
+  const [amount, setAmount] = useState('');
+  const [phone, setPhone] = useState(myLocal);
+  const [network, setNetwork] = useState<MomoNetwork>(networkFor(myLocal));
+  const [verifying, setVerifying] = useState(false);
 
-  const {
-    data: txData,
-    isPending: txLoading,
-    isError: txFailed,
-    refetch: refetchTx,
-  } = useQuery({
+  const balanceQ = useWalletBalance({ refetchInterval: 15_000 });
+  const txQ = useQuery({
     queryKey: queryKeys.wallet.transactions(),
     queryFn: () => walletApi.getTransactions(),
   });
+  const transactions: any[] = (txQ.data as any)?.data?.data?.transactions ?? (txQ.data as any)?.data?.transactions ?? [];
 
-  const { data: historyData } = useQuery({
-    queryKey: ['bookings', 'history', 'completed'],
-    queryFn: () => bookingsApi.getHistory({ status: 'COMPLETED', limit: 1 }),
-    // Backend getUserBookings returns { data: { bookings, total, page, totalPages } }
-    // — there is no top-level `pagination` and `data` is an object (no .length),
-    // so the old select always yielded 0 → tier stuck on "Standard". Read data.total.
-    select: (r) => (r.data as any)?.data?.total ?? (r.data as any)?.data?.bookings?.length ?? 0,
-  });
-  const tripCount = historyData ?? 0;
-
-  // Tier icons use Ionicons (vector) names instead of emoji.
-  function getAccountTier(count: number, primaryColor: string) {
-    if (count >= 50) return { label: 'Premium', color: '#F59E0B', icon: 'star' as const };
-    if (count >= 26) return { label: 'Gold', color: '#EAB308', icon: 'medal' as const };
-    if (count >= 11) return { label: 'Silver', color: '#94A3B8', icon: 'medal-outline' as const };
-    return { label: 'Standard', color: primaryColor, icon: 'leaf' as const };
-  }
-  const tier = getAccountTier(tripCount, colors.primary);
-
-  const balance = balancePesewas ?? 0;
-  const transactions = (txData as any)?.data?.data?.transactions ?? (txData as any)?.data?.transactions ?? [];
-
-  const [isVerifyingTopUp, setIsVerifyingTopUp] = useState(false);
+  const amountPesewas = pesewasFromCedis(parseFloat(amount));
+  const amountOk = Number.isFinite(amountPesewas) && amountPesewas >= MIN_TOPUP_PESEWAS && amountPesewas <= MAX_TOPUP_PESEWAS;
+  const phoneOk = /^[235]\d{8}$/.test(phone);
 
   const topUp = useMutation({
-    mutationFn: (amountPesewas: number) => walletApi.topUp({ amountPesewas, method: "MOMO" }),
-    onSuccess: async (res, amountPesewas) => {
+    mutationFn: (p: number) => walletApi.topUp({ amountPesewas: p, method: network, momoPhone: `0${phone}` }),
+    onSuccess: async (res, p) => {
       const reference = (res as any)?.data?.data?.reference;
-      setModalVisible(false);
-      setTopUpAmount('');
-
+      setSheet(false);
+      setAmount('');
       if (!reference) {
-        // No reference to verify against — fall back to an honest "in progress" message
-        // rather than falsely declaring success.
-        notify('Top Up Initiated', 'Approve the prompt on your phone to complete the top-up.', { tone: 'info' });
+        notify('Approve on your phone', 'Approve the mobile money prompt to finish your top-up.');
         return;
       }
-
-      // The charge is only *initiated* here — approve on the phone happens next, and the
-      // balance is only actually credited once the webhook confirms it. Poll before telling
-      // the rider their money has been added.
-      setIsVerifyingTopUp(true);
+      // Initiated, not paid: the balance moves when the network confirms.
+      setVerifying(true);
       try {
         await paymentsApi.pollWalletTopup(reference);
-        queryClient.invalidateQueries({ queryKey: queryKeys.wallet.balance() });
-        queryClient.invalidateQueries({ queryKey: queryKeys.wallet.transactions() });
-        notify('Top Up Successful', `${formatGhs(amountPesewas)} has been added to your EyeGo Wallet.`, { tone: 'success' });
+        qc.invalidateQueries({ queryKey: queryKeys.wallet.balance() });
+        qc.invalidateQueries({ queryKey: queryKeys.wallet.transactions() });
+        notify('Money added', `${formatGhs(p)} is in your wallet.`, { tone: 'success' });
       } catch {
-        notify(
-          'Top Up Not Confirmed',
-          'We could not confirm your payment yet. If you approved the prompt, your balance will update shortly — otherwise please try again.',
-        );
+        notify('Not confirmed yet', 'If you approved the prompt, your balance updates shortly. Otherwise, try again.');
       } finally {
-        setIsVerifyingTopUp(false);
+        setVerifying(false);
       }
     },
-    onError: () => {
-      notify('Failed', 'Top up could not be processed. Please try again.');
+    onError: (err) => {
+      const { title, message } = describeError(err, 'Your top-up couldn’t be started. Please try again.');
+      notify(title, message);
     },
   });
 
-  const handleTopUp = (amountPesewas: number) => {
-    if (!amountPesewas || amountPesewas <= 0) {
-      notify(null, 'Please enter a valid amount');
+  const submit = () => {
+    if (!amountOk) {
+      notify('Check the amount', `Top up between ${formatGhs(MIN_TOPUP_PESEWAS)} and ${formatGhs(MAX_TOPUP_PESEWAS, { showDecimals: false })}.`);
       return;
     }
+    if (!phoneOk) {
+      notify('Check the number', 'Enter the 10-digit mobile money number, e.g. 024 123 4567.');
+      return;
+    }
+    Keyboard.dismiss();
     topUp.mutate(amountPesewas);
   };
 
-  return (
-    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Pressable onPress={() => goBack()} style={styles.backBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Go back">
-          <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
-        </Pressable>
-        <Text variant="titleSmall" style={{ color: colors.onSurface }}>Wallet</Text>
-        <View style={{ width: 44 }} />
-      </View>
-
-      {/* The money is behind the face — see BiometricGate in @eyego/ui. */}
-      {gate.state !== 'unlocked' ? (
+  if (gate.state !== 'unlocked') {
+    // The money is behind the face — see BiometricGate in @eyego/ui.
+    return (
+      <SafeAreaView style={styles.locked}>
         <BiometricLock state={gate.state} failed={gate.failed} onRetry={gate.retry} />
-      ) : (
-      <KeyboardAwareScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" bottomOffset={24}>
-        {/* Balance Card */}
-        <View
-          >
-          {/* Balance HERO — green glow ring with a frosted-glass fill inset by
-              the ring thickness (3) so the blur doesn't paint over the ring. */}
+      </SafeAreaView>
+    );
+  }
+
+  const balance = balanceQ.data;
+
+  return (
+    <>
+      <Screen
+        title="Wallet"
+        refreshControl={
+          <RefreshControl
+            refreshing={balanceQ.isRefetching || txQ.isRefetching}
+            onRefresh={() => { balanceQ.refetch(); txQ.refetch(); }}
+            tintColor={colors.primary}
+          />
+        }
+      >
+        <View style={styles.heroWrap}>
           <GradientGlowBorder
             colors={GREEN_RING_COLORS}
             locations={PREMIUM_RING_LOCATIONS}
-            fillColor={colors.surfaceCard}
+            fillColor={colors.surfaceContainerHigh}
             borderRadius={radii['2xl']}
             glow
             glowColor={colors.primary}
-            style={styles.balanceCard}
+            style={styles.hero}
           >
-            <GlassSurface
-              borderRadius={radii['2xl'] - 3}
-              intensity="high"
-              dark
-              style={styles.balanceGlassInset}
-            />
-            <View style={styles.balanceGlow} pointerEvents="none" />
-            <View style={styles.balanceContent}>
-              <Text style={styles.balanceLabel}>AVAILABLE BALANCE</Text>
-              {balanceLoading ? (
-                <Skeleton width={180} height={44} borderRadius={8} style={{ marginTop: spacing.sm }} />
-              ) : balancePesewas == null && balanceFailed ? (
-                // "We could not ask" must never read as "you have nothing".
-                <Pressable
-                  onPress={() => void refetchBalance()}
-                  style={styles.retryRow}
-                  accessibilityRole="button"
-                  accessibilityLabel="Retry loading your balance"
-                >
-                  <Ionicons name="refresh" size={16} color={colors.onSurfaceVariant} />
-                  <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Couldn’t load your balance · Retry</Text>
-                </Pressable>
-              ) : (
-                <View style={styles.balanceRow}>
-                  <Text style={styles.balanceCurrency}>GH₵</Text>
-                  <Text style={styles.balanceValue}>{pesewasToDecimalString(balance)}</Text>
-                </View>
-              )}
-              {/* A refresh failed but we still hold the last answer: keep it,
-                  and say how old it is — never swap it for a blank or a zero. */}
-              {balanceFailed && balancePesewas != null && balanceUpdatedAt > 0 ? (
-                <Pressable
-                  onPress={() => void refetchBalance()}
-                  style={styles.retryRow}
-                  accessibilityRole="button"
-                  accessibilityLabel="Balance may be out of date. Retry"
-                >
-                  <Ionicons name="refresh" size={13} color={colors.onSurfaceVariant} />
-                  <Text variant="bodySmall" color={colors.onSurfaceVariant}>
-                    As of {Math.max(1, Math.round((Date.now() - balanceUpdatedAt) / 60_000))} min ago · Tap to refresh
-                  </Text>
-                </Pressable>
-              ) : null}
-
-              <View style={styles.tierRow}>
-                <Ionicons name={tier.icon} size={14} color={tier.color} />
-                <Text style={[styles.tierText, { color: tier.color }]}>{tier.label} Rider</Text>
-              </View>
-
-              <Pressable
-                style={({ pressed }) => [styles.topUpBtn, pressed && { transform: [{ scale: 0.97 }] }]}
-                onPress={() => setModalVisible(true)}
-                accessibilityRole="button"
-                accessibilityLabel="Top up wallet"
-              >
-                <Ionicons name="add-circle" size={20} color={colors.onPrimary} />
-                <Text style={styles.topUpText}>Top Up Wallet</Text>
+            <Text variant="labelCaps" color={colors.onSurfaceVariant}>EyeGo balance</Text>
+            {balanceQ.isPending ? (
+              <Skeleton width={180} height={44} borderRadius={8} style={{ marginTop: 8 }} />
+            ) : balance == null && balanceQ.isError ? (
+              // "We could not ask" must never read as "you have nothing".
+              <Pressable onPress={() => void balanceQ.refetch()} style={styles.retry} accessibilityRole="button" accessibilityLabel="Retry loading your balance">
+                <Ionicons name="refresh" size={16} color={colors.onSurfaceVariant} />
+                <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Couldn’t load · Retry</Text>
               </Pressable>
-            </View>
+            ) : (
+              <View style={styles.balanceRow}>
+                <Text style={styles.currency}>GH₵</Text>
+                <Text style={styles.balance}>{pesewasToDecimalString(balance ?? 0)}</Text>
+              </View>
+            )}
+            {balanceQ.isError && balance != null && balanceQ.dataUpdatedAt > 0 ? (
+              <Text variant="caption" color={colors.onSurfaceVariant}>
+                As of {Math.max(1, Math.round((Date.now() - balanceQ.dataUpdatedAt) / 60_000))} min ago
+              </Text>
+            ) : null}
+            <Button
+              label={verifying ? 'Confirming…' : 'Top up'}
+              onPress={() => setSheet(true)}
+              loading={verifying}
+              disabled={verifying}
+              style={{ marginTop: 16, alignSelf: 'flex-start' }}
+              size="sm"
+            />
           </GradientGlowBorder>
         </View>
 
-        {/* Quick Actions grid */}
-        <View
-          style={styles.quickGrid}
-        >
-          {/**
-           * "SEND MONEY" PROMISED A CASH RAIL WE DO NOT RUN.
-           *
-           * A rider wallet holds ride credits: topped up with money, spent on
-           * fares, and — unlike a driver's, which has `POST /wallet/withdraw`
-           * behind driver auth — with no way out to a bank or MoMo account. So
-           * what this button actually does is pass credits to another EyeGo
-           * account, and its name is now that. See profile/send-money.tsx.
-           */}
-          <Pressable style={styles.quickCard} onPress={() => goDeeper('/profile/send-money' as any)} accessibilityRole="button">
-            <Ionicons name="gift-outline" size={28} color={colors.primary} />
-            <Text style={styles.quickLabel}>Send Credits</Text>
-          </Pressable>
-          <Pressable style={styles.quickCard} onPress={() => goDeeper('/profile/scan-pay' as any)} accessibilityRole="button">
-            <Ionicons name="qr-code-outline" size={28} color={colors.primary} />
-            <Text style={styles.quickLabel}>Scan & Pay</Text>
-          </Pressable>
-        </View>
+        <ListSection>
+          <ListRow icon="paper-plane-outline" title="Send credits" subtitle="To another EyeGo rider" onPress={() => goDeeper('/profile/send-money')} />
+          <ListRow icon="qr-code-outline" title="Scan & pay" onPress={() => goDeeper('/profile/scan-pay')} />
+          <ListRow icon="card-outline" title="Payment methods" onPress={() => goDeeper('/profile/payment-methods')} />
+        </ListSection>
 
-        {/* Recent Activity */}
-        <View
-          style={styles.section}
-        >
-          <Text variant="titleSmall" style={{ color: colors.onSurface }}>Recent Activity</Text>
-
-          <GlassSurface borderRadius={radii.xl} intensity="low" dark style={styles.transactionList}>
-            {txLoading ? (
-              <>
-                {[1, 2, 3].map((i) => (
-                  <Skeleton key={i} height={52} borderRadius={radii.lg} style={{ marginBottom: spacing.sm }} />
-                ))}
-              </>
-            ) : txFailed && transactions.length === 0 ? (
-              <Pressable
-                onPress={() => void refetchTx()}
-                style={[styles.retryRow, { justifyContent: 'center', padding: spacing.base }]}
-                accessibilityRole="button"
-                accessibilityLabel="Retry loading your activity"
-              >
-                <Ionicons name="refresh" size={16} color={colors.onSurfaceVariant} />
-                <Text variant="bodySmall" color={colors.onSurfaceVariant}>Couldn’t load your activity · Retry</Text>
-              </Pressable>
-            ) : transactions.length === 0 ? (
-              <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ textAlign: 'center', padding: spacing.base }}>
-                No transactions yet.
-              </Text>
+        {txQ.isPending ? (
+          <SkeletonRows count={4} />
+        ) : txQ.isError && transactions.length === 0 ? (
+          <ListSection title="Activity">
+            <ListRow icon="refresh" title="Couldn’t load your activity" subtitle="Tap to try again" onPress={() => void txQ.refetch()} />
+          </ListSection>
+        ) : (
+          <ListSection title="Activity">
+            {transactions.length === 0 ? (
+              <ListRow icon="receipt-outline" title="No activity yet" subtitle="Top-ups, transfers and wallet fares show here." />
             ) : (
-              transactions.map((tx: any, i: number) => {
-                const isCredit = tx.type === 'CREDIT';
+              transactions.map((tx) => {
+                const kind: string = tx.type;
+                const credit = kind === 'CREDIT';
+                const debit = kind === 'DEBIT';
+                const muted = kind === 'PENDING' || kind === 'FAILED' || kind === 'EXTERNAL';
+                const when = new Date(tx.createdAt);
                 return (
-                  <View
+                  <ListRow
                     key={tx.id}
-                    style={[styles.txRow, i === transactions.length - 1 && { borderBottomWidth: 0 }]}
-                  >
-                    <View style={[styles.txIcon, { backgroundColor: isCredit ? withOpacity(colors.statusSuccess, 0.15) : colors.surfaceContainerHigh }]}>
-                      <Ionicons
-                        name={isCredit ? 'arrow-down' : 'car-outline'}
-                        size={16}
-                        color={isCredit ? colors.statusSuccess : colors.onSurface}
-                      />
-                    </View>
-                    <View style={styles.txInfo}>
-                      <Text variant="bodyMedium" style={{ color: colors.onSurface }} numberOfLines={1}>
-                        {tx.description}
-                      </Text>
-                      <Text variant="caption" color={colors.onSurfaceVariant}>
-                        {new Date(tx.createdAt).toLocaleDateString('en-GH', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                      </Text>
-                    </View>
-                    <Text style={[styles.txAmount, { color: isCredit ? colors.statusSuccess : colors.onSurface }]}>
-                      {isCredit ? '+' : '-'}{formatGhs(tx.amountPesewas)}
-                    </Text>
-                  </View>
+                    leading={
+                      <View style={[styles.txIcon, { backgroundColor: credit ? `${colors.statusSuccess}22` : colors.surfaceContainerHigh }]}>
+                        <Ionicons
+                          name={credit ? 'arrow-down' : debit ? 'arrow-up' : kind === 'FAILED' ? 'close' : kind === 'PENDING' ? 'time-outline' : 'car-outline'}
+                          size={15}
+                          color={credit ? colors.statusSuccess : colors.onSurfaceVariant}
+                        />
+                      </View>
+                    }
+                    title={tx.description}
+                    subtitle={`${when.toLocaleDateString('en-GH', { day: 'numeric', month: 'short' })} · ${when.toLocaleTimeString('en-GH', { hour: 'numeric', minute: '2-digit' })}${kind === 'PENDING' ? ' · Pending' : kind === 'FAILED' ? ' · Failed' : ''}`}
+                    subtitleLines={1}
+                    value={`${credit ? '+' : debit ? '−' : ''}${formatGhs(Math.abs(tx.amountPesewas ?? 0))}`}
+                    valueColor={credit ? colors.statusSuccess : muted ? colors.onSurfaceVariant : colors.onSurface}
+                  />
                 );
               })
             )}
-          </GlassSurface>
-        </View>
-      </KeyboardAwareScrollView>
-      )}
+          </ListSection>
+        )}
+      </Screen>
 
-      {/* Top Up Modal */}
-      <Modal
-        animationType="slide"
-        transparent
-        visible={modalVisible}
-        onRequestClose={() => setModalVisible(false)}
+      <PanelSheet
+        visible={sheet}
+        onDismiss={() => { Keyboard.dismiss(); setSheet(false); }}
+        maxHeightPct={0.9}
+        sheetStyle={{ backgroundColor: colors.surfaceContainerHigh }}
+        scrollable={false}
       >
-        <View style={styles.modalOverlay}>
-          {Platform.OS === 'ios' ? (
-            <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFillObject} />
-          ) : (
-            // expo-blur on Android is just a tint (plus native-view overhead) — render the tint directly.
-            <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.55)' }]} />
-          )}
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text variant="titleMedium" style={{ color: colors.onSurface }}>Top Up Wallet</Text>
-              <Pressable onPress={() => setModalVisible(false)} hitSlop={12} accessibilityRole="button" accessibilityLabel="Close top up">
-                <Ionicons name="close" size={24} color={colors.onSurface} />
-              </Pressable>
-            </View>
+        <View style={styles.sheet}>
+          <View style={styles.sheetBar}>
+            <Text style={styles.sheetTitle}>Top up</Text>
+            <Pressable onPress={() => { Keyboard.dismiss(); setSheet(false); }} hitSlop={8} accessibilityRole="button" accessibilityLabel="Close top up">
+              <Text variant="label" color={colors.primary}>Done</Text>
+            </Pressable>
+          </View>
 
-            <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ marginBottom: spacing.md }}>
-              Select a quick amount or enter a custom amount:
-            </Text>
-
-            <View style={styles.quickAmountsRow}>
-              {/* Quick top-ups, in PESEWAS. These were `[20, 50, 100]` cedis
-                  passed straight to `handleTopUp`, which now takes pesewas —
-                  so "+GHS 100" would have topped the wallet up by one cedi. */}
-              {[2000, 5000, 10000].map((amt) => (
+          <View style={styles.chips}>
+            {PRESETS_PESEWAS.map((p) => {
+              const on = amountPesewas === p;
+              return (
                 <Pressable
-                  key={amt}
-                  style={styles.quickAmtBtn}
-                  onPress={() => handleTopUp(amt)}
-                  disabled={topUp.isPending}
+                  key={p}
+                  style={[styles.chip, on && styles.chipOn]}
+                  onPress={() => setAmount(String(p / 100))}
                   accessibilityRole="button"
-                  accessibilityLabel={`Top up ${formatGhs(amt, { showDecimals: false })}`}
+                  accessibilityState={{ selected: on }}
                 >
-                  <Text style={styles.quickAmtText}>+{formatGhs(amt, { showDecimals: false })}</Text>
+                  <Text style={[styles.chipText, { color: on ? colors.onPrimary : colors.onSurface }]}>{formatGhs(p, { showDecimals: false })}</Text>
                 </Pressable>
-              ))}
-            </View>
+              );
+            })}
+          </View>
 
-            <View style={styles.inputContainer}>
-              <Text variant="caption" color={colors.onSurfaceVariant} style={{ marginBottom: 6 }}>CUSTOM AMOUNT (GHS)</Text>
-              <TextInput maxFontSizeMultiplier={1.4}
-                style={styles.input}
-                value={topUpAmount}
-                onChangeText={setTopUpAmount}
-                keyboardType="numeric"
-                placeholder="0.00"
-                placeholderTextColor={colors.outlineVariant}
-              />
-            </View>
+          <Text variant="labelCaps" color={colors.onSurfaceVariant}>Mobile money network</Text>
+          <View style={styles.chips}>
+            {MOMO_NETWORKS.map((n) => {
+              const on = network === n.value;
+              return (
+                <Pressable
+                  key={n.value}
+                  style={[styles.chip, on && styles.chipOn]}
+                  onPress={() => setNetwork(n.value)}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: on }}
+                >
+                  <Text style={[styles.chipText, { color: on ? colors.onPrimary : colors.onSurface }]}>{n.label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
 
-            <Button
-              label={isVerifyingTopUp ? 'Confirming payment…' : 'Confirm Top Up'}
-              onPress={() => {
-                const amt = pesewasFromCedis(parseFloat(topUpAmount));
-                handleTopUp(amt);
+          <View style={styles.phoneBox}>
+            <Text style={styles.prefix}>+233</Text>
+            <TextInput
+              maxFontSizeMultiplier={1.4}
+              value={phone}
+              onChangeText={(t) => {
+                const d = ghanaLocalDigits(t);
+                setPhone(d);
+                if (d.length >= 2) setNetwork(networkFor(d));
               }}
-              loading={topUp.isPending || isVerifyingTopUp}
-              disabled={topUp.isPending || isVerifyingTopUp}
-              style={{ marginTop: spacing.lg }}
+              keyboardType="number-pad"
+              placeholder="24X XXX XXXX"
+              placeholderTextColor={colors.onSurfaceVariant}
+              style={styles.phoneInput}
+              accessibilityLabel="Mobile money number"
             />
           </View>
+
+          <KeyboardStickyView style={{ gap: 12 }}>
+            <View style={styles.amountBox}>
+              <Text style={styles.prefix}>GH₵</Text>
+              <TextInput
+                maxFontSizeMultiplier={1.4}
+                value={amount}
+                onChangeText={setAmount}
+                keyboardType="decimal-pad"
+                placeholder="0.00"
+                placeholderTextColor={colors.onSurfaceVariant}
+                style={styles.amountInput}
+                accessibilityLabel="Top-up amount in cedis"
+              />
+            </View>
+            <Button label={amountOk ? `Top up ${formatGhs(amountPesewas)}` : 'Top up'} onPress={submit} loading={topUp.isPending} disabled={topUp.isPending || !amountOk || !phoneOk} />
+          </KeyboardStickyView>
         </View>
-      </Modal>
-    </SafeAreaView>
+      </PanelSheet>
+    </>
   );
 }
 
-const makeStyles = (colors: Colors) => StyleSheet.create({
-  safe: { flex: 1, backgroundColor: 'transparent' },
-  /** The honest failure state for a number we could not fetch. */
-  retryRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.sm, minHeight: 44 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing['2xl'],
-    paddingVertical: spacing.base,
-  },
-  backBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: colors.surfaceCard,
-    borderWidth: 1,
-    borderColor: colors.rimLight,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  scroll: {
-    paddingHorizontal: spacing['2xl'],
-    paddingTop: spacing.md,
-    paddingBottom: spacing['3xl'],
-    gap: spacing.xl,
-  },
-  balanceCard: {
-    borderRadius: radii['2xl'],
-    overflow: 'hidden',
-  },
-  balanceGlassInset: {
-    position: 'absolute',
-    top: 3,
-    left: 3,
-    right: 3,
-    bottom: 3,
-  },
-  balanceContent: {
-    alignItems: 'center',
-    paddingVertical: spacing.xl,
-    paddingHorizontal: spacing.lg,
-  },
-  balanceGlow: {
-    position: 'absolute',
-    top: -60,
-    width: 240,
-    height: 240,
-    borderRadius: 120,
-    backgroundColor: withOpacity(colors.primary, 0.12),
-  },
-  balanceLabel: {
-    fontFamily: fonts.semiBold,
-    fontSize: 10,
-    lineHeight: 14,
-    letterSpacing: 1.5,
-    color: colors.onSurfaceVariant,
-    marginBottom: spacing.sm,
-  },
-  balanceRow: { flexDirection: 'row', alignItems: 'baseline', gap: spacing.xs },
-  balanceCurrency: {
-    fontFamily: fonts.displayBold,
-    fontSize: 22,
-    lineHeight: 28,
-    color: colors.primary,
-  },
-  balanceValue: {
-    fontFamily: fonts.displayBold,
-    fontSize: 44,
-    lineHeight: 54,
-    color: colors.primary,
-    letterSpacing: -1,
-    textShadowColor: withOpacity(colors.primary, 0.4),
-    textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 18,
-  },
-  tierRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginTop: spacing.sm,
-  },
-  tierText: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodySmall, lineHeight: Math.round(fontSizes.bodySmall * 1.3) },
-  topUpBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    alignSelf: 'stretch',
-    marginTop: spacing.lg,
-    backgroundColor: colors.primary,
-    borderRadius: radii.lg,
-    paddingVertical: spacing.base,
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-  },
-  topUpText: { fontFamily: fonts.bold, fontSize: fontSizes.titleSmall, lineHeight: fontSizes.titleSmall * 1.3, color: colors.onPrimary },
-  quickGrid: { flexDirection: 'row', gap: spacing.base },
-  quickCard: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    backgroundColor: colors.surfaceCard,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: colors.rimLightSubtle,
-    paddingVertical: spacing.lg,
-  },
-  quickLabel: { fontFamily: fonts.medium, fontSize: fontSizes.bodySmall, lineHeight: Math.round(fontSizes.bodySmall * 1.3), color: colors.onSurface },
-  section: { gap: spacing.md },
-  transactionList: {
-    borderRadius: radii.xl,
-    paddingHorizontal: spacing.base,
-  },
-  txRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.rimLightSubtle,
-  },
-  txIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: spacing.md,
-  },
-  txInfo: { flex: 1 },
-  txAmount: { fontFamily: fonts.bold, fontSize: fontSizes.bodyLarge, lineHeight: fontSizes.bodyLarge * 1.3 },
-  modalOverlay: { flex: 1, justifyContent: 'flex-end' },
-  modalContent: {
-    backgroundColor: colors.surfaceCard,
-    borderTopLeftRadius: radii['4xl'],
-    borderTopRightRadius: radii['4xl'],
-    padding: spacing.xl,
-    paddingBottom: spacing['3xl'],
-    borderTopWidth: 1,
-    borderTopColor: colors.rimLight,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.lg,
-  },
-  quickAmountsRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.lg },
-  quickAmtBtn: {
-    flex: 1,
-    height: 44,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: colors.rimLight,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  quickAmtText: { color: colors.onSurface, fontFamily: fonts.bold, fontSize: 13, lineHeight: 17 },
-  inputContainer: {
-    backgroundColor: colors.surfaceInput,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: colors.rimLight,
-    padding: spacing.md,
-  },
-  input: {
-    fontSize: 22,
-    lineHeight: 31,
-    fontFamily: fonts.bold,
-    color: colors.primary,
-    padding: 0,
-  },
-});
+const makeStyles = (c: Colors) =>
+  StyleSheet.create({
+    locked: { flex: 1, backgroundColor: c.background },
+    heroWrap: { paddingHorizontal: 20, marginTop: 8 },
+    hero: { padding: spacing.xl, gap: 4 },
+    retry: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8, minHeight: 44 },
+    balanceRow: { flexDirection: 'row', alignItems: 'baseline', gap: 6, marginTop: 4 },
+    currency: { fontFamily: fonts.semiBold, fontSize: 20, lineHeight: 26, color: c.onSurfaceVariant },
+    balance: { fontFamily: fonts.displayBold, fontSize: 42, lineHeight: 50, letterSpacing: -1, color: c.onSurface, fontVariant: ['tabular-nums'] },
+    txIcon: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+    sheet: { paddingHorizontal: 24, paddingTop: 20, paddingBottom: 16, gap: 14 },
+    sheetBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    sheetTitle: { fontFamily: fonts.displayBold, fontSize: 22, lineHeight: 28, color: c.onSurface },
+    chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    chip: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: radii.full, backgroundColor: c.surfaceContainer },
+    chipOn: { backgroundColor: c.primary },
+    chipText: { fontFamily: fonts.medium, fontSize: 14, lineHeight: 18 },
+    phoneBox: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: c.surfaceContainer, borderRadius: radii.lg, paddingHorizontal: 16, height: 52 },
+    amountBox: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: c.surfaceContainer, borderRadius: radii.lg, paddingHorizontal: 16, height: 60 },
+    prefix: { fontFamily: fonts.semiBold, fontSize: 16, color: c.onSurfaceVariant },
+    phoneInput: { flex: 1, fontFamily: fonts.medium, fontSize: 17, color: c.onSurface, paddingVertical: 0 },
+    amountInput: { flex: 1, fontFamily: fonts.displayBold, fontSize: 24, color: c.onSurface, paddingVertical: 0 },
+  });

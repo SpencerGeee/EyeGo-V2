@@ -1,79 +1,39 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import {
-  View,
-  StyleSheet,
-  ScrollView,
-  Pressable,
-  Alert,
-  Switch,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import React, { useState, useEffect } from 'react';
+import { Alert, Switch } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { userApi, queryKeys, type SafetySettings } from '@eyego/api';
-import { spacing, radii, withOpacity } from '@eyego/config';
-import { useColors, Colors } from '../../utils/useColors';
+import { describeError } from '@eyego/utils';
+import { Screen, ListSection, ListRow, goDeeper, notify } from '@eyego/ui';
+import { useColors } from '../../utils/useColors';
 import { useToastStore } from '../../stores/toast.store';
-import { Text, goDeeper, goBack, notify } from '@eyego/ui';
 
 const CACHE_KEY = 'eyego_safety_settings';
 
-// The boolean feature toggles — excludes insuranceCardUrl, which lives in the
-// same settings blob but is a string managed by the upload flow below.
-type SafetyToggleKey = Exclude<keyof SafetySettings, 'insuranceCardUrl'>;
+type SafetyToggleKey = 'shareTrip' | 'rideCheck' | 'nightSafety';
 
-const SAFETY_FEATURES: {
-  id: SafetyToggleKey;
-  icon: string;
-  title: string;
-  description: string;
-  defaultEnabled: boolean;
-}[] = [
-  {
-    id: 'shareTrip',
-    icon: 'share-social-outline',
-    title: 'Share Trip Status',
-    description: 'Auto-share your trip status with emergency contacts',
-    defaultEnabled: true,
-  },
-  {
-    id: 'rideCheck',
-    icon: 'shield-checkmark-outline',
-    title: 'RideCheck',
-    description: 'Get alerted if your trip deviates unexpectedly or stops for too long',
-    defaultEnabled: true,
-  },
-  {
-    id: 'speedAlerts',
-    icon: 'speedometer-outline',
-    title: 'Speed Alerts',
-    description: 'Notify you if your driver exceeds the speed limit',
-    defaultEnabled: false,
-  },
-  {
-    id: 'nightSafety',
-    icon: 'moon-outline',
-    title: 'Night Safety Check',
-    description: 'Periodic check-ins on trips between 10pm - 5am, with automatic SOS escalation if you don\'t respond',
-    defaultEnabled: false,
-  },
+/**
+ * Speed alerts is gone: nothing on the server or in the app ever read it, so
+ * the switch promised a feature that did not exist. Every switch left here is
+ * read by something (payments.service shareTrip, ride/[id]/sos RideCheck and
+ * night check-ins, the booking path for the boarding PIN).
+ */
+const FEATURES: { id: SafetyToggleKey; icon: 'share-social-outline' | 'pulse-outline' | 'moon-outline'; title: string; detail: string; default: boolean }[] = [
+  { id: 'shareTrip', icon: 'share-social-outline', title: 'Share my trip', detail: 'Text your first trusted contact a live tracking link when a booking is confirmed', default: true },
+  { id: 'rideCheck', icon: 'pulse-outline', title: 'RideCheck', detail: 'We check in if your trip stops unexpectedly for a long time', default: true },
+  { id: 'nightSafety', icon: 'moon-outline', title: 'Night check-ins', detail: 'Check-ins on trips between 10pm and 5am, escalating to SOS if you don’t answer', default: false },
 ];
 
-const DEFAULTS = Object.fromEntries(
-  SAFETY_FEATURES.map((f) => [f.id, f.defaultEnabled])
-) as SafetySettings;
+const DEFAULTS = Object.fromEntries(FEATURES.map((f) => [f.id, f.default])) as SafetySettings;
 
+/** SAFETY (rival spec §11) — preferences, trusted contacts, emergency info. */
 export default function SafetyScreen() {
   const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
-  const router = useRouter();
-  const queryClient = useQueryClient();
+  const qc = useQueryClient();
   const [settings, setSettings] = useState<SafetySettings>(DEFAULTS);
 
-  // Offline-first hydrate: cached copy renders instantly, server copy wins.
+  // Cached copy paints instantly; the server copy wins.
   useEffect(() => {
     AsyncStorage.getItem(CACHE_KEY)
       .then((raw) => { if (raw) setSettings((s) => ({ ...s, ...JSON.parse(raw) })); })
@@ -84,42 +44,27 @@ export default function SafetyScreen() {
     queryKey: queryKeys.user.safetySettings,
     queryFn: async () => (await userApi.getSafetySettings()).data?.data?.settings ?? {},
   });
-
   useEffect(() => {
-    if (serverSettings && Object.keys(serverSettings).length > 0) {
-      setSettings((s) => ({ ...s, ...serverSettings }));
-    }
+    if (serverSettings && Object.keys(serverSettings).length > 0) setSettings((s) => ({ ...s, ...serverSettings }));
   }, [serverSettings]);
 
-  const saveMutation = useMutation({
+  const save = useMutation({
     mutationFn: (next: SafetySettings) => userApi.updateSafetySettings(next),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.user.safetySettings }),
-    // Local cache already holds the change; the next toggle re-sends the full
-    // settings object, so a failed sync self-heals — but tell the rider.
-    onError: () => {
-      useToastStore.getState().show("Couldn't sync to your account — will retry on your next change.", 'warning');
-    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.user.safetySettings }),
+    // The next change re-sends everything, so a failed sync heals itself.
+    onError: () => useToastStore.getState().show('Couldn’t sync to your account — it’ll retry on your next change.', 'warning'),
   });
 
-  const toggleFeature = (id: SafetyToggleKey) => {
+  const toggle = (id: SafetyToggleKey, value: boolean) => {
     setSettings((prev) => {
-      const next = { ...prev, [id]: !prev[id] };
+      const next = { ...prev, [id]: value };
       AsyncStorage.setItem(CACHE_KEY, JSON.stringify(next)).catch(() => {});
-      saveMutation.mutate(next);
+      save.mutate(next);
       return next;
     });
   };
 
-  const isEnabled = (id: SafetyToggleKey) => (settings[id] as boolean | undefined) ?? false;
-
-  /**
-   * "Verify My Ride" — a real column on the user, not part of the safety blob.
-   *
-   * Seeded from the profile so the switch shows the rider's actual setting on
-   * open rather than always starting off. Optimistic on tap, reverted if the
-   * write fails: a safety switch that silently fails to save is worse than one
-   * that says so.
-   */
+  // Verify my ride — a real column on the user, read when a boarding code is minted.
   const { data: profile } = useQuery({
     queryKey: queryKeys.user.profile,
     queryFn: () => userApi.getProfile(),
@@ -127,24 +72,20 @@ export default function SafetyScreen() {
     staleTime: 60_000,
   });
   const [pinOverride, setPinOverride] = useState<boolean | null>(null);
-  const requireBoardingPin = pinOverride ?? profile?.requireBoardingPin ?? false;
-
-  const togglePinVerification = async () => {
-    const next = !requireBoardingPin;
+  const requirePin = pinOverride ?? profile?.requireBoardingPin ?? false;
+  const togglePin = async (next: boolean) => {
     setPinOverride(next);
     try {
       await userApi.updateProfile({ requireBoardingPin: next } as any);
-      queryClient.invalidateQueries({ queryKey: queryKeys.user.profile });
+      qc.invalidateQueries({ queryKey: queryKeys.user.profile });
     } catch {
+      // A safety switch that silently fails to save is worse than one that says so.
       setPinOverride(!next);
-      notify(
-        "Couldn't save that",
-        'We could not reach the server, so your ride verification setting is unchanged.',
-      );
+      notify('Couldn’t save that', 'We couldn’t reach the server, so Verify my ride is unchanged.');
     }
   };
 
-  const uploadInsuranceMutation = useMutation({
+  const upload = useMutation({
     mutationFn: (uri: string) => userApi.uploadInsurance(uri),
     onSuccess: (insuranceCardUrl) => {
       setSettings((prev) => {
@@ -152,324 +93,82 @@ export default function SafetyScreen() {
         AsyncStorage.setItem(CACHE_KEY, JSON.stringify(next)).catch(() => {});
         return next;
       });
-      queryClient.invalidateQueries({ queryKey: queryKeys.user.safetySettings });
-      notify('Insurance Saved', 'Your insurance card is on file and will only be shared with emergency responders during an active emergency.', { tone: 'success' });
+      qc.invalidateQueries({ queryKey: queryKeys.user.safetySettings });
+      notify('Insurance card saved', 'Only shared with responders during an active emergency.', { tone: 'success' });
     },
-    onError: (err: any) => {
-      notify('Upload Failed', err?.response?.data?.message ?? err?.message ?? 'Please check your connection and try again.');
+    onError: (err) => {
+      const { title, message } = describeError(err, 'Please check your connection and try again.');
+      notify(title, message);
     },
   });
 
-  const pickAndUploadInsurance = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      quality: 0.8,
-      allowsEditing: true,
-    });
-    if (result.canceled || !result.assets?.[0]?.uri) return;
-    uploadInsuranceMutation.mutate(result.assets[0].uri);
-  };
-
-  const hasInsurance = !!settings.insuranceCardUrl;
-
-  const handleUploadInsurance = () => {
+  const pickInsurance = () =>
     Alert.alert(
-      hasInsurance ? 'Replace Insurance Card' : 'Upload Insurance',
-      'You can upload your travel or health insurance card so it is accessible in case of an emergency during your trip. This information is encrypted and only shared with emergency responders.',
+      settings.insuranceCardUrl ? 'Replace insurance card' : 'Add insurance card',
+      'Your health or travel insurance card, kept for emergency responders. It’s only shared during an active emergency.',
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: hasInsurance ? 'Choose New Photo' : 'Choose Photo', onPress: () => { pickAndUploadInsurance(); } },
-      ]
+        {
+          text: 'Choose photo',
+          onPress: async () => {
+            const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.8, allowsEditing: true });
+            if (!result.canceled && result.assets?.[0]?.uri) upload.mutate(result.assets[0].uri);
+          },
+        },
+      ],
     );
-  };
+
+  const sw = (value: boolean, onChange: (v: boolean) => void, label: string) => (
+    <Switch
+      value={value}
+      onValueChange={onChange}
+      trackColor={{ false: colors.surfaceContainerHighest, true: colors.primary }}
+      thumbColor="#fff"
+      ios_backgroundColor={colors.surfaceContainerHighest}
+      accessibilityLabel={label}
+    />
+  );
 
   return (
-    <SafeAreaView style={styles.safe} accessibilityLabel="Safety settings">
-      {/* Header */}
-      <View
-        style={styles.header}
-      >
-        <Pressable
-          onPress={() => goBack()}
-          style={styles.backBtn}
-          accessibilityRole="button"
-          accessibilityLabel="Go back"
-        >
-          <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
-        </Pressable>
-        <Text variant="headlineMedium" style={{ flex: 1 }}>Safety</Text>
-      </View>
+    <Screen title="Safety">
+      <ListSection title="Safety preferences">
+        <ListRow
+          icon="keypad-outline"
+          title="Verify my ride"
+          subtitle="A 4-digit code your driver must enter before you board"
+          subtitleLines={3}
+          right={sw(requirePin, togglePin, 'Verify my ride')}
+        />
+        {FEATURES.map((f) => (
+          <ListRow
+            key={f.id}
+            icon={f.icon}
+            title={f.title}
+            subtitle={f.detail}
+            subtitleLines={3}
+            right={sw(((settings as any)[f.id] as boolean | undefined) ?? f.default, (v) => toggle(f.id, v), f.title)}
+          />
+        ))}
+      </ListSection>
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        {/* Shield icon header */}
-        <View
-          style={styles.shieldSection}
-        >
-          <View style={styles.shieldCircle}>
-            <Ionicons name="shield-checkmark" size={40} color={colors.primary} />
-          </View>
-          <Text variant="titleSmall" color={colors.onSurfaceVariant} style={{ textAlign: 'center' }}>
-            Your safety is our priority. Customize your safety preferences below.
-          </Text>
-        </View>
+      <ListSection title="Trusted contacts">
+        <ListRow icon="people-outline" title="Emergency contacts" subtitle="Who we alert in an emergency" onPress={() => goDeeper('/profile/emergency-contacts')} />
+      </ListSection>
 
-        {/* Safety features */}
-        <View
-          style={styles.card}
-        >
-          <Text variant="titleSmall" style={styles.cardTitle}>Safety Features</Text>
-          <View style={styles.featuresList}>
-            {SAFETY_FEATURES.map((feature, i) => (
-              <View
-                key={feature.id}
-                >
-                <Pressable
-                  style={styles.featureRow}
-                  onPress={() => toggleFeature(feature.id)}
-                  accessibilityRole="switch"
-                  accessibilityState={{ checked: isEnabled(feature.id) }}
-                  accessibilityLabel={`${feature.title}. ${feature.description}. ${isEnabled(feature.id) ? 'Enabled' : 'Disabled'}`}
-                >
-                  <View style={[styles.featureIcon, { backgroundColor: withOpacity(colors.primary, 0.1) }]}>
-                    <Ionicons name={feature.icon as any} size={20} color={colors.primary} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text variant="bodyMedium">{feature.title}</Text>
-                    <Text variant="caption" color={colors.onSurfaceVariant}>
-                      {feature.description}
-                    </Text>
-                  </View>
-                  <Switch
-                    value={isEnabled(feature.id)}
-                    onValueChange={() => toggleFeature(feature.id)}
-                    trackColor={{ false: colors.outlineVariant, true: withOpacity(colors.primary, 0.4) }}
-                    thumbColor={isEnabled(feature.id) ? colors.primary : colors.onSurfaceVariant}
-                  />
-                </Pressable>
-                {i < SAFETY_FEATURES.length - 1 && <View style={styles.divider} />}
-              </View>
-            ))}
+      <ListSection title="Emergency info">
+        <ListRow
+          icon="medkit-outline"
+          title="Insurance card"
+          subtitle={upload.isPending ? 'Uploading…' : 'For emergency responders only'}
+          value={settings.insuranceCardUrl ? 'On file' : 'Add'}
+          valueColor={settings.insuranceCardUrl ? colors.statusSuccess : colors.primary}
+          onPress={upload.isPending ? undefined : pickInsurance}
+        />
+      </ListSection>
 
-            {/*
-              VERIFY MY RIDE.
-
-              Kept out of SAFETY_FEATURES because it is not part of the same
-              settings blob: it is a real column on the user (the booking path
-              reads it server-side when minting a code), so it saves through
-              updateProfile rather than updateSafetySettings. Rendered here
-              because this is where a rider looks for it.
-            */}
-            <View style={styles.divider} />
-            <Pressable
-              style={styles.featureRow}
-              onPress={() => togglePinVerification()}
-              accessibilityRole="switch"
-              accessibilityState={{ checked: requireBoardingPin }}
-              accessibilityLabel={`Verify My Ride. Your driver must enter a 4-digit code before your trip starts. ${requireBoardingPin ? 'Enabled' : 'Disabled'}`}
-            >
-              <View style={[styles.featureIcon, { backgroundColor: withOpacity(colors.primary, 0.1) }]}>
-                <Ionicons name="keypad-outline" size={20} color={colors.primary} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text variant="bodyMedium">Verify My Ride</Text>
-                <Text variant="caption" color={colors.onSurfaceVariant}>
-                  Show a 4-digit code your driver must enter before you board — so you never get into the wrong car
-                </Text>
-              </View>
-              <Switch
-                value={requireBoardingPin}
-                onValueChange={() => togglePinVerification()}
-                trackColor={{ false: colors.outlineVariant, true: withOpacity(colors.primary, 0.4) }}
-                thumbColor={requireBoardingPin ? colors.primary : colors.onSurfaceVariant}
-              />
-            </Pressable>
-          </View>
-        </View>
-
-        {/* Insurance card */}
-        <View
-          style={styles.card}
-        >
-          <Text variant="titleSmall" style={styles.cardTitle}>Emergency Insurance</Text>
-          <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ marginBottom: spacing.md, lineHeight: 20 }}>
-            Upload your health or travel insurance card so it can be accessed by emergency responders if needed.
-            Your data is encrypted and only shared during an active emergency.
-          </Text>
-          {hasInsurance && (
-            <View style={styles.insuranceStatusRow}>
-              <Ionicons name="checkmark-circle" size={18} color={colors.primary} />
-              <Text variant="bodySmall" color={colors.onSurfaceVariant}>Insurance card on file</Text>
-            </View>
-          )}
-          <Pressable
-            style={[styles.uploadButton, uploadInsuranceMutation.isPending && { opacity: 0.5 }]}
-            onPress={handleUploadInsurance}
-            disabled={uploadInsuranceMutation.isPending}
-            accessibilityRole="button"
-            accessibilityLabel={hasInsurance ? 'Replace insurance card' : 'Upload insurance card'}
-          >
-            <Ionicons name="cloud-upload-outline" size={18} color={colors.primary} />
-            <Text variant="label" color={colors.primary}>
-              {uploadInsuranceMutation.isPending
-                ? 'Uploading…'
-                : hasInsurance
-                ? 'Replace Insurance Card'
-                : 'Upload Insurance Card'}
-            </Text>
-          </Pressable>
-        </View>
-
-        {/* Emergency contacts shortcut */}
-        <View
-          >
-          <Pressable
-            style={styles.linkRow}
-            onPress={() => goDeeper('/profile/emergency-contacts' as any)}
-            accessibilityRole="button"
-            accessibilityLabel="Manage emergency contacts"
-          >
-            <View style={[styles.linkIcon, { backgroundColor: withOpacity(colors.error, 0.1) }]}>
-              <Ionicons name="people-outline" size={20} color={colors.error} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text variant="bodyMedium">Emergency Contacts</Text>
-              <Text variant="caption" color={colors.onSurfaceVariant}>
-                Add or edit who to contact in an emergency
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceVariant} />
-          </Pressable>
-        </View>
-
-        {/* Trust & support */}
-        <View
-          >
-          <Pressable
-            style={styles.linkRow}
-            onPress={() => goDeeper('/profile/help' as any)}
-            accessibilityRole="button"
-            accessibilityLabel="Safety help center"
-          >
-            <View style={[styles.linkIcon, { backgroundColor: withOpacity(colors.secondary, 0.1) }]}>
-              <Ionicons name="help-buoy-outline" size={20} color={colors.secondary} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text variant="bodyMedium">Safety Help Center</Text>
-              <Text variant="caption" color={colors.onSurfaceVariant}>
-                Learn about our safety features and guidelines
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceVariant} />
-          </Pressable>
-        </View>
-      </ScrollView>
-    </SafeAreaView>
+      <ListSection>
+        <ListRow icon="help-buoy-outline" title="Report a safety issue" onPress={() => goDeeper('/profile/help')} />
+      </ListSection>
+    </Screen>
   );
 }
-
-const makeStyles = (colors: Colors) =>
-  StyleSheet.create({
-    safe: { flex: 1, backgroundColor: 'transparent' },
-    header: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      paddingHorizontal: spacing['2xl'],
-      paddingVertical: spacing.base,
-      gap: spacing.md,
-    },
-    backBtn: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
-      backgroundColor: colors.surfaceContainer,
-      alignItems: 'center',
-      justifyContent: 'center',
-      borderWidth: 1,
-      borderColor: colors.rimLight,
-    },
-    scroll: {
-      paddingHorizontal: spacing['2xl'],
-      paddingBottom: spacing['3xl'],
-      gap: spacing.xl,
-    },
-    shieldSection: {
-      alignItems: 'center',
-      gap: spacing.md,
-      paddingTop: spacing.lg,
-    },
-    shieldCircle: {
-      width: 80,
-      height: 80,
-      borderRadius: 40,
-      backgroundColor: withOpacity(colors.primary, 0.08),
-      alignItems: 'center',
-      justifyContent: 'center',
-      borderWidth: 2,
-      borderColor: withOpacity(colors.primary, 0.2),
-    },
-    card: {
-      backgroundColor: colors.surfaceContainer,
-      borderRadius: radii['2xl'],
-      padding: spacing.xl,
-      borderWidth: 1,
-      borderColor: colors.rimLight,
-    },
-    cardTitle: {
-      marginBottom: spacing.md,
-    },
-    featuresList: {
-      gap: spacing.xs,
-    },
-    featureRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.md,
-      paddingVertical: spacing.base,
-    },
-    featureIcon: {
-      width: 40,
-      height: 40,
-      borderRadius: 12,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    divider: {
-      height: 1,
-      backgroundColor: colors.rimLightSubtle,
-    },
-    insuranceStatusRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.sm,
-      marginBottom: spacing.md,
-    },
-    uploadButton: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: spacing.sm,
-      backgroundColor: withOpacity(colors.primary, 0.08),
-      borderRadius: radii.lg,
-      borderWidth: 1.5,
-      borderColor: withOpacity(colors.primary, 0.2),
-      borderStyle: 'dashed',
-      paddingVertical: spacing.base,
-    },
-    linkRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.md,
-      backgroundColor: colors.surfaceContainer,
-      borderRadius: radii.xl,
-      padding: spacing.base,
-      borderWidth: 1,
-      borderColor: colors.rimLight,
-    },
-    linkIcon: {
-      width: 40,
-      height: 40,
-      borderRadius: 12,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-  });

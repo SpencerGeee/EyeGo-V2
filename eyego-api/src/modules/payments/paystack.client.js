@@ -40,9 +40,23 @@ const assertGatewayAmount = (amountPesewas, fn) => {
   }
 };
 
+/**
+ * The network a Ghanaian mobile number belongs to, by prefix. Used when a
+ * caller says only "MOMO" — the rider wallet did, so every live rider top-up
+ * failed with "Unsupported MoMo method: MOMO".
+ */
+function momoMethodForPhone(phone) {
+  const local = String(phone ?? '').replace(/\D/g, '').replace(/^233/, '').replace(/^0/, '');
+  const p = local.slice(0, 2);
+  if (['24', '54', '55', '59', '25', '53'].includes(p)) return 'MOMO_MTN';
+  if (['20', '50'].includes(p)) return 'MOMO_TELECEL';
+  if (['26', '56', '27', '57'].includes(p)) return 'MOMO_AIRTELTIGO';
+  return null;
+}
+
 async function initiateMomoCharge({ email, amountPesewas, phone, method, reference, metadata = {} }) {
   assertGatewayAmount(amountPesewas, 'initiateMomoCharge');
-  const provider = MOBILE_MONEY_PROVIDERS[method];
+  const provider = MOBILE_MONEY_PROVIDERS[method] ?? MOBILE_MONEY_PROVIDERS[momoMethodForPhone(phone)];
   if (!provider) throw new Error(`Unsupported MoMo method: ${method}`);
 
 
@@ -252,4 +266,5 @@ module.exports = {
   resolvePayoutBankCode,
   momoNetworkKey,
   bankKey,
+  momoMethodForPhone,
 };

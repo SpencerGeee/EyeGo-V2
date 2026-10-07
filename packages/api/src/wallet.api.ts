@@ -21,7 +21,8 @@ export interface WalletTransaction {
 
 export interface TopUpRequest {
   amountPesewas: number;
-  method: 'MOMO' | 'CARD';
+  /** A specific network. Bare 'MOMO' is resolved from the number server-side. */
+  method: 'MOMO' | 'CARD' | 'MOMO_MTN' | 'MOMO_TELECEL' | 'MOMO_AIRTELTIGO';
   momoPhone?: string;
   email?: string;
 }

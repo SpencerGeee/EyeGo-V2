@@ -905,6 +905,10 @@ export default function RootLayout() {
               options={detailPush}
             />
             <Stack.Screen
+              name="profile/privacy-policy"
+              options={detailPush}
+            />
+            <Stack.Screen
               name="profile/account-deletion"
               options={detailPush}
             />

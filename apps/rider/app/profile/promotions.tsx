@@ -1,36 +1,16 @@
-﻿import React, { useState, useMemo } from 'react';
-import {
-  View,
-  StyleSheet,
-  ScrollView,
-  Share,
-  Alert,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { useColors, Colors } from '../../utils/useColors';
-import { useThemeStore } from '../../stores/theme.store';
-// `Pressable` from @eyego/ui, never from react-native — NativeWind's css-interop
-// drops the `({ pressed }) => style` form this screen uses. See the promo card.
-import { Text, Button, GlowSearchInput, ShinyText, AppBackground, Pressable, goBack } from '@eyego/ui';
+import React, { useState, useMemo } from 'react';
+import { View, StyleSheet, Alert, TextInput, RefreshControl } from 'react-native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { bookingsApi, apiClient, userApi, type RiderPromotion, type RiderPromotions } from '@eyego/api';
-import { formatGhs } from '@eyego/utils';
 import { useShallow } from 'zustand/react/shallow';
+import { Ionicons } from '@expo/vector-icons';
+import { bookingsApi, apiClient, userApi, type RiderPromotion, type RiderPromotions } from '@eyego/api';
+import { formatGhs, describeError } from '@eyego/utils';
+import { fonts, radii } from '@eyego/config';
+import { Text, Button, Screen, ListSection, ListRow, SkeletonRows } from '@eyego/ui';
+import { useColors, Colors } from '../../utils/useColors';
 import { useRideStore } from '../../stores/ride.store';
-import { useAuthStore } from '../../stores/auth.store';
 
-/**
- * "When is it going to end", in words rather than a raw date.
- *
- * A promo expiring today and one expiring in three months are read completely
- * differently, and a bare `31/12/2026` makes the reader do that arithmetic
- * themselves. Past dates are still labelled honestly rather than as "in -2
- * days" — the server filters expired promos out, but a page left open across
- * midnight should not start lying.
- */
+/** "When does it end", in words — a bare date makes the reader do the sum. */
 function expiryLabel(iso: string | null | undefined): string {
   if (!iso) return '';
   const end = new Date(iso).getTime();
@@ -40,560 +20,189 @@ function expiryLabel(iso: string | null | undefined): string {
   if (days === 0) return 'Ends today';
   if (days === 1) return 'Ends tomorrow';
   if (days <= 14) return `Ends in ${days} days`;
-  return `Ends ${new Date(end).toLocaleDateString()}`;
+  return `Ends ${new Date(end).toLocaleDateString('en-GH', { day: 'numeric', month: 'short' })}`;
 }
 
+/**
+ * PROMOTIONS (rival spec §12) — code field on top, what you're using, what
+ * you can use, what you've used. One promo per ride, and swapping asks first.
+ *
+ * The "Refer & earn — get GHS 10" card is gone: no referral programme exists
+ * on the server (nothing ever sets a referral code), so it was a promise of
+ * money with a share button that could never be enabled.
+ */
 export default function PromotionsScreen() {
   const colors = useColors();
-  const isDark = useThemeStore((s) => s.isDark);
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const router = useRouter();
-  const [promoCode, setPromoCode] = useState('');
-  const [isValidating, setIsValidating] = useState(false);
-  const [promoStatus, setPromoStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const qc = useQueryClient();
+  const [code, setCode] = useState('');
+  const [busyCode, setBusyCode] = useState<string | null>(null);
+  const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null);
 
-  const { activeBooking, setPendingPromoCode, pendingPromoCode } = useRideStore(useShallow((s) => ({ activeBooking: s.activeBooking, setPendingPromoCode: s.setPendingPromoCode, pendingPromoCode: s.pendingPromoCode })));
-  const { user } = useAuthStore();
-  const referralCode = user?.referralCode ?? null;
-  const queryClient = useQueryClient();
+  const { activeBooking, setPendingPromoCode, pendingPromoCode } = useRideStore(
+    useShallow((s) => ({ activeBooking: s.activeBooking, setPendingPromoCode: s.setPendingPromoCode, pendingPromoCode: s.pendingPromoCode })),
+  );
 
-  const { data: promoData, isLoading: promosLoading } = useQuery({
+  const promosQ = useQuery({
     queryKey: ['user', 'promotions'],
     queryFn: () => userApi.getPromotions(),
-    // ApiResponse<T> double-wraps: axios `.data`, then the envelope's `.data`.
     select: (r: any) => (r?.data?.data ?? null) as RiderPromotions | null,
   });
-  const applied = promoData?.applied ?? null;
-  const available = promoData?.available ?? [];
-  const used = promoData?.used ?? [];
+  const applied = promosQ.data?.applied ?? null;
+  const available = promosQ.data?.available ?? [];
+  const used = promosQ.data?.used ?? [];
 
-  /**
-   * @param codeArg apply THIS code instead of whatever is typed in the field.
-   *
-   * BUGFIX ("I tapped on the available offers and it said I could use SPEN20").
-   * Tapping an offer used to only copy its code into the text box, leaving the
-   * rider to scroll back up and press Apply — so the tap looked like it had done
-   * something and had not. An offer row is a "use this" affordance; it now uses
-   * it.
-   */
-  const handleApplyPromo = async (codeArg?: string, opts?: { forfeit?: boolean }) => {
-    const raw = (codeArg ?? promoCode).trim();
-    if (!raw) return;
-    /**
-     * ONE PROMO, AND YOU GIVE IT UP ON PURPOSE.
-     *
-     * BUGFIX ("I can just tap anyone then change — if I'm on a promo it
-     * shouldn't allow another unless I want to forfeit that"). The rule was
-     * stated in a caption and enforced nowhere: a second tap silently swapped
-     * the held code. Now it asks, names both codes, and only swaps on a yes.
-     * An already-applied promo (money moved on a live booking) is not swappable
-     * at all — its offer row is disabled below.
-     */
+  const apply = async (raw: string, opts?: { forfeit?: boolean }) => {
+    const c = raw.trim().toUpperCase();
+    if (!c) return;
+    // One promo, and you give it up on purpose.
     const held = pendingPromoCode?.toUpperCase() ?? null;
-    if (held && held !== raw.toUpperCase() && !opts?.forfeit) {
-      Alert.alert(
-        `Give up ${held}?`,
-        `You already have ${held} saved for your next ride. Using ${raw.toUpperCase()} instead will drop it.`,
-        [
-          { text: `Keep ${held}`, style: 'cancel' },
-          { text: `Use ${raw.toUpperCase()}`, style: 'destructive', onPress: () => void handleApplyPromo(raw, { forfeit: true }) },
-        ],
-      );
+    if (held && held !== c && !opts?.forfeit) {
+      Alert.alert(`Give up ${held}?`, `${held} is saved for your next ride. Using ${c} instead drops it.`, [
+        { text: `Keep ${held}`, style: 'cancel' },
+        { text: `Use ${c}`, style: 'destructive', onPress: () => void apply(c, { forfeit: true }) },
+      ]);
       return;
     }
-    if (codeArg) setPromoCode(codeArg);
-    setIsValidating(true);
-    setPromoStatus('idle');
+    setBusyCode(c);
+    setStatus(null);
     try {
       if (activeBooking?.id) {
-        await bookingsApi.applyPromo(activeBooking.id, raw);
-        setPromoStatus('success');
-        // So the "active on your ride" card above appears immediately rather
-        // than on the next visit to this screen.
-        queryClient.invalidateQueries({ queryKey: ['user', 'promotions'] });
+        await bookingsApi.applyPromo(activeBooking.id, c);
+        setStatus({ ok: true, text: `${c} applied to your current ride.` });
+        qc.invalidateQueries({ queryKey: ['user', 'promotions'] });
       } else {
-        // Validate code against backend before saving for next booking
-        const res = await apiClient.get<{ success: boolean; data?: { valid: boolean } }>(
-          `/bookings/promos/validate?code=${raw.toUpperCase()}`
-        );
+        const res = await apiClient.get<{ success: boolean; data?: { valid: boolean } }>(`/bookings/promos/validate?code=${encodeURIComponent(c)}`);
         if (res.data?.success && res.data?.data?.valid) {
-          setPendingPromoCode(raw.toUpperCase());
-          setPromoStatus('success');
+          setPendingPromoCode(c);
+          setStatus({ ok: true, text: `${c} saved — it’s applied when you book your next ride.` });
         } else {
-          setPromoStatus('error');
+          setStatus({ ok: false, text: 'That code isn’t valid or has expired.' });
         }
       }
-    } catch {
-      setPromoStatus('error');
+      setCode('');
+    } catch (err) {
+      setStatus({ ok: false, text: describeError(err, 'That code isn’t valid or has expired.').message });
     } finally {
-      setIsValidating(false);
-    }
-  };
-
-  const handleShare = async () => {
-    try {
-      if (!referralCode) return;
-      await Share.share({
-        message: `Join me on EyeGo and get GHS 10 off your first ride! Use my invite code: ${referralCode} https://eyego.app/invite/${referralCode}`,
-      });
-    } catch (error) {
-      console.error(error);
+      setBusyCode(null);
     }
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <AppBackground variant="static" isDark={isDark} />
-      <View style={styles.header}>
-        <Pressable onPress={() => goBack()} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
-          <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
-        </Pressable>
-        <Text variant="titleSmall">Promotions</Text>
-        <View style={{ width: 40 }} />
+    <Screen
+      title="Promotions"
+      keyboard
+      refreshControl={<RefreshControl refreshing={promosQ.isRefetching} onRefresh={() => promosQ.refetch()} tintColor={colors.primary} />}
+    >
+      <View style={styles.codeRow}>
+        <View style={styles.codeBox}>
+          <Ionicons name="ticket-outline" size={20} color={colors.onSurfaceVariant} />
+          <TextInput
+            maxFontSizeMultiplier={1.4}
+            value={code}
+            onChangeText={(t) => { setCode(t); setStatus(null); }}
+            placeholder="Promo code"
+            placeholderTextColor={colors.onSurfaceVariant}
+            autoCapitalize="characters"
+            autoCorrect={false}
+            returnKeyType="done"
+            onSubmitEditing={() => void apply(code)}
+            style={styles.codeInput}
+            accessibilityLabel="Promo code"
+          />
+        </View>
+        <Button
+          label="Apply"
+          onPress={() => void apply(code)}
+          loading={!!busyCode && busyCode === code.trim().toUpperCase()}
+          disabled={!code.trim() || !!busyCode || (!!applied && !!activeBooking?.id)}
+          fullWidth={false}
+          size="sm"
+        />
       </View>
+      {status ? (
+        <Text style={[styles.status, { color: status.ok ? colors.primary : colors.error }]}>{status.text}</Text>
+      ) : null}
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        {/*
-          WHAT IS ACTUALLY RUNNING, AND WHEN IT ENDS.
+      <ListSection title="Your promo" footer="One promo per ride. Picking another offer replaces the one saved here.">
+        {applied ? (
+          <ListRow
+            icon="pricetag"
+            iconColor={colors.primary}
+            title={applied.code}
+            subtitle={`${applied.discountPercent}% off, up to ${formatGhs(applied.maxDiscountPesewas)} · on your current ride · ${expiryLabel(applied.expiry)}`}
+            subtitleLines={2}
+            value="Active"
+            valueColor={colors.primary}
+          />
+        ) : null}
+        {pendingPromoCode ? (
+          <ListRow
+            icon="time-outline"
+            title={pendingPromoCode}
+            subtitle={applied ? 'Saved for the ride after this one' : 'Saved for your next ride'}
+            value="Remove"
+            valueColor={colors.error}
+            onPress={() => { setPendingPromoCode(null); setStatus(null); }}
+            chevron={false}
+            accessibilityLabel={`Remove saved promo ${pendingPromoCode}`}
+          />
+        ) : null}
+        {!applied && !pendingPromoCode ? (
+          <ListRow icon="pricetag-outline" title="No promo in use" subtitle="Enter a code above or pick an offer below." />
+        ) : null}
+      </ListSection>
 
-          BUGFIX ("on the promotions page it doesn't show if I'm on an active
-          promo and when it's going to end — everything is blank and it just
-          allows you to enter a promo code").
-
-          The screen had no query at all: a lone text field, and a rider with a
-          promo already attached to their ride had no way to know it, no way to
-          see what it saved them, and no way to know it was about to expire.
-          `GET /user/me/promotions` answers all three (see users.service).
-        */}
-        {/*
-          MY PROMOS — ALWAYS PRESENT, EVEN WHEN THE ANSWER IS "NONE".
-
-          BUGFIX ("it said SPEN20 is applied and saved for next ride, but there's
-          no section showing my active promos so I can't tell if I was using it
-          already or if I'm now genuinely using it").
-
-          The two cards below existed but were each conditional, so a rider with
-          nothing attached saw NOTHING — indistinguishable from a screen that had
-          simply not loaded, and no way to confirm what a tap had just done. A
-          section that is always there, and states its own emptiness, is what
-          makes "am I on a promo?" answerable at a glance. The remove control is
-          the other half: a saved code you cannot take off is a code you have to
-          guess about.
-        */}
-        <View style={{ gap: spacing.md }}>
-          <Text variant="label" color={colors.onSurfaceVariant} style={styles.sectionLabel}>
-            MY PROMOS
-          </Text>
-          {/**
-           * ONE PROMO AT A TIME — SAY SO.
-           *
-           * BUGFIX ("if I click on the available offers it just swaps them in
-           * the My Promos section and I don't really know which one is
-           * current"). Swapping IS the rule — a booking carries one
-           * `promotionId` — but nothing said it, so tapping a second offer read
-           * as the first one having been lost or as both being half-applied.
-           * A rule stated once at the top of the section is what turns a
-           * surprising swap into an expected one.
-           */}
-          <Text variant="caption" color={colors.onSurfaceVariant}>
-            You can use one promo per ride. Choosing another offer replaces the one held here.
-          </Text>
-
-          {applied && (
-            <View style={[styles.promoStateCard, { borderColor: `${colors.primary}66`, backgroundColor: `${colors.primary}12` }]}>
-              <View style={styles.promoStateHead}>
-                <Ionicons name="pricetag" size={18} color={colors.primary} />
-                <Text variant="label" color={colors.primary} style={{ letterSpacing: 1 }}>ACTIVE ON YOUR RIDE</Text>
-              </View>
-              <Text variant="titleMedium" style={{ color: colors.onSurface }}>{applied.code}</Text>
-              <Text variant="bodySmall" color={colors.onSurfaceVariant}>
-                {applied.discountPercent}% off, up to {formatGhs(applied.maxDiscountPesewas)}
-              </Text>
-              <Text variant="caption" color={colors.onSurfaceVariant}>{expiryLabel(applied.expiry)}</Text>
-              {/**
-               * WHY THIS ONE HAS NO REMOVE.
-               *
-               * An applied promo has already changed `Booking.fareAmountPesewas`
-               * — the rider is looking at a discounted price they agreed to. The
-               * saved card below is a code held for a ride that does not exist
-               * yet and comes off freely; this one is money already moved.
-               * Saying which is which is the difference between "the remove
-               * button is broken" and "there is nothing to remove".
-               */}
-              <Text variant="caption" color={colors.onSurfaceVariant}>
-                Already discounted on this ride, so it stays until the ride ends.
-              </Text>
-            </View>
-          )}
-
-          {pendingPromoCode && (
-            <View style={[styles.promoStateCard, { borderColor: colors.outline }]}>
-              <View style={styles.promoStateHead}>
-                <Ionicons name="time-outline" size={18} color={colors.onSurfaceVariant} />
-                <Text variant="label" color={colors.onSurfaceVariant} style={{ letterSpacing: 1 }}>
-                  {applied ? 'SAVED FOR THE RIDE AFTER' : 'SAVED FOR NEXT RIDE'}
-                </Text>
-              </View>
-              <Text variant="titleMedium" style={{ color: colors.onSurface }}>{pendingPromoCode}</Text>
-              <Text variant="bodySmall" color={colors.onSurfaceVariant}>
-                This code is applied automatically when you book your next trip.
-              </Text>
-              <Pressable
-                onPress={() => { setPendingPromoCode(null); setPromoStatus('idle'); }}
-                hitSlop={8}
-                style={styles.removePromoBtn}
-                accessibilityRole="button"
-                accessibilityLabel={`Remove saved promo code ${pendingPromoCode}`}
-              >
-                <Ionicons name="close-circle-outline" size={14} color={colors.statusError} />
-                <Text variant="caption" color={colors.statusError}>Remove</Text>
-              </Pressable>
-            </View>
-          )}
-
-          {!applied && !pendingPromoCode && (
-            <View style={[styles.promoStateCard, { borderColor: colors.outline }]}>
-              <View style={styles.promoStateHead}>
-                <Ionicons name="pricetag-outline" size={18} color={colors.onSurfaceVariant} />
-                <Text variant="label" color={colors.onSurfaceVariant} style={{ letterSpacing: 1 }}>NONE ACTIVE</Text>
-              </View>
-              <Text variant="bodySmall" color={colors.onSurfaceVariant}>
-                You are not using a promo right now. Pick one below or enter a code and it will be
-                applied to your next ride.
-              </Text>
-            </View>
-          )}
-        </View>
-
-        <View
-          >
-          <Text variant="label" color={colors.onSurfaceVariant} style={styles.sectionLabel}>
-            ENTER PROMO CODE
-          </Text>
-          <View style={styles.promoCard}>
-            <GlowSearchInput
-              containerStyle={{ flex: 1 }}
-              leftIcon={<Ionicons name="ticket-outline" size={20} color={colors.onSurfaceVariant} />}
-              placeholder="Enter code here"
-              value={promoCode}
-              onChangeText={(text) => {
-                setPromoCode(text);
-                setPromoStatus('idle');
-              }}
-              autoCapitalize="characters"
-            />
-            <Button
-              label="Apply"
-              onPress={() => void handleApplyPromo()}
-              loading={isValidating}
-              disabled={!promoCode.trim() || (!!applied && !!activeBooking?.id)}
-              style={styles.applyBtn}
-              fullWidth={false}
-            />
-          </View>
-          {promoStatus === 'success' && (
-            <Text variant="caption" color={colors.primary} style={styles.statusText}>
-              {activeBooking?.id
-                ? 'Promo applied to current booking!'
-                : 'Promo saved! Will be applied to your next booking.'}
-            </Text>
-          )}
-          {promoStatus === 'error' && (
-            <Text variant="caption" color={colors.error} style={styles.statusText}>
-              Invalid or expired promo code.
-            </Text>
-          )}
-        </View>
-
-        {/* Available offers — the answer to "what can I actually use?" */}
-        <View style={{ marginTop: spacing['2xl'] }}>
-          <Text variant="label" color={colors.onSurfaceVariant} style={styles.sectionLabel}>
-            AVAILABLE OFFERS
-          </Text>
-          {promosLoading ? (
-            <Text variant="bodySmall" color={colors.onSurfaceVariant}>Loading offers…</Text>
-          ) : available.length === 0 ? (
-            <View style={styles.emptyOffers}>
-              <Ionicons name="pricetags-outline" size={28} color={colors.onSurfaceVariant} />
-              <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ textAlign: 'center' }}>
-                No offers running right now. Codes you receive by SMS or email still work above.
-              </Text>
-            </View>
+      {promosQ.isPending ? (
+        <SkeletonRows count={2} />
+      ) : (
+        <ListSection title="Available offers">
+          {available.length === 0 ? (
+            <ListRow icon="pricetags-outline" title="No offers right now" subtitle="Codes you get by SMS or email still work above." />
           ) : (
             available.map((p: RiderPromotion) => {
-              /*
-                Each row states its OWN relationship to this rider — the thing
-                the report says was missing ("I can't tell if I was using it
-                already or if I'm now genuinely using it"). A row that is already
-                on the ride is not tappable: re-applying it would either no-op or
-                error, and both read as the app ignoring you.
-              */
               const isActive = applied?.code?.toUpperCase() === p.code.toUpperCase();
               const isSaved = !isActive && pendingPromoCode?.toUpperCase() === p.code.toUpperCase();
-              const busy = isValidating && promoCode.toUpperCase() === p.code.toUpperCase();
+              const busy = busyCode === p.code.toUpperCase();
+              const locked = isActive || !!applied;
               return (
-                <Pressable
+                <ListRow
                   key={p.id}
-                  onPress={() => { if (!isActive && !busy && !applied) void handleApplyPromo(p.code); }}
-                  disabled={isActive || busy || !!applied}
-                  style={({ pressed }) => [
-                    styles.offerRow,
-                    (isActive || isSaved) && { borderColor: `${colors.primary}55` },
-                    pressed && { opacity: 0.7 },
-                  ]}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: isActive || isSaved, disabled: isActive }}
-                  accessibilityLabel={
-                    isActive
-                      ? `Promo code ${p.code} is active on your ride`
-                      : isSaved
-                        ? `Promo code ${p.code} is saved for your next ride`
-                        : `Use promo code ${p.code}`
-                  }
-                >
-                  <View style={{ flex: 1, gap: 2 }}>
-                    <Text variant="bodyMedium" style={{ color: colors.onSurface, fontFamily: fonts.semiBold }}>
-                      {p.code}
-                    </Text>
-                    <Text variant="caption" color={colors.onSurfaceVariant}>
-                      {p.discountPercent}% off, up to {formatGhs(p.maxDiscountPesewas)}
-                    </Text>
-                    <Text variant="caption" color={colors.onSurfaceVariant}>
-                      {expiryLabel(p.expiry)}
-                      {p.redemptionsLeft != null && p.redemptionsLeft <= 20
-                        ? ` · only ${p.redemptionsLeft} left`
-                        : ''}
-                    </Text>
-                  </View>
-                  {isActive || isSaved ? (
-                    <View style={[styles.offerPill, { backgroundColor: `${colors.primary}1F` }]}>
-                      <Ionicons name="checkmark" size={11} color={colors.primary} />
-                      <Text variant="caption" color={colors.primary}>
-                        {isActive ? 'ACTIVE' : 'SAVED'}
-                      </Text>
-                    </View>
-                  ) : (
-                    <Text variant="caption" color={colors.primary}>{busy ? 'Applying…' : 'Use'}</Text>
-                  )}
-                </Pressable>
+                  icon="pricetag-outline"
+                  title={p.code}
+                  subtitle={`${p.discountPercent}% off, up to ${formatGhs(p.maxDiscountPesewas)} · ${expiryLabel(p.expiry)}${p.redemptionsLeft != null && p.redemptionsLeft <= 20 ? ` · ${p.redemptionsLeft} left` : ''}`}
+                  subtitleLines={2}
+                  value={isActive ? 'Active' : isSaved ? 'Saved' : busy ? 'Applying…' : 'Use'}
+                  valueColor={colors.primary}
+                  onPress={locked || busy || isSaved ? undefined : () => void apply(p.code)}
+                />
               );
             })
           )}
-        </View>
+        </ListSection>
+      )}
 
-        {/* Already redeemed — so a used code stops looking like a missed one. */}
-        {used.length > 0 && (
-          <View style={{ marginTop: spacing['2xl'] }}>
-            <Text variant="label" color={colors.onSurfaceVariant} style={styles.sectionLabel}>
-              ALREADY USED
-            </Text>
-            {used.map((p: RiderPromotions["used"][number]) => (
-              <View key={`${p.id}-${p.bookingId}`} style={styles.offerRow}>
-                <View style={{ flex: 1, gap: 2 }}>
-                  <Text variant="bodyMedium" color={colors.onSurfaceVariant}>{p.code}</Text>
-                  <Text variant="caption" color={colors.onSurfaceVariant}>
-                    Used {p.usedAt ? new Date(p.usedAt).toLocaleDateString() : ''}
-                  </Text>
-                </View>
-                <Ionicons name="checkmark-circle" size={18} color={colors.onSurfaceVariant} />
-              </View>
-            ))}
-          </View>
-        )}
-
-        <View
-          style={{ marginTop: spacing['2xl'] }}
-        >
-          <Text variant="label" color={colors.onSurfaceVariant} style={styles.sectionLabel}>
-            REFER & EARN
-          </Text>
-          <View style={styles.referCard}>
-            <View style={styles.referIconContainer}>
-              <Ionicons name="gift-outline" size={32} color={colors.primary} />
-            </View>
-            <Text variant="titleMedium" style={styles.referTitle}>Get GHS 10 off</Text>
-            <Text variant="bodySmall" color={colors.onSurfaceVariant} style={styles.referDesc}>
-              Invite friends to EyeGo. They get GHS 10 off their first ride, and you get GHS 10 when they complete it.
-            </Text>
-            
-            {referralCode ? (
-              <View style={styles.codeContainer}>
-                <Text variant="label" color={colors.onSurfaceVariant}>YOUR CODE</Text>
-                <ShinyText
-                  baseColor={colors.primary}
-                  textStyle={[{ fontFamily: fonts.semiBold, fontSize: fontSizes.titleLarge }, styles.codeText]}
-                >
-                  {referralCode}
-                </ShinyText>
-              </View>
-            ) : null}
-
-            <Button
-              label="Share Invite Link"
-              onPress={handleShare}
-              variant="secondary"
-              disabled={!referralCode}
-              style={styles.shareBtn}
+      {used.length > 0 ? (
+        <ListSection title="Already used">
+          {used.map((p: RiderPromotions['used'][number]) => (
+            <ListRow
+              key={`${p.id}-${p.bookingId}`}
+              icon="checkmark-circle-outline"
+              iconColor={colors.onSurfaceVariant}
+              title={p.code}
+              subtitle={p.usedAt ? `Used ${new Date(p.usedAt).toLocaleDateString('en-GH', { day: 'numeric', month: 'short', year: 'numeric' })}` : 'Used'}
             />
-          </View>
-        </View>
-      </ScrollView>
-    </SafeAreaView>
+          ))}
+        </ListSection>
+      ) : null}
+    </Screen>
   );
 }
 
-const makeStyles = (colors: Colors) => StyleSheet.create({
-  safe: { flex: 1, backgroundColor: 'transparent' },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing['2xl'],
-    paddingVertical: spacing.base,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.outlineVariant,
-  },
-  backBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.surfaceContainer,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  scroll: {
-    paddingHorizontal: spacing['2xl'],
-    paddingTop: spacing['2xl'],
-    paddingBottom: spacing['3xl'],
-  },
-  sectionLabel: {
-    letterSpacing: 1,
-    marginBottom: spacing.base,
-  },
-  promoCard: {
-    backgroundColor: colors.surfaceContainer,
-    borderRadius: radii.xl,
-    padding: spacing.base,
-    borderWidth: 1,
-    borderColor: colors.outlineVariant,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  inputRow: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    backgroundColor: colors.surfaceContainerHigh,
-    paddingHorizontal: spacing.md,
-    minHeight: 48,
-    borderRadius: radii.lg,
-  },
-  input: {
-    flex: 1,
-    fontFamily: fonts.medium,
-    fontSize: fontSizes.bodyMedium,
-    lineHeight: Math.round(fontSizes.bodyMedium * 1.4),
-    color: colors.onSurface,
-  },
-  applyBtn: {
-    height: 48,
-    paddingHorizontal: spacing.xl,
-  },
-  statusText: {
-    marginTop: spacing.sm,
-    marginLeft: spacing.sm,
-  },
-  referCard: {
-    backgroundColor: colors.surfaceContainer,
-    borderRadius: radii.xl,
-    padding: spacing['2xl'],
-    borderWidth: 1,
-    borderColor: colors.outlineVariant,
-    alignItems: 'center',
-  },
-  referIconContainer: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: colors.primary + '20',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: spacing.md,
-  },
-  referTitle: {
-    marginBottom: spacing.sm,
-  },
-  referDesc: {
-    textAlign: 'center',
-    marginBottom: spacing.xl,
-    lineHeight: 20,
-  },
-  codeContainer: {
-    alignItems: 'center',
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing['2xl'],
-    backgroundColor: colors.surfaceContainerHigh,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: colors.outlineVariant,
-    borderStyle: 'dashed',
-    marginBottom: spacing.xl,
-    width: '100%',
-  },
-  codeText: {
-    marginTop: spacing.xs,
-    letterSpacing: 2,
-  },
-  shareBtn: {
-    width: '100%',
-  },
-  /** The "active on your ride" / "saved for next ride" banner. */
-  promoStateCard: {
-    borderWidth: 1,
-    borderRadius: radii.xl,
-    padding: spacing.base,
-    gap: 4,
-    marginBottom: spacing.xl,
-  },
-  promoStateHead: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    marginBottom: 2,
-  },
-  /** One row in the available / already-used lists. */
-  offerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.base,
-    paddingVertical: spacing.base,
-    paddingHorizontal: spacing.base,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: colors.outlineVariant,
-    backgroundColor: colors.surfaceContainer,
-    marginBottom: spacing.sm,
-  },
-  emptyOffers: {
-    alignItems: 'center',
-    gap: spacing.sm,
-    paddingVertical: spacing.xl,
-  },
-  removePromoBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    alignSelf: 'flex-start',
-    marginTop: spacing.xs,
-  },
-  offerPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 3,
-    borderRadius: radii.sm,
-  },
-});
+const makeStyles = (c: Colors) =>
+  StyleSheet.create({
+    codeRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 20, marginTop: 8 },
+    codeBox: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, height: 48, borderRadius: radii.lg, backgroundColor: c.surfaceContainer, paddingHorizontal: 14 },
+    codeInput: { flex: 1, fontFamily: fonts.semiBold, fontSize: 16, letterSpacing: 1, color: c.onSurface, paddingVertical: 0 },
+    status: { paddingHorizontal: 20, marginTop: 8, fontFamily: fonts.medium, fontSize: 13, lineHeight: 18 },
+  });

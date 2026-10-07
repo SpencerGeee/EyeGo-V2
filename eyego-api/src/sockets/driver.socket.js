@@ -14,7 +14,7 @@ const {
   effectivePickup,
 } = require('../services/route-geometry.service');
 const { completeTrip } = require('../modules/trips/trips.service');
-const { sendMulticastPush, sendPush } = require('../services/push.service');
+const { sendMulticastPush, sendPush, prefAllows } = require('../services/push.service');
 const liveActivityPush = require('../services/live-activity-push.service');
 const { haversineMeters } = require('../utils/geo');
 const supply = require('../services/supply-index.service');
@@ -942,9 +942,14 @@ function emitSafetyCheck(io, tripId, reason) {
       try {
         const bookings = await prisma.booking.findMany({
           where: { tripId, status: { in: ['CONFIRMED', 'SEAT_HELD', 'BOARDED', 'PAID'] } },
-          select: { user: { select: { fcmToken: true } } },
+          select: { user: { select: { fcmToken: true, notificationPrefs: true } } },
         });
-        const tokens = bookings.map(b => b.user?.fcmToken).filter(Boolean);
+        // Honour each rider's "Chat messages" switch.
+        // One push per phone: a rider with several seats has several rows.
+        const tokens = [...new Set(bookings
+          .filter((b) => prefAllows(b.user?.notificationPrefs, 'chatMessages'))
+          .map((b) => b.user?.fcmToken)
+          .filter(Boolean))];
         if (tokens.length > 0) {
           sendMulticastPush(tokens, `💬 ${senderName}`, text.length > 80 ? text.slice(0, 77) + '…' : text, { type: 'CHAT_MESSAGE', tripId });
         }
@@ -1023,9 +1028,10 @@ function emitSafetyCheck(io, tripId, reason) {
       try {
         const booking = await prisma.booking.findFirst({
           where: { tripId, userId: recipientId },
-          select: { user: { select: { fcmToken: true } } },
+          select: { user: { select: { fcmToken: true, notificationPrefs: true } } },
         });
-        if (booking?.user?.fcmToken) {
+        // The rider's "Chat messages" switch was saved and never consulted.
+        if (booking?.user?.fcmToken && prefAllows(booking.user.notificationPrefs, 'chatMessages')) {
           await sendPush(booking.user.fcmToken, `💬 ${senderName}`, text.length > 80 ? text.slice(0, 77) + '…' : text, { type: 'PRIVATE_CHAT', tripId });
         }
       } catch (err) {

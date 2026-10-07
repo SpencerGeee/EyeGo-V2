@@ -519,9 +519,14 @@ async function createSupportTicket(userId, subject, message, opts = {}) {
 }
 
 async function getSupportTickets(userId) {
+  // The newest message rides along so the list can show where each request
+  // stands; without it every row was a bare subject.
   return prisma.supportTicket.findMany({
     where: { userId },
-    orderBy: { updatedAt: 'desc' }
+    orderBy: { updatedAt: 'desc' },
+    include: {
+      messages: { orderBy: { createdAt: 'desc' }, take: 1, select: { text: true, senderRole: true, createdAt: true } },
+    },
   });
 }
 
@@ -576,9 +581,11 @@ async function addTicketMessage(userId, ticketId, text) {
     }
   });
 
+  // A reply reopens it — same as the driver side — or it sits in a closed
+  // queue nobody reads.
   await prisma.supportTicket.update({
     where: { id: ticketId },
-    data: { updatedAt: new Date() }
+    data: { updatedAt: new Date(), status: 'OPEN' }
   });
 
   return message;

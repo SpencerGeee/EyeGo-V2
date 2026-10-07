@@ -1,598 +1,270 @@
-﻿import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
-import {
-  View,
-  StyleSheet,
-  Pressable,
-  Modal,
-} from 'react-native';
-import { FlashList } from '@shopify/flash-list';
-import { KeyboardAwareScrollView, KeyboardStickyView } from 'react-native-keyboard-controller';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { View, StyleSheet, Pressable, Modal, Platform } from 'react-native';
 import { Image } from 'expo-image';
-import * as Contacts from 'expo-contacts';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import DateTimePicker from '@react-native-community/datetimepicker';
-import { userApi } from '@eyego/api';
-import { useAuthStore } from '../../stores/auth.store';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { useColors, Colors } from '../../utils/useColors';
-import { Text, Button, Input, GlassSurface, GradientGlowBorder, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS, MorphTarget, useMorph, backgroundScrollPauseProps, goBack, notify } from '@eyego/ui';
-import { getInitials } from '@eyego/utils';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { Ionicons } from '@expo/vector-icons';
+import { userApi } from '@eyego/api';
+import { fonts } from '@eyego/config';
+import { Text, Button, Input, Screen, ListSection, ListRow, goBack, goDeeper, notify } from '@eyego/ui';
+import { getInitials, formatPhone, describeError } from '@eyego/utils';
+import { useAuthStore } from '../../stores/auth.store';
+import { useColors, Colors } from '../../utils/useColors';
 
+/** Riders must be 16 or over (Terms §3). */
+const MAX_DOB = () => {
+  const d = new Date();
+  d.setFullYear(d.getFullYear() - 16);
+  return d;
+};
+
+/** Stored as "dd / mm / yyyy" — the shape register.tsx and the server use. */
+const formatDob = (d: Date) =>
+  `${String(d.getDate()).padStart(2, '0')} / ${String(d.getMonth() + 1).padStart(2, '0')} / ${d.getFullYear()}`;
+const parseDob = (s?: string | null): Date | null => {
+  const p = String(s ?? '').split(' / ');
+  return p.length === 3 ? new Date(parseInt(p[2], 10), parseInt(p[1], 10) - 1, parseInt(p[0], 10)) : null;
+};
+
+/**
+ * EDIT PROFILE — photo, name, email, date of birth.
+ *
+ * Two bugs went with the rewrite:
+ *  - An inline date spinner: on Android the picker is a dialog, so mounting
+ *    it opened a calendar the moment this screen did. It opens on tap now.
+ *  - An "Emergency contact" pair that saved through the full-replace contacts
+ *    endpoint, so saving your profile deleted every trusted contact but one.
+ *    Trusted contacts have their own page; this links to it.
+ */
 export default function EditProfileScreen() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const router = useRouter();
-  const { morphId } = useLocalSearchParams<{ morphId?: string }>();
-  const { morphBack } = useMorph();
-  // Reverse the hero-avatar morph back into the profile screen. Falls back to
-  // a plain pop when no morph is in flight (deep link / no source measured).
-  const handleBack = useCallback(() => {
-    morphBack(() => goBack());
-  }, [morphBack, router]);
+  const insets = useSafeAreaInsets();
   const { user, updateUser } = useAuthStore();
   const qc = useQueryClient();
 
   const [name, setName] = useState(user?.name ?? '');
   const [email, setEmail] = useState((user as any)?.email ?? '');
-  const [dob, setDob] = useState((user as any)?.dob ?? '');
-  const [dobDate, setDobDate] = useState<Date>(() => {
-    const stored = (user as any)?.dob ?? '';
-    const parts = stored.split(' / ');
-    if (parts.length === 3) {
-      return new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
-    }
-    return new Date(2000, 0, 1);
-  });
+  const [dob, setDob] = useState<string>((user as any)?.dob ?? '');
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [nameError, setNameError] = useState('');
-  const [emergencyName, setEmergencyName] = useState((user as any)?.emergencyContact?.name ?? '');
-  const [emergencyPhone, setEmergencyPhone] = useState((user as any)?.emergencyContact?.phone ?? '');
-  const [showContactPicker, setShowContactPicker] = useState(false);
-  const [contactList, setContactList] = useState<Contacts.Contact[]>([]);
+  const [emailError, setEmailError] = useState('');
+  const [iosPicker, setIosPicker] = useState(false);
+  const [iosTemp, setIosTemp] = useState<Date>(new Date(2000, 0, 1));
 
-  /**
-   * Adopt the profile once it actually arrives.
-   *
-   * Every field above seeds from `useState(user?.x)`, which reads the store
-   * exactly once — at first render. When this screen mounted before the
-   * profile had been reconciled with the server, the form rendered empty and
-   * stayed empty, which is what "it's telling me to save it again because it's
-   * blank" looked like. Saving from that state then PATCHed the blanks back
-   * over good server data.
-   *
-   * Only untouched fields are adopted: `dirty` flips on the first keystroke so
-   * a late-arriving refetch can never overwrite what the rider is typing.
-   */
+  // Adopt the profile when it arrives, unless the rider has started typing —
+  // a late refetch must never overwrite what they're editing.
   const dirty = useRef(false);
   useEffect(() => {
     if (dirty.current || !user) return;
     const u = user as any;
     if (u.name) setName(u.name);
     if (u.email) setEmail(u.email);
-    if (u.dob) {
-      setDob(u.dob);
-      const parts = String(u.dob).split(' / ');
-      if (parts.length === 3) {
-        setDobDate(new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0])));
-      }
-    }
+    if (u.dob) setDob(u.dob);
   }, [user]);
 
-  // Emergency contacts are a separate resource — `/user/me` has never carried
-  // an `emergencyContact` field, so seeding these two inputs from the user
-  // object left them blank on every visit no matter what was saved.
-  const { data: savedContact } = useQuery({
-    queryKey: ['user', 'emergencyContacts'],
-    queryFn: () => userApi.getEmergencyContacts(),
-    select: (r: any) => r.data?.data?.contacts?.[0] ?? null,
-  });
-  useEffect(() => {
-    if (dirty.current || !savedContact) return;
-    if (savedContact.name) setEmergencyName(savedContact.name);
-    if (savedContact.phone) setEmergencyPhone(savedContact.phone);
-  }, [savedContact]);
-
-  const handlePickContact = async () => {
-    const { status } = await Contacts.requestPermissionsAsync();
-    if (status !== 'granted') {
-      notify('Permission required', 'Please allow access to contacts in Settings.');
-      return;
-    }
-    const { data } = await Contacts.getContactsAsync({
-      fields: [Contacts.Fields.Name, Contacts.Fields.PhoneNumbers],
-      sort: Contacts.SortTypes.FirstName,
-    });
-    const withPhones = data.filter(c => c.name && c.phoneNumbers?.length);
-    setContactList(withPhones);
-    setShowContactPicker(true);
-  };
-
-  const selectContact = useCallback((contact: Contacts.Contact) => {
-    const phone = contact.phoneNumbers?.[0]?.number?.replace(/\s/g, '') ?? '';
-    setEmergencyName(contact.name ?? '');
-    setEmergencyPhone(phone);
-    setShowContactPicker(false);
-  }, []);
-
-  const onDateChange = (_event: any, selectedDate?: Date) => {
-    if (selectedDate) {
-      setDobDate(selectedDate);
-      const d = selectedDate.getDate().toString().padStart(2, '0');
-      const m = (selectedDate.getMonth() + 1).toString().padStart(2, '0');
-      const y = selectedDate.getFullYear().toString();
-      dirty.current = true;
-      setDob(`${d} / ${m} / ${y}`);
+  const openDob = () => {
+    const current = parseDob(dob) ?? new Date(2000, 0, 1);
+    if (Platform.OS === 'android') {
+      DateTimePickerAndroid.open({
+        value: current,
+        mode: 'date',
+        maximumDate: MAX_DOB(),
+        minimumDate: new Date(1900, 0, 1),
+        onChange: (e, d) => {
+          if (e.type === 'set' && d) {
+            dirty.current = true;
+            setDob(formatDob(d));
+          }
+        },
+      });
+    } else {
+      setIosTemp(current);
+      setIosPicker(true);
     }
   };
 
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    /*
-     * Same as the contacts picker directly above, which has always said so.
-     * This one returned in silence, so the avatar was a dead control for
-     * anyone who had ever declined the photos permission — and iOS does not
-     * re-prompt, so it stayed dead with nothing pointing at Settings.
-     */
     if (status !== 'granted') {
-      notify('Permission required', 'Please allow access to your photos in Settings to choose a picture.');
+      notify('Photos are off', 'Allow access to your photos in Settings to choose a picture.');
       return;
     }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.8,
-    });
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.8 });
     if (!result.canceled && result.assets[0]) {
+      dirty.current = true;
       setAvatarUri(result.assets[0].uri);
     }
   };
 
-  const saveProfile = useMutation({
+  const save = useMutation({
     mutationFn: async () => {
-      let avatarUrl: string | undefined;
-      if (avatarUri) {
-        avatarUrl = await userApi.uploadAvatar(avatarUri);
-      }
+      const avatarUrl = avatarUri ? await userApi.uploadAvatar(avatarUri) : undefined;
       const { data } = await userApi.updateProfile({
         name: name.trim(),
         email: email.trim() || undefined,
         dob: dob.trim() || undefined,
         avatarUrl,
       } as any);
-
-      // BUGFIX ("the info i entered on the edit profile page doesnt persist").
-      // The emergency contact used to ride along in the PATCH body above.
-      // `updateMe` copies fields into an explicit allow-list and
-      // `emergencyContact` is not on it, so the server accepted the request,
-      // returned 200, and dropped the contact on the floor. The screen showed
-      // a success and the field was empty again on the next visit. Emergency
-      // contacts are their own resource with their own endpoint.
-      if (emergencyName.trim() && emergencyPhone.trim()) {
-        await userApi.syncEmergencyContacts([
-          { name: emergencyName.trim(), phone: emergencyPhone.trim() },
-        ]);
-      }
-
       return data.data;
     },
-    onSuccess: (updatedUser) => {
-      updateUser(updatedUser);
+    onSuccess: (updated) => {
+      updateUser(updated);
       qc.invalidateQueries({ queryKey: ['user', 'profile'] });
-      qc.invalidateQueries({ queryKey: ['user', 'emergencyContacts'] });
-      /**
-       * THE CHECKLIST IS DERIVED FROM THIS PROFILE, SO IT IS NOW STALE.
-       *
-       * BUGFIX ("the account-checkup card is telling me to add my email address
-       * for it to be 100%, and i just did — but going back to the profile page
-       * it's still there"). `['user','account-checklist']` is a separate query
-       * with its own 30 s `staleTime`, and nothing here invalidated it. The
-       * profile tab does not unmount when this screen is pushed over it either,
-       * so returning did not remount the query — the rider was left looking at a
-       * card asking for something they had just supplied.
-       */
+      // The checklist is derived from the profile — refresh it, or the Account
+      // tab keeps asking for the email that was just added.
       qc.invalidateQueries({ queryKey: ['user', 'account-checklist'] });
-      handleBack();
+      notify('Profile updated', undefined, { tone: 'success' });
+      goBack();
     },
-    onError: () => {
-      notify('Save Failed', 'Could not save your profile. Please check your connection and try again.');
+    onError: (err) => {
+      const { title, message } = describeError(err, 'Could not save your profile. Check your connection and try again.');
+      notify(title, message);
     },
   });
 
   const handleSave = () => {
     if (name.trim().length < 2) {
-      setNameError('Please enter your full name');
+      setNameError('Enter your full name');
       return;
     }
-    setNameError('');
-    saveProfile.mutate();
+    if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      setEmailError('That email doesn’t look right');
+      return;
+    }
+    save.mutate();
   };
 
-  const renderContactItem = useCallback(({ item }: { item: Contacts.Contact }) => (
-    <Pressable
-      onPress={() => selectContact(item)}
-      style={{ padding: spacing['2xl'], borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }}
-     accessibilityRole="button">
-      <Text variant="bodyMedium">{item.name}</Text>
-      <Text variant="caption" color={colors.onSurfaceVariant}>{item.phoneNumbers?.[0]?.number ?? ''}</Text>
-    </Pressable>
-  ), [selectContact, colors]);
-
-  const avatarSource = avatarUri
-    ? { uri: avatarUri }
-    : user?.avatarUrl
-    ? { uri: user.avatarUrl }
-    : null;
+  const avatar = avatarUri ?? user?.avatarUrl ?? null;
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <View style={{ flex: 1 }}>
-        {/* Header */}
-        <View style={styles.header}>
-          <Pressable onPress={handleBack} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
-            <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
+    <>
+      <Screen
+        title="Edit profile"
+        keyboard
+        footer={<Button label="Save" onPress={handleSave} disabled={name.trim().length < 2 || save.isPending} loading={save.isPending} fullWidth />}
+      >
+        <View style={styles.avatarWrap}>
+          <Pressable onPress={pickImage} accessibilityRole="button" accessibilityLabel="Change profile photo">
+            <View style={styles.avatar}>
+              {avatar ? (
+                <Image source={{ uri: avatar }} style={StyleSheet.absoluteFill} contentFit="cover" />
+              ) : (
+                <Text style={styles.initials}>{name ? getInitials(name) : '?'}</Text>
+              )}
+            </View>
+            <View style={styles.badge}>
+              <Ionicons name="camera" size={14} color={colors.onPrimary} />
+            </View>
           </Pressable>
-          <Text variant="titleSmall">Edit Profile</Text>
-          <View style={{ width: 40 }} />
+          <Text style={styles.hint}>Your driver sees this at pickup.</Text>
         </View>
 
-        {/* MorphTarget hoisted outside KeyboardAwareScrollView so its
-            measureInWindow fires from a stable layout position — no delay
-            from scroll-view / GradientGlowBorder settling. */}
-        {/* BUGFIX (item 15 — "the profile picture sits behind the fields"):
-            this block and the scroll view below are siblings in the same column,
-            so with no z-order the LATER sibling paints on top. The avatar's
-            GradientGlowBorder `glow` casts shadow layers that extend past its
-            108×108 box, and the form's own surfaces were painting over them —
-            reading on-device as the photo sitting underneath the fields. Lifting
-            the whole avatar block (zIndex for iOS, elevation for Android) keeps
-            it above the form, and the extra bottom room stops the glow reaching
-            the first field at all. */}
-        {/* BUGFIX ("the circular avatar morphs into a full rectangle"):
-            MorphTarget reports the frame of ITS OWN wrapper, and this used to
-            wrap `avatarSection` — a block-level column holding the 108×108 ring
-            AND the "change photo" label, i.e. a ~390×190 box the full width of
-            the screen. So the provider was told, correctly, to land the clone on
-            a wide rectangle, and a 64 pt circle duly inflated into one. The
-            radius prop was never the problem; the frame was.
-
-            The target has to be the circle itself and nothing else, so the
-            wrapper is now pinned to the ring's exact 108×108 and sits INSIDE the
-            column rather than around it. `borderRadius` is half of that, which
-            makes the clone a circle at both ends of the flight. */}
-        <View style={styles.avatarSection}>
-          <MorphTarget
-            id={morphId ?? 'profile-hero-avatar'}
-            borderRadius={54}
-            style={styles.avatarMorph}
-          >
-            <Pressable onPress={pickImage} style={styles.avatarContainer} accessibilityRole="button">
-              <GradientGlowBorder
-                colors={PREMIUM_RING_COLORS}
-                locations={PREMIUM_RING_LOCATIONS}
-                fillColor={colors.surfaceContainerHigh}
-                borderRadius={54}
-                glow
-                glowColor={colors.primary}
-                style={styles.avatarRing}
-              >
-                {avatarSource ? (
-                  <Image source={avatarSource} style={styles.avatar} />
-                ) : (
-                  <View style={styles.avatarPlaceholder}>
-                    <Text style={styles.avatarInitials}>
-                      {name ? getInitials(name) : '?'}
-                    </Text>
-                  </View>
-                )}
-              </GradientGlowBorder>
-              <View style={styles.avatarEditBadge}>
-                <Ionicons name="camera-outline" size={14} color={colors.onPrimary} />
-              </View>
-            </Pressable>
-          </MorphTarget>
-          <Text style={styles.changePhotoLabel}>CHANGE PHOTO</Text>
-        </View>
-
-        <KeyboardAwareScrollView
-          contentContainerStyle={styles.scroll}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-          bottomOffset={24}
-          {...backgroundScrollPauseProps}
-        >
-
-          {/* Name */}
-          <View
-            style={styles.inputSection}
-          >
-            <Input
-              label="Full name"
-              value={name}
-              onChangeText={(t) => { dirty.current = true; setName(t); setNameError(''); }}
-              autoCapitalize="words"
-              autoCorrect={false}
-              returnKeyType="next"
-              error={nameError}
-            />
-          </View>
-
-          {/* Email */}
-          <View
-            style={styles.inputSection}
-          >
-            <Input
-              label="Email (optional)"
-              value={email}
-              onChangeText={(t) => { dirty.current = true; setEmail(t); }}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              returnKeyType="next"
-            />
-          </View>
-
-          {/* Phone (read-only, verified) */}
-          <View
-            style={styles.inputSection}
-          >
-            <Text style={styles.phoneLabel}>Phone Number</Text>
-            <View style={styles.phoneField}>
-              <Text style={styles.phoneValue}>{user?.phone ?? '—'}</Text>
-              <Ionicons name="checkmark-circle" size={20} color={colors.statusSuccess} />
-            </View>
-          </View>
-
-          {/* Date of Birth */}
-          <View
-            style={styles.inputSection}
-          >
-            <Text variant="caption" color={colors.onSurfaceVariant} style={styles.dobLabel}>
-              Date of birth
-            </Text>
-            <View style={styles.dobPickerContainer}>
-              <DateTimePicker
-                value={dobDate}
-                mode="date"
-                display="spinner"
-                maximumDate={new Date()}
-                minimumDate={new Date(1900, 0, 1)}
-                onChange={onDateChange}
-                style={styles.dobPicker}
-              />
-            </View>
-          </View>
-
-          {/* Emergency Contact */}
-          <View
-            >
-            <View style={styles.sectionHeader}>
-              <Ionicons name="shield-checkmark-outline" size={16} color={colors.primary} />
-              <Text variant="label" color={colors.onSurface} style={{ marginLeft: spacing.xs }}>
-                Emergency Contact
-              </Text>
-            </View>
-            <Text variant="caption" color={colors.onSurfaceVariant} style={styles.sectionCaption}>
-              Notified when you trigger SOS
-            </Text>
-            <GlassSurface borderRadius={radii.xl} intensity="low" dark style={styles.emergencyCard}>
-              <View style={styles.inputSection}>
-                <Input
-                  label="Contact name"
-                  value={emergencyName}
-                  onChangeText={(t) => { dirty.current = true; setEmergencyName(t); }}
-                  autoCapitalize="words"
-                  returnKeyType="next"
-                />
-                <Pressable onPress={handlePickContact} style={styles.pickContactBtn} accessibilityRole="button">
-                  <Ionicons name="phone-portrait-outline" size={14} color={colors.primary} />
-                  <Text variant="caption" color={colors.primary}> Pick from contacts</Text>
-                </Pressable>
-              </View>
-              <View style={{ marginBottom: 0 }}>
-                <Input
-                  label="Contact phone"
-                  value={emergencyPhone}
-                  onChangeText={(t) => { dirty.current = true; setEmergencyPhone(t); }}
-                  keyboardType="phone-pad"
-                  returnKeyType="done"
-                />
-              </View>
-            </GlassSurface>
-          </View>
-
-          {saveProfile.isError && (
-            <Text variant="caption" color={colors.error} style={styles.errorText}>
-              Something went wrong. Please try again.
-            </Text>
-          )}
-        </KeyboardAwareScrollView>
-
-        {/* Fixed bottom Save — rides the keyboard so it stays reachable */}
-        <KeyboardStickyView>
-          <View style={styles.footer}>
-            <Button
-              label="Save Changes"
-              onPress={handleSave}
-              disabled={name.trim().length < 2}
-              loading={saveProfile.isPending}
-              fullWidth
-            />
-          </View>
-        </KeyboardStickyView>
-      </View>
-      <Modal visible={showContactPicker} animationType="slide" presentationStyle="pageSheet">
-        <SafeAreaView style={{ flex: 1, backgroundColor: colors.backgroundDeep }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: spacing['2xl'] }}>
-            <Text variant="titleMedium">Select Contact</Text>
-            <Pressable onPress={() => setShowContactPicker(false)} accessibilityRole="button" accessibilityLabel="Close the contact picker">
-              <Ionicons name="close" size={24} color={colors.onSurface} />
-            </Pressable>
-          </View>
-          <FlashList
-            {...({ estimatedItemSize: 64 } as any)}
-            data={contactList}
-            keyExtractor={(item: any) => item.id ?? item.name ?? Math.random().toString()}
-            renderItem={renderContactItem}
+        <View style={styles.fields}>
+          <Input
+            label="Full name"
+            value={name}
+            onChangeText={(t) => { dirty.current = true; setName(t); setNameError(''); }}
+            autoCapitalize="words"
+            autoCorrect={false}
+            autoComplete="name"
+            textContentType="name"
+            returnKeyType="next"
+            error={nameError}
           />
-        </SafeAreaView>
-      </Modal>
-    </SafeAreaView>
+          <Input
+            label="Email (optional)"
+            value={email}
+            onChangeText={(t) => { dirty.current = true; setEmail(t); setEmailError(''); }}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoComplete="email"
+            textContentType="emailAddress"
+            returnKeyType="done"
+            error={emailError}
+          />
+        </View>
+
+        <ListSection>
+          <ListRow icon="calendar-outline" title="Date of birth" value={dob ? dob.replace(/ \/ /g, '/') : 'Add'} onPress={openDob} />
+          <ListRow
+            icon="call-outline"
+            title="Phone number"
+            value={user?.phone ? formatPhone(user.phone) : '—'}
+            right={<Ionicons name="checkmark-circle" size={18} color={colors.statusSuccess} />}
+          />
+        </ListSection>
+
+        <ListSection footer="Your phone number is how you sign in, so it can’t be changed here.">
+          <ListRow icon="people-outline" title="Trusted contacts" subtitle="Who we alert in an emergency" onPress={() => goDeeper('/profile/emergency-contacts')} />
+        </ListSection>
+      </Screen>
+
+      {/* iOS date sheet. Android uses the system dialog (openDob). */}
+      {Platform.OS === 'ios' ? (
+        <Modal visible={iosPicker} transparent animationType="slide" onRequestClose={() => setIosPicker(false)}>
+          <Pressable style={styles.overlay} onPress={() => setIosPicker(false)} accessibilityLabel="Close" />
+          <View style={[styles.sheet, { paddingBottom: insets.bottom + 8 }]}>
+            <View style={styles.sheetBar}>
+              <Pressable onPress={() => setIosPicker(false)} hitSlop={8} accessibilityRole="button">
+                <Text style={styles.sheetCancel}>Cancel</Text>
+              </Pressable>
+              <Text style={styles.sheetTitle}>Date of birth</Text>
+              <Pressable
+                onPress={() => {
+                  dirty.current = true;
+                  setDob(formatDob(iosTemp));
+                  setIosPicker(false);
+                }}
+                hitSlop={8}
+                accessibilityRole="button"
+              >
+                <Text style={styles.sheetDone}>Done</Text>
+              </Pressable>
+            </View>
+            <DateTimePicker
+              value={iosTemp}
+              mode="date"
+              display="spinner"
+              maximumDate={MAX_DOB()}
+              minimumDate={new Date(1900, 0, 1)}
+              onChange={(_e, d) => d && setIosTemp(d)}
+              textColor={colors.onSurface}
+              style={{ alignSelf: 'stretch' }}
+            />
+          </View>
+        </Modal>
+      ) : null}
+    </>
   );
 }
 
-const makeStyles = (colors: Colors) => StyleSheet.create({
-  safe: { flex: 1, backgroundColor: 'transparent' },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing['2xl'],
-    paddingVertical: spacing.base,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.rimLightSubtle,
-  },
-  backBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.surfaceContainer,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  scroll: {
-    flexGrow: 1,
-    paddingHorizontal: spacing['2xl'],
-    paddingTop: spacing['2xl'],
-    paddingBottom: 120,
-  },
-  // Exactly the ring's box — this is the rectangle the morph clone is told to
-  // become, so anything else in here (a label, a margin, an auto width) lands
-  // in the animation. Keep it 108×108.
-  avatarMorph: {
-    width: 108,
-    height: 108,
-    alignSelf: 'center',
-  },
-  avatarSection: {
-    alignItems: 'center',
-    marginBottom: spacing['2xl'],
-    // Clearance for the ring's glow, which paints outside the 108×108 box.
-    paddingBottom: spacing.md,
-    // Lifts the whole avatar block above the form so the ring's glow is not
-    // painted over by the later sibling. Moved here from `avatarMorph` when the
-    // nesting flipped — the stacking context has to be on the outer block.
-    zIndex: 2,
-    elevation: 2,
-  },
-  avatarContainer: { position: 'relative', width: 108, height: 108 },
-  avatarRing: { width: 108, height: 108, alignItems: 'center', justifyContent: 'center' },
-  avatar: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-  },
-  avatarPlaceholder: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    backgroundColor: colors.surfaceContainerHigh,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarInitials: {
-    fontFamily: fonts.displayBold,
-    fontSize: fontSizes.headlineLarge,
-    lineHeight: fontSizes.headlineLarge * 1.25,
-    color: colors.onSurfaceVariant,
-  },
-  avatarEditBadge: {
-    position: 'absolute',
-    bottom: 2,
-    right: 2,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: colors.backgroundDeep,
-  },
-  changePhotoLabel: {
-    fontFamily: fonts.semiBold,
-    fontSize: 11,
-    lineHeight: 14,
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-    color: colors.primary,
-    marginTop: spacing.md,
-  },
-  inputSection: { marginBottom: spacing.xl },
-  phoneLabel: {
-    fontFamily: fonts.regular,
-    fontSize: fontSizes.bodySmall,
-    lineHeight: Math.round(fontSizes.bodySmall * 1.3),
-    color: colors.onSurfaceVariant,
-    marginBottom: spacing.sm,
-  },
-  phoneField: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: colors.surfaceInput,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: colors.rimLightSubtle,
-    paddingHorizontal: spacing.base,
-    paddingVertical: spacing.md + 2,
-  },
-  phoneValue: {
-    fontFamily: fonts.regular,
-    fontSize: fontSizes.bodyLarge,
-    lineHeight: fontSizes.bodyLarge * 1.3,
-    color: colors.onSurfaceVariant,
-  },
-  footer: {
-    paddingHorizontal: spacing['2xl'],
-    paddingTop: spacing.base,
-    paddingBottom: spacing['2xl'],
-    borderTopWidth: 1,
-    borderTopColor: colors.rimLightSubtle,
-    backgroundColor: colors.backgroundDeep,
-  },
-  dobLabel: {
-    marginBottom: spacing.xs,
-  },
-  dobPickerContainer: {
-    borderRadius: radii.xl,
-    overflow: 'hidden',
-    backgroundColor: colors.surfaceContainerHigh,
-    borderWidth: 1,
-    borderColor: colors.rimLight,
-  },
-  dobPicker: {
-    width: '100%',
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: spacing.xs,
-  },
-  sectionCaption: { marginBottom: spacing.base },
-  emergencyCard: {
-    borderRadius: radii.xl,
-    padding: spacing.base,
-    marginBottom: spacing.xl,
-  },
-  ctaSection: { marginTop: spacing.sm },
-  errorText: { textAlign: 'center', marginTop: spacing.sm },
-  pickContactBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: spacing.xs,
-  },
-});
+const makeStyles = (c: Colors) =>
+  StyleSheet.create({
+    avatarWrap: { alignItems: 'center', marginTop: 8, gap: 12 },
+    avatar: { width: 104, height: 104, borderRadius: 52, overflow: 'hidden', backgroundColor: c.surfaceContainerHigh, alignItems: 'center', justifyContent: 'center' },
+    initials: { fontFamily: fonts.displayBold, fontSize: 34, lineHeight: 42, color: c.onSurface },
+    badge: {
+      position: 'absolute',
+      bottom: 2,
+      right: 2,
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: c.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 3,
+      borderColor: c.background,
+    },
+    hint: { fontFamily: fonts.regular, fontSize: 13, lineHeight: 18, color: c.onSurfaceVariant },
+    fields: { paddingHorizontal: 20, marginTop: 24, gap: 16 },
+    overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.45)' },
+    sheet: { position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: c.surfaceContainerHigh, borderTopLeftRadius: 20, borderTopRightRadius: 20 },
+    sheetBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 14 },
+    sheetTitle: { fontFamily: fonts.semiBold, fontSize: 16, lineHeight: 21, color: c.onSurface },
+    sheetCancel: { fontFamily: fonts.medium, fontSize: 16, lineHeight: 21, color: c.onSurfaceVariant },
+    sheetDone: { fontFamily: fonts.semiBold, fontSize: 16, lineHeight: 21, color: c.primary },
+  });

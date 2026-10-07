@@ -1,227 +1,68 @@
-﻿import React, { useState, useMemo } from 'react';
-import { View, StyleSheet, Pressable, TextInput, Alert } from 'react-native';
-import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';import { Ionicons } from '@expo/vector-icons';
-import { fonts, spacing, radii } from '@eyego/config';
-import { Text, Button, Loader, goBack, notify } from '@eyego/ui';
-import { useColors, Colors } from '../../utils/useColors';
-import { useAuthStore } from '../../stores/auth.store';
+import React from 'react';
+import { Alert } from 'react-native';
+import { useRouter } from 'expo-router';
+import { useMutation } from '@tanstack/react-query';
 import { userApi } from '@eyego/api';
+import { describeError } from '@eyego/utils';
+import { Button, Screen, ListSection, ListRow, notify } from '@eyego/ui';
+import { useColors } from '../../utils/useColors';
+import { useAuthStore } from '../../stores/auth.store';
 
 // Each line is what the server actually does (users.service.deactivateAccount).
-const CONSEQUENCES = [
-  'Finish or cancel any ride you have booked or in progress first.',
-  'Any wallet balance can’t be used once your account is deleted — spend it or send it first.',
-  'Your name, phone, email and photo are removed and you’re signed out everywhere.',
-  'This action cannot be undone — you will lose access immediately.',
-  'You will need to create a new account to use EyeGo again.',
+const CONSEQUENCES: { icon: 'car-outline' | 'wallet-outline' | 'person-remove-outline' | 'lock-closed-outline'; title: string; detail: string }[] = [
+  { icon: 'car-outline', title: 'Rides first', detail: 'Finish or cancel any ride you’ve booked or are on.' },
+  { icon: 'wallet-outline', title: 'Use your balance first', detail: 'Wallet money can’t be used after deletion — spend it or send it to someone.' },
+  { icon: 'person-remove-outline', title: 'Your details go', detail: 'Your name, phone, email and photo are removed and you’re signed out everywhere.' },
+  { icon: 'lock-closed-outline', title: 'It can’t be undone', detail: 'To ride again you’ll need a new account.' },
 ];
 
+/**
+ * DELETE ACCOUNT — the one delete flow (Privacy no longer has its own). One
+ * page, one confirm, like Uber; the old "type DELETE" step asked twice.
+ */
 export default function AccountDeletionScreen() {
   const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const { logout } = useAuthStore();
 
-  const [step, setStep] = useState<1 | 2>(1);
-  const [confirmText, setConfirmText] = useState('');
-  const [isDeleting, setIsDeleting] = useState(false);
-
-  const canConfirm = confirmText === 'DELETE';
-
-  const handleDelete = async (acknowledgeBalance = false) => {
-    if (!canConfirm) return;
-    setIsDeleting(true);
-    try {
-      await userApi.deleteAccount({ acknowledgeBalance });
-      logout();
+  const { mutate: deleteAccount, isPending } = useMutation({
+    mutationFn: (acknowledgeBalance: boolean) => userApi.deleteAccount({ acknowledgeBalance }),
+    onSuccess: async () => {
+      await logout();
       router.replace('/(auth)/phone');
-    } catch (err: any) {
+    },
+    onError: (err: any) => {
       // A wallet balance is a question, not a wall: the server says how much,
       // the rider decides.
       if (err?.response?.data?.code === 'WALLET_NOT_EMPTY') {
         Alert.alert('Money left in your wallet', err.response.data.message, [
           { text: 'Keep my account', style: 'cancel' },
-          { text: 'Delete anyway', style: 'destructive', onPress: () => handleDelete(true) },
+          { text: 'Delete anyway', style: 'destructive', onPress: () => deleteAccount(true) },
         ]);
         return;
       }
-      notify(
-        'Deletion Failed',
-        err?.response?.data?.message || err?.message || 'Something went wrong. Please try again later.',
-      );
-    } finally {
-      setIsDeleting(false);
-    }
-  };
-
-  return (
-    <SafeAreaView style={styles.safe}>
-      <View style={styles.header}>
-        <Pressable onPress={() => goBack()} style={styles.backBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Go back">
-          <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
-        </Pressable>
-        <Text variant="titleSmall" style={{ color: colors.onSurface }}>Delete Account</Text>
-        <View style={{ width: 44 }} />
-      </View>
-
-      <KeyboardAwareScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" bottomOffset={24}>
-        <View
-          >
-          {step === 1 ? (
-            <>
-              <View style={styles.warningBanner}>
-                <Ionicons name="warning" size={28} color={colors.statusError} />
-                <Text variant="titleSmall" style={{color: colors.statusError, marginTop: spacing.md }}>
-                Before you continue
-                </Text>
-              </View>
-
-              <Text variant="bodyMedium" style={[styles.bodyText, { color: colors.onSurfaceVariant }]}>
-                Deleting your account is permanent and irreversible. Please read the following
-                carefully:
-              </Text>
-
-              <View style={styles.card}>
-                {CONSEQUENCES.map((item, i) => (
-                  <View key={i} style={styles.bulletRow}>
-                    <Ionicons
-                      name="close-circle"
-                      size={18}
-                      color={colors.statusError}
-                      style={{ marginTop: 2 }}
-                    />
-                    <Text
-                      variant="bodySmall"
-                      style={{ color: colors.onSurface, flex: 1, lineHeight: 20 }}
-                    >
-                      {item}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-
-              <View style={{ marginTop: spacing['2xl'] }}>
-                <Button label="I Understand, Continue" onPress={() => setStep(2)} variant="destructive" />
-              </View>
-            </>
-          ) : (
-            <>
-              <View style={styles.warningBanner}>
-                <Ionicons name="trash" size={28} color={colors.statusError} />
-                <Text variant="titleSmall" style={{ color: colors.statusError, marginTop: spacing.md }}>
-                  Confirm Deletion
-                </Text>
-              </View>
-
-              <Text
-                variant="bodyMedium"
-                style={[styles.bodyText, { color: colors.onSurfaceVariant }]}
-              >
-                To permanently delete your account, type{' '}
-                <Text variant="bodyMedium" style={{ color: colors.statusError, fontWeight: '700' }}>
-                  DELETE
-                </Text>{' '}
-                in the field below.
-              </Text>
-
-              <View style={styles.inputWrap}>
-                <TextInput maxFontSizeMultiplier={1.4}
-                  value={confirmText}
-                  onChangeText={setConfirmText}
-                  placeholder="Type DELETE to confirm"
-                  placeholderTextColor={colors.onSurfaceVariant}
-                  style={[styles.input, { color: colors.onSurface, borderColor: colors.outlineVariant }]}
-                  autoCapitalize="characters"
-                  autoCorrect={false}
-                />
-              </View>
-
-              {isDeleting ? (
-                <View style={styles.loadingWrap}>
-                  <Loader size={36} color={colors.statusError} />
-                  <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant, marginTop: spacing.base }}>
-                    Deleting your account...
-                  </Text>
-                </View>
-              ) : (
-                <View style={{ marginTop: spacing['2xl'], gap: spacing.base }}>
-                  <Button label="Delete My Account" onPress={() => handleDelete(false)} variant="destructive" disabled={!canConfirm} />
-                  <Button label="Go Back" onPress={() => setStep(1)} variant="secondary" />
-                </View>
-              )}
-            </>
-          )}
-        </View>
-      </KeyboardAwareScrollView>
-    </SafeAreaView>
-  );
-}
-
-const makeStyles = (colors: Colors) =>
-  StyleSheet.create({
-    safe: { flex: 1, backgroundColor: 'transparent' },
-    header: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      paddingHorizontal: spacing['2xl'],
-      paddingVertical: spacing.base,
-    },
-    backBtn: {
-      width: 44,
-      height: 44,
-      borderRadius: 22,
-      backgroundColor: colors.surfaceCard,
-      borderWidth: 1,
-      borderColor: colors.rimLight,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    scroll: {
-      paddingHorizontal: spacing['2xl'],
-      paddingTop: spacing.lg,
-      paddingBottom: spacing['3xl'],
-    },
-    warningBanner: {
-      alignItems: 'center',
-      paddingVertical: spacing['2xl'],
-    },
-    bodyText: {
-      marginBottom: spacing['2xl'],
-      lineHeight: 22,
-    },
-    card: {
-      backgroundColor: colors.surfaceCard,
-      borderRadius: radii.lg,
-      borderWidth: 1,
-      borderColor: colors.rimLightSubtle,
-      padding: spacing.base,
-      gap: spacing.md,
-    },
-    bulletRow: {
-      flexDirection: 'row',
-      gap: spacing.md,
-      alignItems: 'flex-start',
-    },
-    inputWrap: {
-      marginBottom: spacing.base,
-    },
-    input: {
-      height: 52,
-      borderWidth: 1,
-      borderRadius: radii.lg,
-      paddingHorizontal: spacing.base,
-      fontSize: 16,
-      lineHeight: Math.round(16 * 1.3),
-      backgroundColor: colors.surfaceInput,
-      borderColor: colors.rimLightSubtle,
-      color: colors.onSurface,
-      fontFamily: fonts.regular,
-    },
-    loadingWrap: {
-      alignItems: 'center',
-      paddingVertical: spacing['2xl'],
+      const { title, message } = describeError(err, 'Something went wrong. Please try again.');
+      notify(title, message);
     },
   });
+
+  const confirm = () =>
+    Alert.alert('Delete your account?', 'This is permanent. You’ll be signed out straight away.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: () => deleteAccount(false) },
+    ]);
+
+  return (
+    <Screen
+      title="Delete account"
+      subtitle="Before you go, here’s what happens."
+      footer={<Button label="Delete account" variant="destructive" onPress={confirm} loading={isPending} disabled={isPending} />}
+    >
+      <ListSection>
+        {CONSEQUENCES.map((c) => (
+          <ListRow key={c.title} icon={c.icon} iconColor={colors.error} title={c.title} subtitle={c.detail} subtitleLines={3} />
+        ))}
+      </ListSection>
+    </Screen>
+  );
+}

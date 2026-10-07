@@ -168,7 +168,10 @@ async function initiatePayment({ userId, bookingId, phone, savedCardId, method: 
         email,
         amountPesewas: chargeAmountPesewas,
         phone: phone || booking.user.phone,
-        method: method === 'MOMO' ? 'MOMO_MTN' : method,
+        // A bare 'MOMO' was forced to MTN, so a Telecel or AirtelTigo number
+        // got an MTN charge that could never be approved. The client now
+        // reads the network off the number (paystack.client momoMethodForPhone).
+        method,
         reference,
         metadata,
       });

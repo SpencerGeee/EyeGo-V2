@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo } from 'react';
-import { View, StyleSheet, Pressable, TextInput } from 'react-native';
+import { View, StyleSheet, Pressable, TextInput, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -10,7 +10,7 @@ import { userApi } from '@eyego/api';
 import QRCode from 'react-native-qrcode-svg';
 import { fonts, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, goDeeper, goBack } from '@eyego/ui';
+import { Text, ScreenHeader, goDeeper } from '@eyego/ui';
 
 /**
  * Public web origin that also backs the universal/app links. The QR codes now
@@ -250,27 +250,25 @@ export default function ScanPayScreen() {
   }, [myPhone, requestAmount]);
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <View style={styles.header}>
-        <Pressable onPress={() => goBack()} style={styles.backBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Go back">
-          <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
-        </Pressable>
-        <Text variant="titleMedium" style={styles.headerTitle}>Scan & Pay</Text>
-        <View style={{ width: 24 }} />
-      </View>
+    <SafeAreaView style={styles.safe} edges={['bottom']}>
+      <ScreenHeader title="Scan & pay" />
 
-      <View style={styles.tabRow}>
+      <View style={styles.tabRow} accessibilityRole="tablist">
         <Pressable
           style={[styles.tab, mode === 'scan' && styles.tabActive]}
           onPress={() => setMode('scan')}
-         accessibilityRole="button">
-          <Text style={[styles.tabText, mode === 'scan' && { color: colors.primary }]}>Scan a Code</Text>
+          accessibilityRole="tab"
+          accessibilityState={{ selected: mode === 'scan' }}
+        >
+          <Text style={[styles.tabText, mode === 'scan' && { color: colors.onSurface }]}>Scan a code</Text>
         </Pressable>
         <Pressable
           style={[styles.tab, mode === 'myCode' && styles.tabActive]}
           onPress={() => setMode('myCode')}
-         accessibilityRole="button">
-          <Text style={[styles.tabText, mode === 'myCode' && { color: colors.primary }]}>My Code</Text>
+          accessibilityRole="tab"
+          accessibilityState={{ selected: mode === 'myCode' }}
+        >
+          <Text style={[styles.tabText, mode === 'myCode' && { color: colors.onSurface }]}>My code</Text>
         </Pressable>
       </View>
 
@@ -281,8 +279,16 @@ export default function ScanPayScreen() {
             <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={{ textAlign: 'center', marginTop: spacing.md }}>
               Camera access is needed to scan payment codes.
             </Text>
-            <Pressable style={styles.permBtn} onPress={requestPermission} accessibilityRole="button">
-              <Text variant="label" color={colors.onPrimary}>Grant Camera Access</Text>
+            {/* Once refused, the OS won't ask again — the button has to go
+                to Settings or it does nothing. */}
+            <Pressable
+              style={styles.permBtn}
+              onPress={() => (permission && !permission.canAskAgain ? Linking.openSettings() : requestPermission())}
+              accessibilityRole="button"
+            >
+              <Text variant="label" color={colors.onPrimary}>
+                {permission && !permission.canAskAgain ? 'Open Settings' : 'Allow camera'}
+              </Text>
             </Pressable>
           </View>
         ) : (
@@ -384,8 +390,8 @@ export default function ScanPayScreen() {
 
               <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={{ marginTop: spacing.lg, textAlign: 'center' }}>
                 {requestAmount
-                  ? `Let another rider scan this to send you GH₵ ${requestAmount}.`
-                  : 'Let another rider scan this to send you money instantly.'}
+                  ? `Let another rider scan this to send you GH₵ ${requestAmount} in ride credits.`
+                  : 'Let another rider scan this to send you ride credits.'}
               </Text>
             </>
           ) : profileError ? (
@@ -407,7 +413,7 @@ export default function ScanPayScreen() {
 }
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.backgroundDeep },
+  safe: { flex: 1, backgroundColor: colors.background },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -428,20 +434,22 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   tabRow: {
     flexDirection: 'row',
-    marginHorizontal: spacing['2xl'],
+    marginHorizontal: 20,
+    marginTop: 8,
     backgroundColor: colors.surfaceContainer,
-    borderRadius: radii.lg,
-    padding: 4,
+    borderRadius: radii.full,
+    padding: 3,
     marginBottom: spacing.lg,
   },
   tab: {
     flex: 1,
-    paddingVertical: spacing.sm,
+    height: 36,
     alignItems: 'center',
-    borderRadius: radii.md,
+    justifyContent: 'center',
+    borderRadius: radii.full,
   },
   tabActive: {
-    backgroundColor: colors.surfaceContainerHigh,
+    backgroundColor: colors.surfaceContainerHighest,
   },
   tabText: {
     fontFamily: fonts.semiBold,

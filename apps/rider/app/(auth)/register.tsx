@@ -220,10 +220,16 @@ export default function RegisterScreen() {
 
             {showDatePicker && (
               <DateTimePicker
-                value={new Date(2000, 0, 1)}
+                // The picked date, not a constant: a fixed value snapped the
+                // iOS wheel back to 2000 after every turn.
+                value={(() => {
+                  const p = dob.split(' / ');
+                  return p.length === 3 ? new Date(+p[2], +p[1] - 1, +p[0]) : new Date(2000, 0, 1);
+                })()}
                 mode="date"
                 display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                maximumDate={new Date()}
+                // Riders must be 16 or over (Terms §3).
+                maximumDate={new Date(new Date().getFullYear() - 16, new Date().getMonth(), new Date().getDate())}
                 minimumDate={new Date(1900, 0, 1)}
                 onChange={onDateChange}
               />

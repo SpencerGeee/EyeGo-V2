@@ -1,151 +1,64 @@
 import React, { useCallback, useMemo } from 'react';
-import { View, StyleSheet, Alert } from 'react-native';
+import { View, StyleSheet, Alert, Pressable, RefreshControl } from 'react-native';
 import { Image } from 'expo-image';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
-import Animated, {
-  useSharedValue,
-  useAnimatedScrollHandler,
-  useAnimatedStyle,
-  interpolate,
-  Extrapolation,
-  FadeIn,
-  runOnJS,
-} from 'react-native-reanimated';
+import Constants from 'expo-constants';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
-import { bookingsApi, userApi } from '@eyego/api';
-import { useAuthStore } from '../../stores/auth.store';
-import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
-import { useColors, Colors } from '../../utils/useColors';
-import { Text, Pressable, setBackgroundBusy, backgroundScrollPauseProps, SkeletonValue, goDeeper } from '@eyego/ui';
+import { userApi } from '@eyego/api';
+import { fonts, radii } from '@eyego/config';
+import { Text, Screen, ListSection, ListRow, SkeletonValue, goDeeper, goLateral } from '@eyego/ui';
 import { getInitials, formatGhs } from '@eyego/utils';
+import { useAuthStore } from '../../stores/auth.store';
+import { useColors, Colors } from '../../utils/useColors';
 import { useWalletBalance } from '../../hooks/useWalletBalance';
 import { TAB_BAR_BASE_HEIGHT } from './_layout';
 
-interface MenuItem {
-  label: string;
-  icon: keyof typeof Ionicons.glyphMap;
-  onPress: () => void;
-  accent?: 'primary' | 'success' | 'error';
-}
-
-interface MenuSection {
-  title: string;
-  items: MenuItem[];
-}
-
 /**
- * Profile hub — collapsing-hero motion.
- *
- * One shared value (`scrollY`) drives every header transform: the expanded
- * hero (big avatar + name + chips) fades and lifts away while a compact pinned
- * navbar fades in, mirroring the iOS large-title collapse. The avatar also
- * scales on overscroll for a parallax depth cue. Nothing animates height or
- * font size (relayout cost) — only transforms/opacity on the UI thread — and
- * no child invents its own motion; each header layer reads the same `scrollY`.
+ * ACCOUNT (rival spec §6) — who you are, three tiles for the places riders go
+ * most (Wallet · Activity · Help), then plain sections. Legal, privacy, safety
+ * and delete moved into Settings, where Uber keeps them.
  */
-const HERO_HEIGHT = 128;   // expanded hero content, below the status bar
-const NAV_HEIGHT = 52;     // collapsed pinned navbar
-const COLLAPSE_DIST = HERO_HEIGHT - NAV_HEIGHT;
-
 export default function ProfileScreen() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
-  const insets = useSafeAreaInsets();
   const { user, logout } = useAuthStore();
 
-  const scrollY = useSharedValue(0);
-  // Pause the ambient shader while the list is actively scrolling — the
-  // begin/end pairs stay balanced (busy counter) across drag → momentum.
-  const onScroll = useAnimatedScrollHandler({
-    onScroll: (e) => {
-      scrollY.value = e.contentOffset.y;
-    },
-    onBeginDrag: () => {
-      runOnJS(setBackgroundBusy)(true);
-    },
-    onEndDrag: () => {
-      runOnJS(setBackgroundBusy)(false);
-    },
-    onMomentumBegin: () => {
-      runOnJS(setBackgroundBusy)(true);
-    },
-    onMomentumEnd: () => {
-      runOnJS(setBackgroundBusy)(false);
-    },
-  });
+  // `balancePesewas` — see hooks/useWalletBalance.
+  const wallet = useWalletBalance();
 
-  const { data: tripsTotal } = useQuery({
-    queryKey: ['bookings', 'completed', 'count'],
-    queryFn: () => bookingsApi.getHistory({ status: 'COMPLETED', limit: 1 }),
-    select: (r) => (r.data as any)?.data?.total ?? (r.data as any)?.total ?? 0,
-  });
-
-  // Read `balancePesewas` — this read a `balance` field the API never sends,
-  // so the card said GH₵0.00 on every account. See hooks/useWalletBalance.
-  const { data: walletBalancePesewas, isPending: walletPending, isError: walletFailed, refetch: refetchWallet } =
-    useWalletBalance();
-
-  // Rider's average rating is server-computed from driver-submitted ratings
-  // (see driverApi.ratePassenger / POST /driver/rate-passenger/:bookingId).
-  // Prefer a fresh fetch over the possibly-stale value cached on the auth
-  // store at login time; fall back to that cached value while the fetch is
-  // in flight. Previously this fell back to a hardcoded "4.9" whenever no
-  // rating was present, which fabricated a fake number for new riders —
-  // now the chip is simply hidden until a real rating exists.
-  const { data: freshProfile } = useQuery({
+  // The rating is server-computed; the store's copy is from sign-in.
+  const profile = useQuery({
     queryKey: ['user', 'profile'],
     queryFn: () => userApi.getProfile(),
     select: (r: any) => r.data?.data ?? null,
     staleTime: 60_000,
   });
-  // What the account is still missing. Cheap read; refreshed when the rider
-  // comes back to this tab after filling something in.
-  const { data: checklist, refetch: refetchChecklist } = useQuery({
+  // What the account still needs — the server decides, so this can't
+  // disagree with the console.
+  const checklist = useQuery({
     queryKey: ['user', 'account-checklist'],
     queryFn: () => userApi.getAccountChecklist(),
     select: (r: any) => r.data?.data ?? null,
     staleTime: 30_000,
   });
 
-  /**
-   * RE-ASK EVERY TIME THIS TAB COMES BACK.
-   *
-   * The card's whole job is to send the rider somewhere else to fill something
-   * in, so the moment they return is exactly the moment it is most likely to be
-   * wrong. Tabs never unmount in this navigator, so without this the query only
-   * re-runs after its own `staleTime` — the rider adds their email, comes
-   * straight back, and is told to add their email. The screens that write these
-   * fields invalidate the key too; this covers the ones that forget.
-   */
+  // Tabs never unmount: re-ask when the rider comes back from filling
+  // something in, or the card tells them to add the email they just added.
   useFocusEffect(
     useCallback(() => {
-      void refetchChecklist();
-    }, [refetchChecklist]),
+      void checklist.refetch();
+    }, []), // eslint-disable-line react-hooks/exhaustive-deps
   );
 
-  const riderRating = freshProfile?.rating ?? (user as any)?.rating ?? null;
-  const ratingCount = freshProfile?.ratingCount ?? 0;
-  /**
-   * Hiding the chip was the whole of "I can't see my ratings".
-   *
-   * The server never sent a `rating` at all — `User` has no such column and
-   * nothing aggregated the `PassengerRating` rows drivers write — so the
-   * condition below was false for every rider on every load and the chip did
-   * not exist. That is now fixed server-side, but the chip still has to render
-   * for a rider nobody has rated yet: vanishing entirely reads as a broken
-   * screen, where "New" reads as an answer.
-   */
-  const rating = typeof riderRating === 'number' && riderRating > 0 ? riderRating.toFixed(1) : null;
-  const ratingLabel = rating ?? 'New';
-  const ratingA11y = rating
-    ? `Your rating: ${rating} out of 5, from ${ratingCount} ${ratingCount === 1 ? 'rating' : 'ratings'}`
-    : 'You have no ratings yet';
+  const ratingRaw = profile.data?.rating ?? (user as any)?.rating ?? null;
+  const rating = typeof ratingRaw === 'number' && ratingRaw > 0 ? ratingRaw.toFixed(2) : null;
+  const avatarUrl = profile.data?.avatarUrl ?? user?.avatarUrl;
+  const todo = (checklist.data?.items ?? []).filter((i: any) => !i.done && i.severity !== 'optional');
 
   const handleLogout = () => {
-    Alert.alert('Log out', 'Are you sure you want to log out?', [
+    Alert.alert('Log out?', 'You’ll need your phone number to sign back in.', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Log out',
@@ -158,604 +71,173 @@ export default function ProfileScreen() {
     ]);
   };
 
-  type RiderRoute = Parameters<typeof router.push>[0];
-
-  const menuSections: MenuSection[] = [
-    {
-      title: 'Account',
-      items: [
-        { label: 'Edit Profile', icon: 'person-outline', onPress: () => goDeeper('/profile/edit' as RiderRoute) },
-        { label: 'Payment Methods', icon: 'card-outline', onPress: () => goDeeper('/profile/payment-methods' as RiderRoute) },
-        { label: 'Saved Places', icon: 'bookmark-outline', onPress: () => goDeeper('/profile/saved-places' as RiderRoute) },
-        { label: 'Business Profile', icon: 'briefcase-outline', onPress: () => goDeeper('/profile/business' as RiderRoute) },
-        { label: 'Trip History', icon: 'time-outline', onPress: () => goDeeper('/(tabs)/activity' as any) },
-      ],
-    },
-    {
-      title: 'Safety',
-      items: [
-        { label: 'Safety Center', icon: 'shield-checkmark-outline', accent: 'success', onPress: () => goDeeper('/profile/safety' as RiderRoute) },
-        { label: 'Emergency Contacts', icon: 'alert-circle-outline', accent: 'error', onPress: () => goDeeper('/profile/emergency-contacts' as RiderRoute) },
-        { label: 'Notification Preferences', icon: 'notifications-outline', onPress: () => goDeeper('/profile/notification-preferences' as RiderRoute) },
-      ],
-    },
-    {
-      title: 'General',
-      items: [
-        { label: 'Promotions & Referrals', icon: 'pricetag-outline', onPress: () => goDeeper('/profile/promotions' as RiderRoute) },
-        // Riders know the streets we route over. See app/improve-map for why
-        // this is worth having and what the six report types are.
-        { label: 'Improve maps', icon: 'map-outline', onPress: () => goDeeper('/improve-map' as RiderRoute) },
-        { label: 'Help & Support', icon: 'help-circle-outline', onPress: () => goDeeper('/profile/help' as RiderRoute) },
-        { label: 'Settings', icon: 'settings-outline', onPress: () => goDeeper('/profile/settings' as RiderRoute) },
-        { label: 'Privacy Policy', icon: 'lock-closed-outline', onPress: () => goDeeper('/profile/privacy' as RiderRoute) },
-        { label: 'Terms of Service', icon: 'document-text-outline', onPress: () => goDeeper('/profile/terms' as RiderRoute) },
-        { label: 'Delete Account', icon: 'trash-outline', accent: 'error', onPress: () => goDeeper('/profile/account-deletion' as RiderRoute) },
-      ],
-    },
-  ];
-
-  const accentColor = (accent?: MenuItem['accent']) =>
-    accent === 'success' ? (colors.statusSuccess ?? colors.primary)
-    : accent === 'error' ? colors.statusError
-    : colors.outline;
-
-  // ── Derived header motion (all from scrollY) ──────────────────────────────
-  const heroStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(scrollY.value, [0, COLLAPSE_DIST * 0.7], [1, 0], Extrapolation.CLAMP),
-    transform: [
-      { translateY: interpolate(scrollY.value, [0, COLLAPSE_DIST], [0, -24], Extrapolation.CLAMP) },
-    ],
-  }));
-
-  const avatarStyle = useAnimatedStyle(() => ({
-    transform: [
-      // Overscroll pulls the avatar up to 1.08 — the rubber-band the rest of
-      // the app has; this screen used to pin bounces off and felt dead.
-      { scale: interpolate(scrollY.value, [-90, 0], [1.08, 1], Extrapolation.CLAMP) },
-    ],
-  }));
-
-  const navBarStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(scrollY.value, [COLLAPSE_DIST * 0.45, COLLAPSE_DIST], [0, 1], Extrapolation.CLAMP),
-  }));
+  const refreshing = profile.isRefetching || wallet.isRefetching;
+  const onRefresh = () => {
+    profile.refetch();
+    wallet.refetch();
+    checklist.refetch();
+  };
 
   return (
-    <View style={styles.safe}>
-      <Animated.ScrollView
-        onScroll={onScroll}
-        scrollEventThrottle={16}
-        showsVerticalScrollIndicator={false}
-        {...backgroundScrollPauseProps}
-        contentContainerStyle={[
-          styles.scroll,
-          { paddingTop: insets.top + HERO_HEIGHT + spacing.base },
-        ]}
+    <Screen
+      title="Account"
+      back={false}
+      contentContainerStyle={{ paddingBottom: TAB_BAR_BASE_HEIGHT + 64 }}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
+    >
+      {/* Who you are */}
+      <Pressable
+        style={styles.identity}
+        onPress={() => goDeeper('/profile/edit')}
+        accessibilityRole="button"
+        accessibilityLabel={`${user?.name ?? 'Your profile'}${rating ? `, rated ${rating}` : ''}. Edit profile`}
       >
-        {/* ── Wallet card ── */}
-        <Animated.View entering={FadeIn.delay(60).duration(200)} style={styles.walletCard}>
-          <View style={styles.walletGlow} pointerEvents="none" />
-          <View style={styles.walletGlowSecondary} pointerEvents="none" />
-          <View style={styles.walletRow}>
-            <View style={{ flex: 1 }}>
-              <View style={styles.walletLabelRow}>
-                <Ionicons name="wallet-outline" size={16} color={colors.onSurfaceVariant} />
-                <Text style={styles.walletLabel}>EYEGO WALLET</Text>
-              </View>
-              {/* Never "GH₵0.00" while the balance is still in flight — a rider
-                  reads that as their actual balance. */}
-              <SkeletonValue loading={walletPending} width={128} height={30} borderRadius={8}>
-                {walletBalancePesewas == null && walletFailed ? (
-                  // "We could not ask" must not read as "you have nothing".
-                  <Pressable onPress={() => void refetchWallet()} accessibilityRole="button" accessibilityLabel="Retry loading your balance">
-                    <Text style={[styles.walletBalancePesewas, { fontSize: 15 }]}>Couldn’t load · Tap to retry</Text>
-                  </Pressable>
-                ) : (
-                  <Text style={styles.walletBalancePesewas}>{formatGhs(walletBalancePesewas ?? 0)}</Text>
-                )}
-              </SkeletonValue>
-            </View>
-            <Pressable
-              onPress={() => goDeeper('/profile/wallet' as any)}
-              haptic="light"
-              style={styles.topUpBtn}
-              accessibilityRole="button"
-              accessibilityLabel="Top up wallet"
-            >
-              <Text style={styles.topUpText}>Top Up</Text>
-            </Pressable>
-          </View>
-        </Animated.View>
-
-        {/* ── FINISH SETTING UP ──
-            The server decides what is missing (GET /user/me/account-checklist),
-            so this cannot disagree with the console's view of the same account.
-            Hidden entirely once nothing is outstanding — a permanent "you're all
-            set" card is clutter, and a checklist nobody can clear is worse. */}
-        {checklist && checklist.outstandingRequired + checklist.outstandingRecommended > 0 ? (
-          <Animated.View entering={FadeIn.delay(90).duration(200)} style={styles.setupCard}>
-            <View style={styles.setupHeader}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.setupTitle}>Finish setting up</Text>
-                <Text style={styles.setupSubtitle}>
-                  {checklist.outstandingRequired > 0
-                    ? `${checklist.outstandingRequired} thing${
-                        checklist.outstandingRequired === 1 ? '' : 's'
-                      } we need before your next trip`
-                    : 'A couple of details worth adding'}
-                </Text>
-              </View>
-              <Text style={styles.setupPercent}>{checklist.completeness}%</Text>
-            </View>
-
-            {/* Progress. Width is the only signal that changes, so it stays
-                readable without colour. */}
-            <View style={styles.setupTrack}>
-              <View style={[styles.setupFill, { width: `${Math.max(4, checklist.completeness)}%` }]} />
-            </View>
-
-            {checklist.items
-              .filter((i: any) => !i.done && i.severity !== 'optional')
-              .map((item: any) => (
-                <Pressable
-                  key={item.id}
-                  haptic="light"
-                  scaleOnPress={0.99}
-                  disabled={!item.route}
-                  onPress={() => item.route && goDeeper(item.route as RiderRoute)}
-                  style={styles.setupRow}
-                  accessibilityRole="button"
-                  accessibilityLabel={`${item.label}. ${item.description}`}
-                >
-                  <Ionicons
-                    name={item.severity === 'required' ? 'alert-circle' : 'add-circle-outline'}
-                    size={18}
-                    color={item.severity === 'required' ? colors.statusWarning : colors.primary}
-                  />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.setupRowLabel}>{item.label}</Text>
-                    <Text style={styles.setupRowHint}>{item.description}</Text>
-                  </View>
-                  {item.route ? (
-                    <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
-                  ) : null}
-                </Pressable>
-              ))}
-          </Animated.View>
-        ) : null}
-
-        {/* ── Menu sections (staggered reveal) ── */}
-        {menuSections.map((section, sIdx) => (
-          <Animated.View
-            key={section.title}
-            entering={FadeIn.delay(120 + sIdx * 50).duration(200)}
-            style={styles.sectionWrapper}
-          >
-            <Text style={styles.sectionHeader}>{section.title.toUpperCase()}</Text>
-            <View style={styles.sectionCard}>
-              {section.items.map((item, itemIdx) => (
-                <Pressable
-                  key={item.label}
-                  haptic="light"
-                  scaleOnPress={0.98}
-                  style={
-                    itemIdx === section.items.length - 1
-                      ? [styles.menuItem, styles.menuItemLast]
-                      : styles.menuItem
-                  }
-                  onPress={item.onPress}
-                  accessibilityRole="button"
-                >
-                  <Ionicons name={item.icon} size={20} color={accentColor(item.accent)} />
-                  <Text
-                    variant="bodyLarge"
-                    style={{ flex: 1, color: item.accent === 'error' ? colors.statusError : colors.onSurface }}
-                  >
-                    {item.label}
-                  </Text>
-                  <Ionicons name="chevron-forward" size={16} color={colors.outline} />
-                </Pressable>
-              ))}
-            </View>
-          </Animated.View>
-        ))}
-
-        {/* ── Log out ── */}
-        <Pressable onPress={handleLogout} haptic="medium" style={styles.logoutBtn} accessibilityRole="button">
-          <Ionicons name="log-out-outline" size={20} color={colors.statusError} />
-          <Text style={styles.logoutText}>Log Out</Text>
-        </Pressable>
-
-        <Text variant="caption" color={colors.onSurfaceVariant} style={styles.version}>
-          EyeGo v1.0.0
-        </Text>
-      </Animated.ScrollView>
-
-      {/* ── Expanded hero (fades + lifts away on scroll) ── */}
-      <Animated.View
-        pointerEvents="box-none"
-        style={[styles.hero, { top: insets.top, height: HERO_HEIGHT }, heroStyle]}
-      >
-        <View style={styles.headerLeft}>
-          {/**
-           * THE AVATAR NO LONGER MORPHS. IT PUSHES.
-           *
-           * BUGFIX ("the morph effect on the profile icon on the profile page,
-           * remove it — just make it fade into that edit profile page, or better
-           * still slide there").
-           *
-           * A container transform earns its cost when a small thing becomes a
-           * big thing and the eye needs help following it. This one moved a
-           * 64 pt circle to a 72 pt circle a few points away, so the clone spent
-           * its whole life almost exactly on top of the element it had left —
-           * which reads as a stutter, not as continuity, and it had to suppress
-           * the route animation to do even that.
-           *
-           * The screen now slides in like every other detail screen (see
-           * `detailPush` in app/_layout). Nothing is lost: the thing the morph
-           * was pointing at — "this avatar is what you are about to edit" — is
-           * said by the destination opening on that avatar.
-           */}
-          <Pressable
-            onPress={() => goDeeper('/profile/edit' as any)}
-            haptic="light"
-            accessibilityLabel="Edit profile photo and details"
-            accessibilityRole="button"
-          >
-            <Animated.View style={[styles.avatarRing, avatarStyle]}>
-              {user?.avatarUrl ? (
-                <Image source={{ uri: user.avatarUrl }} style={styles.avatar} />
-              ) : (
-                <View style={styles.avatarFallback}>
-                  <Text style={[styles.avatarInitials, { color: colors.primary }]}>
-                    {user?.name ? getInitials(user.name) : '?'}
-                  </Text>
-                </View>
-              )}
-            </Animated.View>
-          </Pressable>
-          <View style={{ flex: 1 }}>
-            <Text variant="titleSmall" numberOfLines={1} style={{ color: colors.onSurface }}>
-              {user?.name ?? 'Set your name'}
-            </Text>
-            <View style={styles.chipsRow}>
-              <View style={styles.memberChip}>
-                <Text style={styles.memberChipText}>Member</Text>
-              </View>
-              <View
-                style={styles.ratingChip}
-                accessibilityRole="text"
-                accessibilityLabel={ratingA11y}
-              >
-                <Ionicons name="star" size={11} color={colors.tierPremium} />
-                <Text style={styles.ratingChipText}>{ratingLabel}</Text>
-                {ratingCount > 0 && (
-                  <Text style={styles.ratingChipCount}>({ratingCount})</Text>
-                )}
-              </View>
-            </View>
+        <View style={styles.avatar}>
+          {avatarUrl ? (
+            <Image source={{ uri: avatarUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
+          ) : (
+            <Text style={styles.initials}>{user?.name ? getInitials(user.name) : '?'}</Text>
+          )}
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.name} numberOfLines={1}>{user?.name || 'Add your name'}</Text>
+          <View style={styles.metaRow}>
+            <Ionicons name="star" size={13} color={colors.onSurface} />
+            <Text style={styles.meta}>{rating ?? 'New'}</Text>
+            <Text style={styles.metaDot}>·</Text>
+            <Text style={[styles.meta, { color: colors.primary }]}>Edit profile</Text>
           </View>
         </View>
-        {/* Plain push — no morph. This button is nowhere near the avatar the
-            transform animates, so firing one from here read as the UI jumping
-            for no reason. The avatar above owns the morph. */}
-        <Pressable
-          onPress={() => goDeeper('/profile/edit' as any)}
-          haptic="light"
-          style={styles.editBtn}
-          accessibilityLabel="Edit profile"
-          accessibilityRole="button"
-          hitSlop={8}
+      </Pressable>
+
+      {/* Wallet · Activity · Help */}
+      <View style={styles.tiles}>
+        <Tile
+          icon="wallet-outline"
+          label="Wallet"
+          onPress={() => goDeeper('/profile/wallet')}
+          styles={styles}
+          colors={colors}
+          detail={
+            <SkeletonValue loading={wallet.isPending} width={64} height={14} borderRadius={4}>
+              <Text style={styles.tileDetail} numberOfLines={1}>
+                {wallet.data == null && wallet.isError ? 'Tap to load' : formatGhs(wallet.data ?? 0)}
+              </Text>
+            </SkeletonValue>
+          }
+        />
+        <Tile icon="time-outline" label="Activity" onPress={() => goLateral('/(tabs)/activity')} styles={styles} colors={colors} />
+        <Tile icon="help-buoy-outline" label="Help" onPress={() => goDeeper('/profile/help')} styles={styles} colors={colors} />
+      </View>
+
+      {/* Finish setting up — hidden once nothing is outstanding. */}
+      {checklist.data && todo.length > 0 ? (
+        <ListSection
+          title={`Finish setting up · ${checklist.data.completeness}%`}
+          footer={checklist.data.outstandingRequired > 0 ? 'Needed before your next trip.' : undefined}
         >
-          <Ionicons name="pencil" size={18} color={colors.onSurfaceVariant} />
-        </Pressable>
-      </Animated.View>
+          {todo.map((item: any) => (
+            <ListRow
+              key={item.id}
+              icon={item.severity === 'required' ? 'alert-circle-outline' : 'add-circle-outline'}
+              iconColor={item.severity === 'required' ? colors.statusWarning : colors.primary}
+              title={item.label}
+              subtitle={item.description}
+              onPress={item.route ? () => goDeeper(item.route) : undefined}
+            />
+          ))}
+        </ListSection>
+      ) : null}
 
-      {/* ── Collapsed pinned navbar (fades in as hero leaves) ── */}
-      <Animated.View
-        pointerEvents="box-none"
-        style={[styles.navBar, { paddingTop: insets.top, height: insets.top + NAV_HEIGHT }, navBarStyle]}
-      >
-        <View style={styles.navContent}>
-          <View style={styles.navAvatar}>
-            {user?.avatarUrl ? (
-              <Image source={{ uri: user.avatarUrl }} style={styles.avatar} />
-            ) : (
-              <View style={styles.avatarFallback}>
-                <Text style={[styles.navAvatarInitials, { color: colors.primary }]}>
-                  {user?.name ? getInitials(user.name) : '?'}
-                </Text>
-              </View>
-            )}
-          </View>
-          <Text variant="titleSmall" numberOfLines={1} style={styles.navTitle}>
-            {user?.name ?? 'Profile'}
-          </Text>
-          <Pressable
-            onPress={() => goDeeper('/profile/edit' as any)}
-            haptic="light"
-            style={styles.navEditBtn}
-            accessibilityLabel="Edit profile"
-            accessibilityRole="button"
-            hitSlop={8}
-          >
-            <Ionicons name="pencil" size={16} color={colors.onSurfaceVariant} />
-          </Pressable>
-        </View>
-      </Animated.View>
-    </View>
+      <ListSection title="Rides">
+        <ListRow icon="bookmark-outline" title="Saved places" onPress={() => goDeeper('/profile/saved-places')} />
+        <ListRow icon="calendar-outline" title="Scheduled rides" onPress={() => goDeeper('/scheduled-rides')} />
+        <ListRow icon="pricetag-outline" title="Promotions" onPress={() => goDeeper('/profile/promotions')} />
+        <ListRow icon="briefcase-outline" title="Business profile" onPress={() => goDeeper('/profile/business')} />
+      </ListSection>
+
+      <ListSection title="Money">
+        <ListRow icon="card-outline" title="Payment methods" onPress={() => goDeeper('/profile/payment-methods')} />
+        <ListRow icon="paper-plane-outline" title="Send credits" onPress={() => goDeeper('/profile/send-money')} />
+        <ListRow icon="qr-code-outline" title="Scan & pay" onPress={() => goDeeper('/profile/scan-pay')} />
+      </ListSection>
+
+      <ListSection>
+        {/* Riders know the streets we route over — see app/improve-map. */}
+        <ListRow icon="map-outline" title="Improve maps" onPress={() => goDeeper('/improve-map')} />
+        <ListRow icon="settings-outline" title="Settings" subtitle="Notifications, privacy, safety, legal" onPress={() => goDeeper('/profile/settings')} />
+      </ListSection>
+
+      <ListSection>
+        <ListRow icon="log-out-outline" title="Log out" destructive onPress={handleLogout} />
+      </ListSection>
+
+      <Text variant="caption" color={colors.onSurfaceVariant} style={styles.version}>
+        EyeGo {Constants.expoConfig?.version ?? ''}
+      </Text>
+    </Screen>
   );
 }
 
-const makeStyles = (colors: Colors) => StyleSheet.create({
-  safe: { flex: 1, backgroundColor: 'transparent' },
-  scroll: { paddingHorizontal: spacing['2xl'], paddingBottom: TAB_BAR_BASE_HEIGHT + 64 },
+function Tile({
+  icon,
+  label,
+  detail,
+  onPress,
+  styles,
+  colors,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  detail?: React.ReactNode;
+  onPress: () => void;
+  styles: ReturnType<typeof makeStyles>;
+  colors: Colors;
+}) {
+  const [pressed, setPressed] = React.useState(false);
+  return (
+    <Pressable
+      onPress={onPress}
+      onPressIn={() => setPressed(true)}
+      onPressOut={() => setPressed(false)}
+      style={[styles.tile, pressed && { backgroundColor: colors.surfaceContainerHigh }]}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+    >
+      <Ionicons name={icon} size={22} color={colors.onSurface} />
+      <Text style={styles.tileLabel}>{label}</Text>
+      {detail}
+    </Pressable>
+  );
+}
 
-  // Expanded hero
-  hero: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    paddingHorizontal: spacing['2xl'],
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, flex: 1 },
-  avatarRing: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    borderWidth: 2,
-    borderColor: `${colors.primary}80`,
-    overflow: 'hidden',
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-  },
-  avatar: { width: '100%', height: '100%' },
-  avatarFallback: {
-    width: '100%',
-    height: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.surfaceContainerHigh,
-  },
-  avatarInitials: { fontFamily: fonts.displayBold, fontSize: fontSizes.titleMedium, lineHeight: fontSizes.titleMedium * 1.3 },
-  chipsRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.xs },
-  memberChip: {
-    backgroundColor: colors.surfaceContainerHigh ?? colors.surfaceContainer,
-    borderRadius: radii.full,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-  },
-  memberChipText: {
-    fontFamily: fonts.labelCaps,
-    fontSize: 9,
-    lineHeight: 13,
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
-    color: colors.onSurfaceVariant,
-  },
-  ratingChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-    backgroundColor: `${colors.tierPremium}1F`,
-    borderRadius: radii.full,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-  },
-  ratingChipText: { fontFamily: fonts.bold, fontSize: 10, lineHeight: 14, color: colors.tierPremium },
-  ratingChipCount: {
-    fontFamily: fonts.regular,
-    fontSize: 10,
-    lineHeight: 14,
-    color: colors.tierPremium,
-    opacity: 0.7,
-  },
-  editBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.surfaceContainer,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  // Collapsed pinned navbar
-  navBar: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: 0,
-    backgroundColor: withOpacity(colors.surfaceCard ?? colors.surfaceContainer, 0.92),
-    borderBottomWidth: 1,
-    borderBottomColor: colors.rimLightSubtle,
-  },
-  navContent: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    paddingHorizontal: spacing['2xl'],
-  },
-  navAvatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: `${colors.primary}80`,
-    overflow: 'hidden',
-  },
-  navAvatarInitials: { fontFamily: fonts.displayBold, fontSize: 13, lineHeight: 17 },
-  navTitle: { flex: 1, color: colors.onSurface },
-  navEditBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: colors.surfaceContainer,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  walletCard: {
-    backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: colors.rimLight,
-    padding: spacing.lg,
-    marginBottom: spacing.xl,
-    overflow: 'hidden',
-  },
-  walletGlow: {
-    position: 'absolute',
-    right: -48,
-    top: -48,
-    width: 160,
-    height: 160,
-    borderRadius: 80,
-    backgroundColor: `${colors.primary}33`,
-  },
-  walletGlowSecondary: {
-    position: 'absolute',
-    left: -48,
-    bottom: -48,
-    width: 128,
-    height: 128,
-    borderRadius: 64,
-    backgroundColor: withOpacity(colors.tierRoyal, 0.1),
-  },
-  // ── Finish setting up ──
-  setupCard: {
-    backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: withOpacity(colors.primary, 0.35),
-    padding: spacing.lg,
-    marginBottom: spacing.xl,
-    gap: spacing.sm,
-  },
-  setupHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
-  setupTitle: {
-    fontFamily: fonts.displaySemiBold,
-    fontSize: fontSizes.bodyLarge,
-    color: colors.onSurface,
-  },
-  setupSubtitle: {
-    fontFamily: fonts.regular,
-    fontSize: fontSizes.bodyMedium,
-    color: colors.onSurfaceVariant,
-    marginTop: 2,
-  },
-  setupPercent: {
-    fontFamily: fonts.displaySemiBold,
-    fontSize: fontSizes.bodyLarge,
-    color: colors.primary,
-    fontVariant: ['tabular-nums'],
-  },
-  setupTrack: {
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: withOpacity(colors.onSurfaceVariant, 0.18),
-    overflow: 'hidden',
-  },
-  setupFill: { height: 4, borderRadius: 2, backgroundColor: colors.primary },
-  setupRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    paddingVertical: spacing.sm,
-  },
-  setupRowLabel: { fontFamily: fonts.medium, fontSize: fontSizes.bodyMedium, color: colors.onSurface },
-  setupRowHint: {
-    fontFamily: fonts.regular,
-    fontSize: fontSizes.bodySmall,
-    color: colors.onSurfaceVariant,
-    marginTop: 1,
-  },
-
-  walletRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' },
-  walletLabelRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.sm },
-  walletLabel: {
-    fontFamily: fonts.labelCaps,
-    fontSize: 10,
-    lineHeight: 14,
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-    color: colors.onSurfaceVariant,
-  },
-  walletBalancePesewas: {
-    fontFamily: fonts.displayBold,
-    fontSize: 28,
-    lineHeight: 36,
-    color: colors.primary,
-    letterSpacing: -0.5,
-  },
-  topUpBtn: {
-    backgroundColor: colors.primary,
-    borderRadius: radii.full,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm + 2,
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-  },
-  topUpText: {
-    fontFamily: fonts.bold,
-    fontSize: fontSizes.bodySmall,
-    lineHeight: fontSizes.bodySmall * 1.35,
-    letterSpacing: 0.4,
-    color: colors.onPrimary,
-  },
-
-  sectionWrapper: { marginBottom: spacing.lg },
-  sectionHeader: {
-    fontFamily: fonts.labelCaps,
-    fontSize: 10,
-    lineHeight: 14,
-    letterSpacing: 1.4,
-    textTransform: 'uppercase',
-    color: colors.outline,
-    marginBottom: spacing.sm,
-    marginLeft: spacing.base,
-  },
-  sectionCard: {
-    backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: colors.rimLightSubtle,
-    overflow: 'hidden',
-  },
-  menuItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing.base,
-    paddingVertical: spacing.base,
-    gap: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.05)',
-  },
-  menuItemLast: { borderBottomWidth: 0 },
-
-  logoutBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    paddingVertical: spacing.base + 2,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: `${colors.statusError}4D`,
-    marginTop: spacing.xs,
-  },
-  logoutText: {
-    fontFamily: fonts.bold,
-    fontSize: fontSizes.bodyLarge,
-    lineHeight: fontSizes.bodyLarge * 1.3,
-    color: colors.statusError,
-  },
-  version: { textAlign: 'center', marginTop: spacing.lg },
-});
+const makeStyles = (c: Colors) =>
+  StyleSheet.create({
+    identity: { flexDirection: 'row', alignItems: 'center', gap: 16, paddingHorizontal: 20, paddingTop: 8 },
+    avatar: {
+      width: 60,
+      height: 60,
+      borderRadius: 30,
+      overflow: 'hidden',
+      backgroundColor: c.surfaceContainerHigh,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    initials: { fontFamily: fonts.displayBold, fontSize: 20, lineHeight: 26, color: c.onSurface },
+    name: { fontFamily: fonts.displayBold, fontSize: 20, lineHeight: 26, color: c.onSurface },
+    metaRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
+    meta: { fontFamily: fonts.medium, fontSize: 14, lineHeight: 19, color: c.onSurfaceVariant },
+    metaDot: { fontFamily: fonts.regular, fontSize: 14, color: c.onSurfaceVariant },
+    tiles: { flexDirection: 'row', gap: 10, paddingHorizontal: 20, marginTop: 24 },
+    tile: {
+      flex: 1,
+      minHeight: 92,
+      borderRadius: radii.lg,
+      backgroundColor: c.surfaceContainer,
+      padding: 14,
+      justifyContent: 'space-between',
+    },
+    tileLabel: { fontFamily: fonts.semiBold, fontSize: 15, lineHeight: 20, color: c.onSurface, marginTop: 10 },
+    tileDetail: { fontFamily: fonts.medium, fontSize: 13, lineHeight: 17, color: c.onSurfaceVariant, fontVariant: ['tabular-nums'] },
+    version: { textAlign: 'center', marginTop: 28 },
+  });

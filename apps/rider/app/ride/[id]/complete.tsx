@@ -12,6 +12,7 @@ import { MotiView, goDeeper, goBack, goOut } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useShallow } from 'zustand/react/shallow';
 import { useRideStore } from '../../../stores/ride.store';
+import { useAuthStore } from '../../../stores/auth.store';
 import { SaveDestinationCard } from '../../../components/trip/SaveDestinationCard';
 import { fonts, fontSizes, spacing, radii, withOpacity, springs } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
@@ -422,10 +423,14 @@ export default function TripCompleteScreen() {
           ].filter(Boolean).join(' · ')
         : null;
 
+    // Business profile: the company goes on the receipt the rider shares.
+    const biz = useAuthStore.getState().user as any;
     const lines = [
       'EYEGO — TRIP RECEIPT',
       receiptNumber ? `Receipt no.  ${receiptNumber}` : null,
       whenText ? `Date         ${whenText}` : null,
+      biz?.businessMode && biz?.businessCompanyName ? `Billed to    ${biz.businessCompanyName}` : null,
+      biz?.businessMode && biz?.businessTaxId ? `Tax ID       ${biz.businessTaxId}` : null,
       '',
       `From         ${firstPart(selectedTrip?.origin?.address) ?? 'Pickup'}`,
       `To           ${firstPart(selectedTrip?.destination?.address) ?? 'Destination'}`,

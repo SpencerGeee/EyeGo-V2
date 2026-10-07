@@ -55,7 +55,7 @@ const AGREEMENT_SECTIONS: { heading: string; body: string }[] = [
   },
   {
     heading: '13. Governing law and contact',
-    body: 'This Agreement is governed by the laws of the Republic of Ghana, and disputes are subject to the jurisdiction of Ghanaian courts. Contact: support@eyego.app.',
+    body: 'This Agreement is governed by the laws of the Republic of Ghana, and disputes are subject to the jurisdiction of Ghanaian courts. Contact: support@eyego.app · WhatsApp +233 26 149 0759.',
   },
 ];
 

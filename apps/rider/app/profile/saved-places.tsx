@@ -4,17 +4,16 @@ import {
   StyleSheet,
   Pressable,
   TextInput,} from 'react-native';
-import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { userApi, queryKeys, type SavedPlace, type SavedPlaceSlot } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { useThemeStore } from '../../stores/theme.store';
-import { Text, Button, AppBackground, backgroundScrollPauseProps, Loader, goDeeper, goBack } from '@eyego/ui';
+import { Text, Button, Screen, ListSection, ListRow, SkeletonRows, goDeeper } from '@eyego/ui';
 import { searchPlaces } from '../../utils/geocoding';
 import { consumePickedPlace } from '../../utils/placePickerResult';
 import { useToastStore } from '../../stores/toast.store';
@@ -306,123 +305,64 @@ export default function SavedPlacesScreen() {
     [places],
   );
 
+  const confirmDelete = (place: SavedPlace) =>
+    Alert.alert(`Remove ${place.label}?`, place.address, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Remove', style: 'destructive', onPress: () => deleteMutation.mutate(place.id) },
+    ]);
+
   return (
-    <SafeAreaView style={styles.safe}>
-      <AppBackground variant="static" isDark={isDark} />
-      <View style={styles.header}>
-        <Pressable onPress={() => goBack()} style={styles.backBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Go back">
-          <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
-        </Pressable>
-        <Text variant="titleSmall" style={{ color: colors.onSurface }}>Saved Places</Text>
-        <View style={{ width: 44 }} />
-      </View>
+    <Screen title="Saved places" keyboard>
+      {isLoading ? (
+        <SkeletonRows count={3} />
+      ) : (
+        <>
+          {/* Home and Work first, filled or not — a rider with fifteen places
+              still finds Home on top. The slot names the row, never the stored
+              label: a Work place saved under a geocoder's "Accra" still reads Work. */}
+          <ListSection title="Shortcuts">
+            {(['HOME', 'WORK'] as const).map((slot) => {
+              const label = slot === 'HOME' ? 'Home' : 'Work';
+              const place = places.find((p) => slotOf(p) === slot) ?? null;
+              return (
+                <ListRow
+                  key={slot}
+                  icon={(place ? safeIconFor(place.icon) : ICON_FOR_SLOT(slot)) as any}
+                  iconColor={colors.primary}
+                  title={label}
+                  subtitle={place?.address ?? `Add your ${label.toLowerCase()} address`}
+                  subtitleLines={1}
+                  onPress={() => (place ? startEditing(place) : startAdding(slot))}
+                  accessibilityLabel={place ? `Edit ${label} address` : `Add ${label} address`}
+                />
+              );
+            })}
+          </ListSection>
 
-      <KeyboardAwareScrollView
-        contentContainerStyle={styles.scroll}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-        bottomOffset={24}
-        {...backgroundScrollPauseProps}
-      >
-        <Text variant="labelCaps" style={styles.sectionLabel}>FAVORITES</Text>
+          <ListSection title="Places" footer={customPlaces.length === 0 ? 'Save the spots you go to often and name them anything — “Gym”, “Mum’s place”.' : undefined}>
+            {customPlaces.map((place) => (
+              <ListRow
+                key={place.id}
+                icon={safeIconFor(place.icon) as any}
+                title={place.label}
+                subtitle={place.address}
+                subtitleLines={1}
+                onPress={() => startEditing(place)}
+                right={
+                  <Pressable onPress={() => confirmDelete(place)} hitSlop={10} accessibilityRole="button" accessibilityLabel={`Remove ${place.label}`}>
+                    <Ionicons name="trash-outline" size={18} color={colors.statusError} />
+                  </Pressable>
+                }
+              />
+            ))}
+            {!isAdding ? (
+              <ListRow icon="add-circle-outline" iconColor={colors.primary} title="Add a place" onPress={() => startAdding(null)} />
+            ) : null}
+          </ListSection>
+        </>
+      )}
 
-        <View style={styles.placesCard}>
-          {isLoading ? (
-            <View style={{ padding: spacing.xl, alignItems: 'center' }}>
-              <Loader size={20} color={colors.primary} />
-            </View>
-          ) : (
-            <>
-              {/* The two shortcuts, whether filled or not — they are pinned to
-                  the top of the list so a rider with fifteen places still finds
-                  Home first. An empty one is a prompt; a filled one is a row. */}
-              {(['HOME', 'WORK'] as const).map((slot) => {
-                const label = slot === 'HOME' ? 'Home' : 'Work';
-                const place = places.find((p) => slotOf(p) === slot) ?? null;
-                return (
-                  <View key={slot}>
-                    <Pressable
-                      style={styles.placeRow}
-                      onPress={() => (place ? startEditing(place) : startAdding(slot))}
-                      accessibilityRole="button"
-                      accessibilityLabel={place ? `Edit ${label} address` : `Add ${label} address`}
-                    >
-                      <View style={styles.placeIconContainer}>
-                        <Ionicons
-                          name={(place ? safeIconFor(place.icon) : ICON_FOR_SLOT(slot)) as any}
-                          size={20}
-                          color={colors.primary}
-                        />
-                      </View>
-                      <View style={styles.placeInfo}>
-                        <View style={styles.rowTitle}>
-                          {/* The slot names the row, never the stored label: a Work
-                              place saved under a geocoder's "Accra" still reads Work. */}
-                          <Text variant="bodyMedium" color={colors.onSurface}>
-                            {label}
-                          </Text>
-                          <View style={[styles.slotChip, { backgroundColor: withOpacity(colors.primary, 0.14) }]}>
-                            <Text variant="caption" style={{ color: colors.primary }}>
-                              {label.toUpperCase()}
-                            </Text>
-                          </View>
-                        </View>
-                        <Text variant="caption" style={{ color: colors.onSurfaceVariant }} numberOfLines={1}>
-                          {place?.address ?? `Add ${label.toLowerCase()} address`}
-                        </Text>
-                      </View>
-                      <Ionicons
-                        name={place ? 'create-outline' : 'add'}
-                        size={18}
-                        color={colors.onSurfaceVariant}
-                      />
-                    </Pressable>
-                    <View style={styles.divider} />
-                  </View>
-                );
-              })}
-
-              {customPlaces.length === 0 ? (
-                <View style={styles.emptyCustom}>
-                  <Text variant="caption" style={{ color: colors.onSurfaceVariant, textAlign: 'center' }}>
-                    Save the spots you go to often and give them any name you like — “Cyril&apos;s
-                    house”, “Gym”, “Mum&apos;s place”.
-                  </Text>
-                </View>
-              ) : (
-                customPlaces.map((place, index) => (
-                  <View key={place.id}>
-                    <Pressable
-                      style={styles.placeRow}
-                      onPress={() => startEditing(place)}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Edit ${place.label}`}
-                    >
-                      <View style={styles.placeIconContainer}>
-                        <Ionicons name={safeIconFor(place.icon) as any} size={20} color={colors.primary} />
-                      </View>
-                      <View style={styles.placeInfo}>
-                        <Text variant="bodyMedium" color={colors.onSurface} numberOfLines={1}>{place.label}</Text>
-                        <Text variant="caption" style={{ color: colors.onSurfaceVariant }} numberOfLines={1}>{place.address}</Text>
-                      </View>
-                      <Pressable
-                        onPress={() => deleteMutation.mutate(place.id)}
-                        hitSlop={10}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Remove ${place.label}`}
-                      >
-                        <Ionicons name="trash-outline" size={18} color={colors.statusError} />
-                      </Pressable>
-                    </Pressable>
-                    {index < customPlaces.length - 1 && <View style={styles.divider} />}
-                  </View>
-                ))
-              )}
-            </>
-          )}
-        </View>
-
-        <View style={{ marginTop: spacing['2xl'] }}>
+        <View style={{ marginTop: spacing['2xl'], paddingHorizontal: 20 }}>
           {isAdding ? (
             <View style={styles.addCard}>
               <Text variant="titleSmall" style={{ marginBottom: spacing.md }}>
@@ -577,15 +517,9 @@ export default function SavedPlacesScreen() {
                 />
               </View>
             </View>
-          ) : (
-            <Pressable style={styles.addBtn} onPress={() => startAdding(null)} accessibilityRole="button">
-              <Ionicons name="add-circle-outline" size={24} color={colors.primary} />
-              <Text variant="bodyMedium" color={colors.primary}>Add a new place</Text>
-            </Pressable>
-          )}
+          ) : null}
         </View>
-      </KeyboardAwareScrollView>
-    </SafeAreaView>
+    </Screen>
   );
 }
 
@@ -700,11 +634,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     justifyContent: 'center',
   },
   addCard: {
-    backgroundColor: colors.surfaceCard,
+    backgroundColor: colors.surfaceContainer,
     borderRadius: radii.lg,
     padding: spacing.base,
-    borderWidth: 1,
-    borderColor: colors.rimLightSubtle,
   },
   inputContainer: {
     marginBottom: spacing.md,

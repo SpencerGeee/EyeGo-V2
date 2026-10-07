@@ -17,7 +17,7 @@ import { Text, GlassCard, Button, Pressable, goDeeper, goBack, notify } from '@e
 import { useColors, Colors } from '../../utils/useColors';
 import { tripsApi } from '@eyego/api';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import DateTimePicker from '@react-native-community/datetimepicker';
+import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { consumePickedPlace } from '../../utils/placePickerResult';
 import { useRideStore } from '../../stores/ride.store';
 import { useTripFlow } from '../../stores/tripFlow.store';
@@ -194,6 +194,42 @@ export default function ScheduleRideScreen() {
     setShowPicker(false);
   };
 
+  /**
+   * ANDROID HAS NO DATE-AND-TIME PICKER.
+   *
+   * `mode="datetime"` is iOS-only; Android quietly showed a DATE dialog, so an
+   * Android rider could pick the day but never the time — every scheduled
+   * ride kept whatever minute the screen opened at. Two system dialogs, date
+   * then time, like every Android app.
+   */
+  const openAndroidPicker = () => {
+    const base = selectedDate;
+    DateTimePickerAndroid.open({
+      value: base,
+      mode: 'date',
+      minimumDate: getMinDate(),
+      onChange: (e, day) => {
+        if (e.type !== 'set' || !day) return;
+        DateTimePickerAndroid.open({
+          value: base,
+          mode: 'time',
+          onChange: (e2, time) => {
+            if (e2.type !== 'set' || !time) return;
+            const next = new Date(day);
+            next.setHours(time.getHours(), time.getMinutes(), 0, 0);
+            const min = getMinDate();
+            if (next < min) {
+              notify('Pick a later time', 'Scheduled rides need at least 30 minutes’ notice.');
+              setSelectedDate(min);
+            } else {
+              setSelectedDate(next);
+            }
+          },
+        });
+      },
+    });
+  };
+
   const isPending = scheduleMutation.isPending;
 
   return (
@@ -286,6 +322,7 @@ export default function ScheduleRideScreen() {
         </View>
         <Pressable
           onPress={() => {
+            if (Platform.OS === 'android') return openAndroidPicker();
             setTempDate(selectedDate);
             setShowPicker(true);
           }}
@@ -354,16 +391,7 @@ export default function ScheduleRideScreen() {
         </Modal>
       )}
 
-      {/* ── Android inline picker ── */}
-      {Platform.OS === 'android' && showPicker && (
-        <DateTimePicker
-          value={tempDate}
-          mode="datetime"
-          display="default"
-          minimumDate={getMinDate()}
-          onChange={handleDateChange}
-        />
-      )}
+      {/* Android: system date then time dialogs — see openAndroidPicker. */}
     </SafeAreaView>
   );
 }

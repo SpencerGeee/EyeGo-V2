@@ -1,883 +1,353 @@
-﻿import React, { useState, useMemo } from 'react';
-import {
-  View,
-  StyleSheet,
-  ScrollView,
-  Linking,
-  TextInput,
-  } from 'react-native';
+import React, { useState, useMemo } from 'react';
+import { View, StyleSheet, ScrollView, Linking, TextInput, Modal, KeyboardAvoidingView, Platform, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { MotiView, goBack, notify } from '@eyego/ui';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
-
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { bookingsApi, supportTicketsApi, queryKeys } from '@eyego/api';
-import type { Booking } from '@eyego/types';
-import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
+import { describeError } from '@eyego/utils';
+import { fonts, radii } from '@eyego/config';
+import { Text, Button, Screen, ListSection, ListRow, SkeletonRows, notify } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
 import { usePlatformConfig } from '../../hooks/usePlatformConfig';
-// `Pressable` from @eyego/ui, never from react-native: NativeWind's css-interop
-// wraps the RN one and silently drops the `({ pressed }) => style` function
-// form, which this screen uses — so the press state stops rendering at all.
-import { Text, Button, GlassSurface, PanelSheet, Pressable } from '@eyego/ui';
+import { useAuthStore } from '../../stores/auth.store';
 
-const FAQ_ITEMS = [
+const FAQS = [
   {
-    id: '1',
-    question: 'How does EyeGo work?',
-    answer:
-      'EyeGo connects you with shared vans running fixed routes across Accra. Browse available rides, pick your seat, pay securely, and track your driver in real time. The more passengers share a ride, the lower the fare drops for everyone.',
+    q: 'How does EyeGo work?',
+    a: 'Book a private ride, or a seat on a shared trip a driver has published. Set your pickup and destination, see the price before you confirm, pay by mobile money, card, wallet or cash, and follow your driver live.',
   },
   {
-    id: '2',
-    question: 'Can I book a trip for a group?',
-    answer:
-      'Yes! On the Ride Details screen, tap "Book & invite my group" to open the Group Hub, where you can share an invite link with friends. Members who join through the link will ride in the same vehicle.',
+    q: 'Can I book for a group?',
+    a: 'Yes. Book several seats, or start a group and share the invite link — each friend books their own seat, or you can pay for everyone.',
   },
   {
-    id: '3',
-    question: 'How do split fares work for group bookings?',
-    answer:
-      'When you create a group, you can toggle "I\'m paying for everyone" in the Group Settings to put all seats on your checkout. Otherwise, the booking behaves as a split fare trip, allowing members to book and pay for their own seats individually.',
+    q: 'How is my fare worked out?',
+    a: 'By distance, time and vehicle class (Eco, Comfort or Premium). You always see the price before you confirm. On a shared trip you pay for your seat.',
   },
   {
-    id: '4',
-    question: 'Is there a surcharge for heavy luggage or cargo?',
-    answer:
-      'Yes, if you or your group are carrying heavy luggage or bulky cargo, you can select the "Heavy cargo in group" setting in the Group Settings. This adds a flat surcharge of GHS 10.00 to the ride.',
+    q: 'How do I cancel?',
+    a: 'Open the ride in Activity and tap Cancel. It’s free before the trip sets off; for an on-demand ride it’s free until two minutes after a driver accepts. The app shows any fee before you confirm.',
   },
   {
-    id: '5',
-    question: 'How is my fare calculated?',
-    answer:
-      'Fares start at a base rate per seat and decrease as more passengers book the same trip. You always see the current price before confirming. Economy and Comfort tiers have different base rates.',
+    q: 'I left something in the car',
+    a: 'Choose the trip under “Get help with a trip” and pick Lost item. We’ll put you in touch with the driver.',
   },
   {
-    id: '6',
-    question: 'What if my driver doesn\'t show?',
-    answer:
-      'If your driver hasn\'t arrived within 10 minutes of the scheduled time, you\'ll receive an automatic notification. You can cancel for a full refund directly from the tracking screen or contact our support team.',
-  },
-  {
-    id: '7',
-    question: 'How do I cancel a booking?',
-    answer:
-      'Go to Trips → tap your booking → select Cancel. Cancellations made more than 15 minutes before departure receive a full refund. Cancellations within 15 minutes may incur a small fee.',
-  },
-  {
-    id: '8',
-    question: 'Is my payment secure?',
-    answer:
-      'Yes. All payments are processed by Paystack, a PCI-DSS Level 1 certified payment gateway. EyeGo never stores your card details. MoMo payments are handled through the official network APIs.',
+    q: 'Is my payment secure?',
+    a: 'Yes. Payments are processed by Paystack, a PCI-DSS certified gateway. EyeGo never stores your card details or MoMo PIN.',
   },
 ];
 
+const CATEGORIES = [
+  { value: 'TRIP', label: 'A trip' },
+  { value: 'PAYMENT', label: 'Payments' },
+  { value: 'LOST_ITEM', label: 'Lost item' },
+  { value: 'ACCOUNT', label: 'My account' },
+  { value: 'TECHNICAL', label: 'App problem' },
+  { value: 'GENERAL', label: 'Something else' },
+] as const;
+
+const STATUS_LABEL: Record<string, string> = { OPEN: 'Open', IN_PROGRESS: 'In progress', RESOLVED: 'Resolved', CLOSED: 'Closed' };
+
+const shortDate = (iso?: string | null) =>
+  iso ? new Date(iso).toLocaleDateString('en-GH', { day: 'numeric', month: 'short' }) : '';
+
 /**
- * The support number is an operator setting (`SUPPORT_PHONE`), not a constant.
+ * HELP (rival spec §10) — your recent trips first (most help is about one),
+ * then ways to reach us, your requests, and answers.
  *
- * It was hardcoded in three places in this app; when support changed number,
- * every rider on the installed base kept dialling the old one until the next
- * store release. `supportPhone` from `usePlatformConfig()` is the live value,
- * and this literal is only the fallback for a cold start with no network.
+ * Two bugs fixed here: a trip dispute sent the TRIP id where the server wants
+ * the BOOKING id, so the driver was never linked to it; and the thread showed
+ * support's replies as "You" (it read fields the server never sends).
  */
-const FALLBACK_SUPPORT_PHONE = '+233261490759';
-
-function buildContactOptions(supportPhone: string) {
-  const digits = supportPhone.replace(/\D/g, '');
-  return [
-    {
-      id: 'whatsapp',
-      icon: 'logo-whatsapp' as const,
-      label: 'Chat on WhatsApp',
-      color: '#25D366',
-      onPress: () => Linking.openURL(`https://wa.me/${digits}?text=Hi%20EyeGo%20Support`),
-    },
-    {
-      id: 'email',
-      icon: 'mail-outline' as const,
-      label: 'Email Support',
-      color: '#4BE277',
-      onPress: () => Linking.openURL('mailto:support@eyego.app'),
-    },
-    {
-      id: 'phone',
-      icon: 'call-outline' as const,
-      label: 'Call Support',
-      color: '#4BE277',
-      onPress: () => Linking.openURL(`tel:${supportPhone}`),
-    },
-  ];
-}
-
 export default function HelpScreen() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const router = useRouter();
+  const qc = useQueryClient();
+  const userId = useAuthStore((s) => s.user?.id);
   const { supportPhone } = usePlatformConfig();
-  const CONTACT_OPTIONS = useMemo(
-    () => buildContactOptions(supportPhone ?? FALLBACK_SUPPORT_PHONE),
-    [supportPhone],
-  );
-  const [openItems, setOpenItems] = useState<Set<string>>(new Set());
-  const [showTickets, setShowTickets] = useState(false);
-  
-  const [ticketCategory, setTicketCategory] = useState<'General Support' | 'Dispute' | 'Lost Item'>('General Support');
-  const [ticketSubject, setTicketSubject] = useState('');
-  const [ticketMessage, setTicketMessage] = useState('');
-  const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
-  const [lostItemDesc, setLostItemDesc] = useState('');
-  const [disputeReason, setDisputeReason] = useState('Fare discrepancy');
-  const { data: bookingsData } = useQuery({
+
+  const [compose, setCompose] = useState(false);
+  const [category, setCategory] = useState<string>('');
+  const [bookingId, setBookingId] = useState<string | null>(null);
+  const [subject, setSubject] = useState('');
+  const [message, setMessage] = useState('');
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [reply, setReply] = useState('');
+
+  const tripsQ = useQuery({
     queryKey: queryKeys.bookings.myHistory(),
     queryFn: () => bookingsApi.getHistory({ limit: 50 }),
   });
-  
-  const myTrips = useMemo(() => {
-    return ((bookingsData?.data?.data as any)?.bookings ?? []) as Booking[];
-  }, [bookingsData]);
+  const trips: any[] = ((tripsQ.data?.data?.data as any)?.bookings ?? []).slice(0, 3);
 
-  const queryClient = useQueryClient();
-
-  const { data: ticketsData, isLoading: ticketsLoading } = useQuery({
+  const ticketsQ = useQuery({
     queryKey: ['support', 'tickets'],
     queryFn: () => supportTicketsApi.getAll(),
   });
+  const tickets: any[] = (ticketsQ.data?.data as any)?.data?.tickets ?? [];
 
-  /** Which ticket's thread is open. Null = the list. */
-  const [openTicketId, setOpenTicketId] = useState<string | null>(null);
-  const [replyText, setReplyText] = useState('');
-
-  const { data: openTicketData, isLoading: openTicketLoading } = useQuery({
-    queryKey: ['support', 'ticket', openTicketId],
-    queryFn: () => supportTicketsApi.getById(openTicketId!),
-    enabled: !!openTicketId,
+  const threadQ = useQuery({
+    queryKey: ['support', 'ticket', openId],
+    queryFn: () => supportTicketsApi.getById(openId!),
+    enabled: !!openId,
   });
-  const openTicket = (openTicketData?.data as any)?.data?.ticket ?? null;
+  const thread = (threadQ.data?.data as any)?.data?.ticket ?? null;
 
-  const replyMutation = useMutation({
-    mutationFn: (text: string) => supportTicketsApi.addMessage(openTicketId!, { text }),
+  const tripLabel = (b: any) => {
+    const dest = b?.trip?.route?.destinationName ?? b?.dropoffName ?? b?.trip?.destinationName;
+    return dest ? `To ${String(dest).split(',')[0]}` : 'Your trip';
+  };
+
+  const startRequest = (opts: { category?: string; booking?: any } = {}) => {
+    setCategory(opts.category ?? '');
+    setBookingId(opts.booking?.id ?? null);
+    setSubject(opts.booking ? `${tripLabel(opts.booking)} · ${shortDate(opts.booking?.trip?.departureTime ?? opts.booking?.createdAt)}` : '');
+    setMessage('');
+    setCompose(true);
+  };
+
+  const create = useMutation({
+    mutationFn: () =>
+      supportTicketsApi.create({
+        subject: subject.trim(),
+        message: message.trim(),
+        category: category || 'GENERAL',
+        // The BOOKING id — the server resolves the driver from it.
+        relatedBookingId: bookingId ?? undefined,
+      }),
     onSuccess: () => {
-      setReplyText('');
-      queryClient.invalidateQueries({ queryKey: ['support', 'ticket', openTicketId] });
-      queryClient.invalidateQueries({ queryKey: ['support', 'tickets'] });
+      qc.invalidateQueries({ queryKey: ['support', 'tickets'] });
+      setCompose(false);
+      notify('Request sent', 'We usually reply within a few hours — you’ll find it here.', { tone: 'success' });
     },
-    onError: (err: any) =>
-      notify('Could not send', err?.response?.data?.message ?? 'Please try again.'),
+    // Fields kept, so a failed send doesn't mean retyping.
+    onError: (err) => {
+      const { title, message: m } = describeError(err, 'Please check your connection and try again.');
+      notify(title, m);
+    },
   });
 
-  const tickets = useMemo(() => {
-    // ApiResponse<T> wraps every payload as {success,message,data} — the tickets
-    // array lives at .data.data.tickets, not .data.tickets (that read always missed).
-    const raw = (ticketsData?.data as any)?.data?.tickets ?? [];
-    return raw.map((t: any) => ({
-      id: t.id,
-      subject: t.subject,
-      category: t.category,
-      status: t.status,
-      date: t.createdAt?.split('T')[0] ?? '',
-      message: t.message,
-      tripId: t.relatedBookingId,
-    }));
-  }, [ticketsData]);
-
-  const createTicketMutation = useMutation({
-    mutationFn: (data: { subject: string; message: string; category: string; relatedBookingId?: string }) =>
-      supportTicketsApi.create(data),
+  const send = useMutation({
+    mutationFn: (text: string) => supportTicketsApi.addMessage(openId!, { text }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['support', 'tickets'] });
-      notify('Ticket Submitted', "We've received your message and will get back to you soon.", { tone: 'success' });
-      setTicketSubject('');
-      setTicketMessage('');
-      setLostItemDesc('');
-      setSelectedTripId(null);
-      setTicketCategory('General Support');
+      setReply('');
+      qc.invalidateQueries({ queryKey: ['support', 'ticket', openId] });
+      qc.invalidateQueries({ queryKey: ['support', 'tickets'] });
     },
-    onError: (err: any) => {
-      // Fields are deliberately NOT cleared here — a failed submit used to wipe
-      // the user's typed message with zero feedback, forcing a full retype.
-      notify('Submission Failed', err?.response?.data?.message ?? err?.message ?? 'Please check your connection and try again.');
+    onError: (err) => {
+      const { title, message: m } = describeError(err, 'Please try again.');
+      notify(title, m);
     },
   });
 
-  const toggle = (id: string) => {
-    setOpenItems(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const handleOpenTickets = () => {
-    setShowTickets(true);
-  };
-
-  const handleSubmitTicket = () => {
-    if (!ticketSubject.trim() || !ticketMessage.trim()) return;
-    
-    let subjectLine = ticketSubject.trim();
-    if (ticketCategory === 'Lost Item') {
-      subjectLine = `Lost Item: ${ticketSubject.trim()}`;
-    } else if (ticketCategory === 'Dispute') {
-      subjectLine = `Dispute (${disputeReason}): ${ticketSubject.trim()}`;
-    }
-
-    /**
-     * Send the canonical category, not the label on the chip.
-     *
-     * This used to send `ticketCategory` straight through — "Lost Item", the
-     * string a human reads off a button. The server stores `category` as a
-     * free-form column and allow-lists the values it knows, so a display label
-     * would land as GENERAL and the lost-item queue would stay permanently
-     * empty. A label is for the person looking at it; the wire wants the value.
-     */
-    const CATEGORY_FOR_CHIP = {
-      'General Support': 'GENERAL',
-      Dispute: 'TRIP',
-      'Lost Item': 'LOST_ITEM',
-    } as const;
-
-    createTicketMutation.mutate({
-      subject: subjectLine,
-      message: ticketMessage.trim(),
-      category: CATEGORY_FOR_CHIP[ticketCategory],
-      relatedBookingId: selectedTripId ?? undefined,
-    });
-  };
-
-  /**
-   * ONE TICKET, ITS WHOLE THREAD, AND A WAY TO ANSWER.
-   *
-   * Rendered INSIDE the tickets sheet rather than as a second sheet of its own —
-   * see the note on that sheet for why two Modals meant the tap did nothing.
-   * The back chevron returns to the list; the sheet's own dismiss closes both.
-   *
-   * Everything here was already on the server — `SupportTicket.messages` ordered
-   * oldest-first, `GET /user/me/support-tickets/:id`, and `POST …/messages` —
-   * with no client for any of it.
-   */
-  const renderTicketThread = () => (
-    <View style={styles.sheetContent}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md }}>
-        <Pressable
-          onPress={() => { setOpenTicketId(null); setReplyText(''); }}
-          hitSlop={12}
-          accessibilityRole="button"
-          accessibilityLabel="Back to my tickets"
-        >
-          <Ionicons name="chevron-back" size={22} color={colors.onSurface} />
-        </Pressable>
-        <View style={{ flex: 1 }}>
-          <Text variant="titleMedium" style={{ color: colors.onSurface }} numberOfLines={2}>
-            {openTicket?.subject ?? 'Ticket'}
-          </Text>
-          {!!openTicket && (
-            <Text variant="caption" color={colors.onSurfaceVariant}>
-              {openTicket.category ?? 'Support'} ·{' '}
-              {openTicket.status === 'OPEN' || openTicket.status === 'Open' ? 'Open' : 'Closed'} ·{' '}
-              {openTicket.createdAt ? new Date(openTicket.createdAt).toLocaleDateString() : ''}
-            </Text>
-          )}
-        </View>
-        <Pressable
-          onPress={() => { setShowTickets(false); setOpenTicketId(null); setReplyText(''); }}
-          hitSlop={12}
-          accessibilityRole="button"
-          accessibilityLabel="Close"
-        >
-          <Ionicons name="close" size={22} color={colors.onSurfaceVariant} />
-        </Pressable>
-      </View>
-
-      {openTicketLoading && !openTicket ? (
-        <Text variant="bodySmall" color={colors.onSurfaceVariant}>Loading…</Text>
-      ) : (
-        <>
-          {/* The opening message is a column on the ticket, not a row in
-              `messages` — render it first so the thread reads in order. */}
-          {!!openTicket?.message && (
-            <View style={[styles.threadBubble, { alignSelf: 'flex-end', backgroundColor: colors.primary + '1A' }]}>
-              <Text variant="bodySmall" color={colors.onSurface}>{openTicket.message}</Text>
-              <Text variant="caption" color={colors.onSurfaceVariant}>
-                You · {openTicket.createdAt ? new Date(openTicket.createdAt).toLocaleString() : ''}
-              </Text>
-            </View>
-          )}
-
-          {(openTicket?.messages ?? []).map((m: any) => {
-            // `fromSupport` is how the console marks its own replies; a message
-            // without it is the rider's own follow-up.
-            const mine = !(m.fromSupport ?? m.isSupport ?? m.sender === 'SUPPORT');
-            return (
-              <View
-                key={m.id}
-                style={[
-                  styles.threadBubble,
-                  mine
-                    ? { alignSelf: 'flex-end', backgroundColor: colors.primary + '1A' }
-                    : { alignSelf: 'flex-start', backgroundColor: colors.surfaceContainerHigh },
-                ]}
-              >
-                <Text variant="bodySmall" color={colors.onSurface}>{m.text ?? m.message ?? ''}</Text>
-                <Text variant="caption" color={colors.onSurfaceVariant}>
-                  {mine ? 'You' : 'EyeGo Support'} ·{' '}
-                  {m.createdAt ? new Date(m.createdAt).toLocaleString() : ''}
-                </Text>
-              </View>
-            );
-          })}
-
-          {(openTicket?.messages ?? []).length === 0 && (
-            <Text variant="caption" color={colors.onSurfaceVariant} style={{ marginTop: spacing.sm }}>
-              No reply yet. We usually respond within a few hours.
-            </Text>
-          )}
-
-          <TextInput maxFontSizeMultiplier={1.4}
-            style={[styles.input, { height: 80, textAlignVertical: 'top', marginTop: spacing.lg }]}
-            placeholder="Add a message…"
-            placeholderTextColor={colors.onSurfaceVariant}
-            value={replyText}
-            onChangeText={setReplyText}
-            multiline
-          />
-          <Button
-            label={replyMutation.isPending ? 'Sending…' : 'Send message'}
-            onPress={() => replyMutation.mutate(replyText.trim())}
-            disabled={replyMutation.isPending || !replyText.trim()}
-            style={{ marginTop: spacing.sm }}
-          />
-        </>
-      )}
-    </View>
-  );
+  const canSend = !!category && subject.trim().length >= 3 && message.trim().length >= 10;
+  const digits = (supportPhone ?? '').replace(/\D/g, '');
 
   return (
-    <SafeAreaView style={styles.safe}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Pressable onPress={() => goBack()} style={styles.backBtn} accessibilityLabel="Go back">
-          <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
-        </Pressable>
-        <Text variant="titleSmall">Help & Support</Text>
-        <Pressable onPress={handleOpenTickets} style={styles.ticketsBtn} accessibilityRole="button" accessibilityLabel="Open support tickets">
-          <Ionicons name="ticket-outline" size={22} color={colors.primary} />
-        </Pressable>
-      </View>
-
-      <ScrollView
-        contentContainerStyle={styles.scroll}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* FAQ Section */}
-        <MotiView
-          >
-          <Text variant="labelCaps" style={styles.sectionLabel}>
-            FREQUENTLY ASKED
-          </Text>
-
-          <GlassSurface borderRadius={radii.xl} intensity="low" dark style={styles.faqCard}>
-            {FAQ_ITEMS.map((item, index) => (
-              <View key={item.id}>
-                <Pressable
-                  onPress={() => toggle(item.id)}
-                  style={styles.faqRow}
-                  accessibilityRole="button"
-                  accessibilityLabel={`${openItems.has(item.id) ? 'Collapse' : 'Expand'} FAQ: ${item.question}`}
-                >
-                  <Text variant="bodyMedium" color={colors.onSurface} style={styles.faqQuestion}>
-                    {item.question}
-                  </Text>
-                  <MotiView
-                    animate={{ rotate: openItems.has(item.id) ? '180deg' : '0deg' }}
-                    transition={{ type: 'spring', ...springs.standard }}
-                  >
-                    <Ionicons name="chevron-down" size={18} color={colors.onSurfaceVariant} />
-                  </MotiView>
-                </Pressable>
-
-                {openItems.has(item.id) && (
-                  <Animated.View entering={FadeIn.duration(150)} style={styles.faqAnswer}>
-                    <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ lineHeight: 20 }}>
-                      {item.answer}
-                    </Text>
-                  </Animated.View>
-                )}
-
-                {index < FAQ_ITEMS.length - 1 && <View style={styles.divider} />}
-              </View>
+    <>
+      <Screen title="Help">
+        {tripsQ.isPending ? (
+          <SkeletonRows count={2} />
+        ) : trips.length > 0 ? (
+          <ListSection title="Get help with a trip">
+            {trips.map((b) => (
+              <ListRow
+                key={b.id}
+                icon="car-outline"
+                title={tripLabel(b)}
+                subtitle={`${shortDate(b?.trip?.departureTime ?? b?.createdAt)} · ${String(b.status ?? '').replace(/_/g, ' ').toLowerCase()}`}
+                onPress={() => startRequest({ category: 'TRIP', booking: b })}
+              />
             ))}
-          </GlassSurface>
-        </MotiView>
+          </ListSection>
+        ) : null}
 
-        {/* Contact Section */}
-        <MotiView
-          style={{ marginTop: spacing['2xl'] }}
-        >
-          <Text variant="labelCaps" style={styles.sectionLabel}>
-            CONTACT US
-          </Text>
+        <ListSection title="Contact us" footer="We usually reply within a few hours.">
+          <ListRow icon="chatbubbles-outline" title="Send us a message" subtitle="Get an answer right here in the app" onPress={() => startRequest()} />
+          {digits ? (
+            <ListRow icon="logo-whatsapp" iconColor="#25D366" title="WhatsApp" onPress={() => Linking.openURL(`https://wa.me/${digits}?text=Hi%20EyeGo%20Support`)} />
+          ) : null}
+          {digits ? (
+            <ListRow icon="call-outline" title="Call support" value={supportPhone ?? undefined} onPress={() => Linking.openURL(`tel:+${digits}`)} />
+          ) : null}
+          <ListRow icon="mail-outline" title="Email" value="support@eyego.app" onPress={() => Linking.openURL('mailto:support@eyego.app').catch(() => notify('No email app', 'Write to support@eyego.app.'))} />
+        </ListSection>
 
-          <GlassSurface borderRadius={radii.xl} intensity="low" dark style={styles.contactCard}>
-            {CONTACT_OPTIONS.map((option, index) => (
-              <View key={option.id}>
-                <Pressable onPress={option.onPress} style={styles.contactRow} accessibilityRole="button">
-                  <View style={[styles.contactIcon, { backgroundColor: option.color + '20' }]}>
-                    <Ionicons name={option.icon} size={20} color={option.color} />
-                  </View>
-                  <Text variant="bodyMedium" color={colors.onSurface} style={{ flex: 1 }}>
-                    {option.label}
-                  </Text>
-                  <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
-                </Pressable>
-                {index < CONTACT_OPTIONS.length - 1 && <View style={styles.divider} />}
-              </View>
-            ))}
-          </GlassSurface>
-        </MotiView>
+        {tickets.length > 0 ? (
+          <ListSection title="Your requests">
+            {tickets.map((t) => {
+              const last = t.messages?.[0];
+              return (
+                <ListRow
+                  key={t.id}
+                  icon="chatbox-ellipses-outline"
+                  title={t.subject}
+                  subtitle={`${shortDate(t.updatedAt ?? t.createdAt)}${last?.text ? ` · ${last.senderRole === 'SUPPORT' || last.senderRole === 'ADMIN' ? 'EyeGo: ' : ''}${last.text}` : ''}`}
+                  subtitleLines={1}
+                  value={STATUS_LABEL[t.status] ?? t.status}
+                  valueColor={t.status === 'OPEN' || t.status === 'IN_PROGRESS' ? colors.primary : colors.onSurfaceVariant}
+                  onPress={() => setOpenId(t.id)}
+                />
+              );
+            })}
+          </ListSection>
+        ) : null}
 
-        {/* Response time note */}
-        <MotiView
-          style={styles.noteRow}
-        >
-          <Ionicons name="time-outline" size={14} color={colors.onSurfaceVariant} />
-          <Text variant="caption" color={colors.onSurfaceVariant} style={{ marginLeft: spacing.xs }}>
-            We typically respond within 2 hours during business hours
-          </Text>
-        </MotiView>
-      </ScrollView>
+        <ListSection title="Common questions">
+          {FAQS.map((f) => (
+            <FaqRow key={f.q} q={f.q} a={f.a} styles={styles} colors={colors} />
+          ))}
+        </ListSection>
+      </Screen>
 
-      {/* My Tickets — PanelSheet replaces @gorhom/bottom-sheet.
-          Uses the same usePanelMotion engine: spring snap with velocity,
-          backdrop opacity, scroll/drag arbitration. */}
-      {/*
-        ONE SHEET, TWO STATES — NOT TWO SHEETS.
-
-        BUGFIX ("currently, when I tap it, nothing happens"). The ticket rows had
-        a press handler all along; what they did was open a SECOND PanelSheet on
-        top of this one. PanelSheet is built on the React Native `Modal`, and two
-        visible Modals cannot coexist on iOS — the second simply never presents.
-        The tap fired, the state changed, and the screen did not move, which is
-        indistinguishable from a dead row.
-
-        So the thread is a STATE of this sheet rather than a sheet of its own:
-        `openTicketId` swaps the body, and the header's chevron walks back to the
-        list. One Modal, and the back path is now explicit instead of relying on
-        a dismissal ordering that never happened.
-      */}
-      <PanelSheet
-        visible={showTickets}
-        onDismiss={() => { setShowTickets(false); setOpenTicketId(null); setReplyText(''); }}
-        maxHeightPct={0.92}
-        sheetStyle={{ backgroundColor: colors.background }}
-        backdropOpacity={0.7}
-      >
-        {/*
-          A plain CALL, not `<TicketThread />`. A component declared inside this
-          render is a new type on every render, so JSX would unmount and remount
-          the whole subtree each keystroke — the reply box would lose focus after
-          one character. Calling it inlines the elements instead.
-        */}
-        {openTicketId ? (
-          renderTicketThread()
-        ) : (
-        <View style={styles.sheetContent}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.md }}>
-            <Text variant="titleMedium" style={{ color: colors.onSurface }}>
-              My Tickets
-            </Text>
-            {/* At maxHeightPct=0.92 the sheet covers nearly the whole screen,
-                leaving only a sliver of tappable backdrop above it — "tap
-                away to dismiss" was technically wired but practically
-                undiscoverable/unreachable. An explicit close button is the
-                only reliable way to dismiss short of the drag gesture. */}
-            <Pressable
-              onPress={() => setShowTickets(false)}
-              hitSlop={10}
-              accessibilityRole="button"
-              accessibilityLabel="Close"
-            >
-              <Ionicons name="close" size={22} color={colors.onSurfaceVariant} />
+      {/* New request */}
+      <Modal visible={compose} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setCompose(false)}>
+        <SafeAreaView style={styles.modal}>
+          <View style={styles.modalBar}>
+            <Text style={styles.modalTitle}>Send us a message</Text>
+            <Pressable onPress={() => setCompose(false)} hitSlop={12} accessibilityRole="button" accessibilityLabel="Close">
+              <Ionicons name="close" size={24} color={colors.onSurface} />
             </Pressable>
           </View>
-
-          <View style={styles.newTicketCard}>
-            <Text variant="label" color={colors.onSurfaceVariant} style={{ marginBottom: spacing.sm }}>
-              OPEN NEW RESOLUTION TICKET
-            </Text>
-
-            {/* Category Segment Control */}
-            <View style={styles.categoryRow}>
-              {(['General Support', 'Dispute', 'Lost Item'] as const).map((cat) => (
-                <Pressable
-                  key={cat}
-                  onPress={() => setTicketCategory(cat)}
-                  style={[
-                    styles.categoryChip,
-                    ticketCategory === cat && { backgroundColor: colors.primary },
-                  ]}
-                 accessibilityRole="button">
-                  <Text
-                    style={{
-                      fontSize: 12,
-                      fontFamily: fonts.semiBold,
-                      color: ticketCategory === cat ? colors.onPrimary : colors.onSurfaceVariant,
-                    }}
-                  >
-                    {cat}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-
-            {/* Associated Trip Picker for Disputes and Lost Items */}
-            {ticketCategory !== 'General Support' && (
-              <View style={{ marginTop: spacing.md }}>
-                <Text variant="label" color={colors.onSurfaceVariant} style={{ marginBottom: spacing.xs }}>
-                  SELECT ASSOCIATED TRIP
-                </Text>
-                {myTrips.length === 0 ? (
-                  <Text variant="caption" color={colors.error} style={{ marginVertical: spacing.xs }}>
-                    No recent trips found to associate.
-                  </Text>
-                ) : (
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs, paddingVertical: 4 }}>
-                    {myTrips.map((b) => (
-                      <Pressable
-                        key={b.id}
-                        onPress={() => setSelectedTripId(b.tripId)}
-                        style={[
-                          styles.tripPill,
-                          selectedTripId === b.tripId && { borderColor: colors.primary, backgroundColor: colors.primary + '10' },
-                        ]}
-                       accessibilityRole="button">
-                        <Text style={{ fontSize: 11, fontFamily: fonts.medium, color: colors.onSurface }}>
-                          {b.trip?.route?.originName?.split(',')[0]} → {b.trip?.route?.destinationName?.split(',')[0]}
-                        </Text>
-                        <Text style={{ fontSize: 9, fontFamily: fonts.regular, color: colors.onSurfaceVariant }}>
-                          {b.trip?.departureTime ? new Date(b.trip.departureTime).toLocaleDateString() : ''}
-                        </Text>
-                      </Pressable>
-                    ))}
-                  </ScrollView>
-                )}
-              </View>
-            )}
-
-            {/* Dispute specific reasons */}
-            {ticketCategory === 'Dispute' && (
-              <View style={{ marginTop: spacing.md }}>
-                <Text variant="label" color={colors.onSurfaceVariant} style={{ marginBottom: spacing.xs }}>
-                  DISPUTE REASON
-                </Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs, paddingVertical: 4 }}>
-                  {['Fare discrepancy', 'Driver behavior', 'Route issue', 'Cleanliness', 'Other'].map((reason) => (
-                    <Pressable
-                      key={reason}
-                      onPress={() => setDisputeReason(reason)}
-                      style={[
-                        styles.tripPill,
-                        disputeReason === reason && { borderColor: colors.primary, backgroundColor: colors.primary + '10' },
-                      ]}
-                     accessibilityRole="button">
-                      <Text style={{ fontSize: 11, fontFamily: fonts.medium, color: colors.onSurface }}>
-                        {reason}
-                      </Text>
+          <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+            <ScrollView contentContainerStyle={styles.modalBody} keyboardShouldPersistTaps="handled">
+              <Text variant="labelCaps" style={styles.label}>What’s it about?</Text>
+              <View style={styles.chips}>
+                {CATEGORIES.map((c) => {
+                  const on = category === c.value;
+                  return (
+                    <Pressable key={c.value} style={[styles.chip, on && styles.chipOn]} onPress={() => setCategory(c.value)} accessibilityRole="radio" accessibilityState={{ selected: on }}>
+                      <Text style={[styles.chipText, { color: on ? colors.onPrimary : colors.onSurface }]}>{c.label}</Text>
                     </Pressable>
-                  ))}
-                </ScrollView>
+                  );
+                })}
               </View>
-            )}
+              {bookingId ? <Text style={styles.linked}>Linked to this trip, so we can see what happened.</Text> : null}
+              <Text variant="labelCaps" style={styles.label}>Subject</Text>
+              <TextInput maxFontSizeMultiplier={1.4} style={styles.input} value={subject} onChangeText={setSubject} placeholder="In a few words" placeholderTextColor={colors.onSurfaceVariant} maxLength={120} />
+              <Text variant="labelCaps" style={styles.label}>Details</Text>
+              <TextInput
+                maxFontSizeMultiplier={1.4}
+                style={[styles.input, styles.multiline]}
+                value={message}
+                onChangeText={setMessage}
+                placeholder={category === 'LOST_ITEM' ? 'What did you leave behind, and where were you sitting?' : 'What happened?'}
+                placeholderTextColor={colors.onSurfaceVariant}
+                multiline
+                maxLength={2000}
+              />
+              <Button label="Send" onPress={() => create.mutate()} loading={create.isPending} disabled={!canSend || create.isPending} style={{ marginTop: 20 }} />
+            </ScrollView>
+          </KeyboardAvoidingView>
+        </SafeAreaView>
+      </Modal>
 
-            {/* Lost Item specific description */}
-            {ticketCategory === 'Lost Item' && (
-              <View style={{ marginTop: spacing.md }}>
-                <TextInput maxFontSizeMultiplier={1.4}
-                  style={styles.input}
-                  placeholder="What item did you lose? (e.g. Black keys, iPhone)"
-                  placeholderTextColor={colors.onSurfaceVariant}
-                  value={lostItemDesc}
-                  onChangeText={setLostItemDesc}
-                />
-              </View>
-            )}
-
-            <TextInput maxFontSizeMultiplier={1.4}
-              style={[styles.input, { marginTop: spacing.sm }]}
-              placeholder="Subject / Summary"
-              placeholderTextColor={colors.onSurfaceVariant}
-              value={ticketSubject}
-              onChangeText={setTicketSubject}
-            />
-
-            <TextInput maxFontSizeMultiplier={1.4}
-              style={[styles.input, { height: 80, textAlignVertical: 'top', marginTop: spacing.sm }]}
-              placeholder="Describe your issue in detail..."
-              placeholderTextColor={colors.onSurfaceVariant}
-              value={ticketMessage}
-              onChangeText={setTicketMessage}
-              multiline
-            />
-            
-            <Button
-              label="Submit Ticket"
-              onPress={handleSubmitTicket}
-              disabled={
-                !ticketSubject.trim() || 
-                !ticketMessage.trim() || 
-                (ticketCategory === 'Lost Item' && !lostItemDesc.trim())
-              }
-              style={{ marginTop: spacing.md }}
-            />
-          </View>
-
-          <Text variant="label" color={colors.onSurfaceVariant} style={{ marginTop: spacing.xl, marginBottom: spacing.md }}>
-            PREVIOUS TICKETS
-          </Text>
-
-          {tickets.length === 0 ? (
-            <View style={{ alignItems: 'center', paddingVertical: spacing['2xl'] }}>
-              <Ionicons name="help-circle-outline" size={40} color={colors.onSurfaceVariant} />
-              <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ textAlign: 'center', marginTop: spacing.sm }}>
-                No support tickets yet. Use the form below to get help.
-              </Text>
+      {/* A request, in full */}
+      <Modal visible={!!openId} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => { setOpenId(null); setReply(''); }}>
+        <SafeAreaView style={styles.modal}>
+          <View style={styles.modalBar}>
+            <View style={{ flex: 1, paddingRight: 12 }}>
+              <Text style={styles.modalTitle} numberOfLines={2}>{thread?.subject ?? 'Request'}</Text>
+              {thread ? (
+                <Text variant="caption" color={colors.onSurfaceVariant}>
+                  {STATUS_LABEL[thread.status] ?? thread.status} · {shortDate(thread.createdAt)}
+                </Text>
+              ) : null}
             </View>
-          ) : (
-            /*
-              BUGFIX ("on the my tickets page I can't tap on my previous
-              tickets to view the details").
-
-              These rows were plain `View`s — no press handler, no affordance,
-              nothing behind them. A support ticket is a CONVERSATION (the
-              server has stored `SupportTicket.messages` and served
-              `GET /user/me/support-tickets/:id` all along, and `addMessage` too)
-              and the app only ever showed the opening line of it, with no way
-              to read a reply or send one. So a rider raised a ticket and, as
-              far as the app was concerned, it vanished.
-            */
-            tickets.map((ticket: any) => {
-              const isOpen = ticket.status === 'Open';
-              return (
-              <Pressable
-                key={ticket.id}
-                onPress={() => setOpenTicketId(ticket.id)}
-                style={({ pressed }) => [
-                  styles.ticketItem,
-                  isOpen && styles.ticketItemOpen,
-                  pressed && { opacity: 0.7 },
-                ]}
-                accessibilityRole="button"
-                accessibilityLabel={`Open ticket: ${ticket.subject}`}
-              >
-                <GlassSurface
-                  borderRadius={radii.xl}
-                  intensity={isOpen ? 'high' : 'low'}
-                  style={StyleSheet.absoluteFill}
-                />
-                {isOpen && <View style={styles.ticketGlow} pointerEvents="none" />}
-                <View style={{ flex: 1, gap: 2 }}>
-                  <Text variant="bodyMedium" color={colors.onSurface} style={{ fontFamily: fonts.semiBold }}>
-                    {ticket.subject}
-                  </Text>
-                  <Text variant="bodySmall" color={colors.onSurfaceVariant} numberOfLines={2}>
-                    {ticket.message}
-                  </Text>
-                  <Text variant="caption" color={colors.onSurfaceVariant}>{ticket.date}</Text>
-                </View>
-                <View style={[styles.statusBadge, { backgroundColor: ticket.status === 'Open' ? colors.primary + '20' : colors.surfaceContainerHigh }]}>
-                  <Text variant="caption" color={ticket.status === 'Open' ? colors.primary : colors.onSurfaceVariant}>
-                    {ticket.status}
-                  </Text>
-                </View>
-                <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} style={{ marginLeft: spacing.xs }} />
-              </Pressable>
-              );
-            })
-          )}
-        </View>
-        )}
-      </PanelSheet>
-    </SafeAreaView>
+            <Pressable onPress={() => { setOpenId(null); setReply(''); }} hitSlop={12} accessibilityRole="button" accessibilityLabel="Close">
+              <Ionicons name="close" size={24} color={colors.onSurface} />
+            </Pressable>
+          </View>
+          <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+            <ScrollView contentContainerStyle={styles.modalBody} keyboardShouldPersistTaps="handled">
+              {threadQ.isPending ? (
+                <SkeletonRows count={2} icon={false} />
+              ) : (
+                (thread?.messages ?? []).map((m: any) => {
+                  const fromSupport = m.senderRole === 'SUPPORT' || m.senderRole === 'ADMIN';
+                  const fromDriver = m.senderRole === 'DRIVER';
+                  const mine = !fromSupport && !fromDriver && (m.senderId ? m.senderId === userId : true);
+                  return (
+                    <View key={m.id} style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleTheirs]}>
+                      <Text variant="bodySmall" color={colors.onSurface}>{m.text}</Text>
+                      <Text variant="caption" color={colors.onSurfaceVariant}>
+                        {fromSupport ? 'EyeGo Support' : fromDriver ? 'Driver' : 'You'} · {m.createdAt ? new Date(m.createdAt).toLocaleString('en-GH', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : ''}
+                      </Text>
+                    </View>
+                  );
+                })
+              )}
+              {thread && (thread.messages ?? []).every((m: any) => m.senderRole !== 'SUPPORT' && m.senderRole !== 'ADMIN') ? (
+                <Text style={styles.note}>No reply yet — we usually answer within a few hours.</Text>
+              ) : null}
+              <TextInput
+                maxFontSizeMultiplier={1.4}
+                style={[styles.input, styles.multiline, { marginTop: 20 }]}
+                value={reply}
+                onChangeText={setReply}
+                placeholder="Add a message…"
+                placeholderTextColor={colors.onSurfaceVariant}
+                multiline
+                maxLength={2000}
+              />
+              <Button label="Send" onPress={() => send.mutate(reply.trim())} loading={send.isPending} disabled={send.isPending || !reply.trim()} style={{ marginTop: 12 }} />
+            </ScrollView>
+          </KeyboardAvoidingView>
+        </SafeAreaView>
+      </Modal>
+    </>
   );
 }
 
-const makeStyles = (colors: Colors) => StyleSheet.create({
-  safe: { flex: 1, backgroundColor: 'transparent' },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing['2xl'],
-    paddingVertical: spacing.base,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.outlineVariant,
-  },
-  backBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.surfaceContainer,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  scroll: {
-    paddingHorizontal: spacing['2xl'],
-    paddingTop: spacing['2xl'],
-    paddingBottom: spacing['3xl'],
-  },
-  sectionLabel: {
-    letterSpacing: 1,
-    marginBottom: spacing.base,
-  },
-  faqCard: {
-    borderRadius: radii.xl,
-    overflow: 'hidden',
-  },
-  faqRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing.base,
-    paddingVertical: spacing.base,
-    gap: spacing.sm,
-  },
-  faqQuestion: { flex: 1, lineHeight: 20 },
-  faqAnswer: {
-    paddingHorizontal: spacing.base,
-    paddingBottom: spacing.base,
-    overflow: 'hidden',
-  },
-  divider: {
-    height: 1,
-    backgroundColor: colors.outlineVariant,
-    marginHorizontal: spacing.base,
-  },
-  contactCard: {
-    borderRadius: radii.xl,
-    overflow: 'hidden',
-  },
-  contactRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing.base,
-    paddingVertical: spacing.base,
-    gap: spacing.base,
-  },
-  contactIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  noteRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: spacing['2xl'],
-  },
-  ticketsBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.surfaceContainer,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sheetBackground: {
-    backgroundColor: colors.background,
-    borderTopLeftRadius: radii['3xl'],
-    borderTopRightRadius: radii['3xl'],
-  },
-  sheetHandle: {
-    backgroundColor: colors.outline,
-    width: 40,
-    height: 4,
-  },
-  sheetContent: {
-    paddingHorizontal: spacing['2xl'],
-    paddingBottom: spacing['3xl'],
-  },
-  newTicketCard: {
-    backgroundColor: colors.surfaceContainer,
-    borderRadius: radii.xl,
-    padding: spacing.base,
-    borderWidth: 1,
-    borderColor: colors.outlineVariant,
-  },
-  categoryRow: {
-    flexDirection: 'row',
-    backgroundColor: colors.surfaceContainerHigh,
-    borderRadius: radii.xl,
-    padding: 4,
-    marginBottom: spacing.md,
-    gap: 4,
-  },
-  categoryChip: {
-    flex: 1,
-    paddingVertical: 10,
-    alignItems: 'center',
-    borderRadius: radii.lg,
-  },
-  tripPill: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    backgroundColor: colors.surfaceContainerHigh,
-    borderRadius: radii.lg,
-    borderWidth: 1.5,
-    borderColor: colors.outlineVariant,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  input: {
-    backgroundColor: colors.surfaceContainerHigh,
-    borderRadius: radii.lg,
-    paddingHorizontal: spacing.md,
-    height: 48,
-    fontFamily: fonts.medium,
-    fontSize: fontSizes.bodyMedium,
-    lineHeight: Math.round(fontSizes.bodyMedium * 1.4),
-    color: colors.onSurface,
-  },
-  /**
-   * BUGFIX ("you need to design the cards of the previous tickets and my tickets
-   * properly, it's now badly done — use the glass card and if possible give it
-   * glow borders").
-   *
-   * A flat filled rectangle with a hairline outline, in an app whose every other
-   * list uses the glass surface. No background of its own any more: the
-   * GlassSurface behind it IS the background, and painting one on top of glass
-   * is what makes glass look like a plain box.
-   */
-  ticketItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderRadius: radii.xl,
-    padding: spacing.base,
-    marginBottom: spacing.sm,
-    borderWidth: 1,
-    borderColor: colors.outlineVariant,
-    overflow: 'hidden',
-  },
-  // An OPEN ticket is the one the rider is waiting on, so it is the one that
-  // glows. A soft inner wash rather than a shadow: shadows do not render inside
-  // an `overflow: hidden` card.
-  ticketItemOpen: { borderColor: `${colors.primary}66` },
-  ticketGlow: { ...StyleSheet.absoluteFillObject, backgroundColor: `${colors.primary}0F` },
-  statusBadge: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
-    borderRadius: radii.full,
-  },
-  /** One message in a support thread. Side is set at the call site. */
-  threadBubble: {
-    maxWidth: '88%',
-    borderRadius: radii.xl,
-    paddingHorizontal: spacing.base,
-    paddingVertical: spacing.sm,
-    marginTop: spacing.sm,
-    gap: 4,
-  },
-});
+/** A ListRow-shaped row that opens in place; takes ListSection's `divider`. */
+function FaqRow({ q, a, styles, colors, divider }: { q: string; a: string; styles: ReturnType<typeof makeStyles>; colors: Colors; divider?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [pressed, setPressed] = useState(false);
+  return (
+    <View>
+      <Pressable
+        onPress={() => setOpen((v) => !v)}
+        onPressIn={() => setPressed(true)}
+        onPressOut={() => setPressed(false)}
+        style={[styles.faqRow, pressed && { backgroundColor: colors.surfaceContainer }]}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+      >
+        <Text style={styles.faqQ}>{q}</Text>
+        <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={18} color={colors.outline} />
+      </Pressable>
+      {open ? (
+        <Animated.View entering={FadeIn.duration(180)}>
+          <Text style={styles.faqA}>{a}</Text>
+        </Animated.View>
+      ) : null}
+      {divider ? <View style={styles.faqDivider} /> : null}
+    </View>
+  );
+}
+
+const makeStyles = (c: Colors) =>
+  StyleSheet.create({
+    faqRow: { minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 20, paddingVertical: 14 },
+    faqQ: { flex: 1, fontFamily: fonts.medium, fontSize: 16, lineHeight: 21, color: c.onSurface },
+    faqA: { paddingHorizontal: 20, paddingBottom: 16, fontFamily: fonts.regular, fontSize: 15, lineHeight: 22, color: c.onSurfaceVariant },
+    faqDivider: { marginLeft: 20, height: StyleSheet.hairlineWidth, backgroundColor: c.outlineVariant },
+    modal: { flex: 1, backgroundColor: c.background },
+    modalBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 16 },
+    modalTitle: { flex: 1, fontFamily: fonts.displayBold, fontSize: 20, lineHeight: 26, color: c.onSurface },
+    modalBody: { paddingHorizontal: 20, paddingBottom: 40 },
+    label: { marginTop: 20, marginBottom: 8 },
+    linked: { marginTop: 10, fontFamily: fonts.regular, fontSize: 13, lineHeight: 18, color: c.primary },
+    chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    chip: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: radii.full, backgroundColor: c.surfaceContainer },
+    chipOn: { backgroundColor: c.primary },
+    chipText: { fontFamily: fonts.medium, fontSize: 14, lineHeight: 18 },
+    input: { fontFamily: fonts.medium, fontSize: 16, color: c.onSurface, backgroundColor: c.surfaceContainer, borderRadius: radii.lg, paddingHorizontal: 16, height: 52 },
+    multiline: { height: undefined, minHeight: 120, paddingTop: 14, paddingBottom: 14, textAlignVertical: 'top' },
+    bubble: { maxWidth: '88%', borderRadius: radii.xl, paddingHorizontal: 14, paddingVertical: 10, marginTop: 10, gap: 4 },
+    bubbleMine: { alignSelf: 'flex-end', backgroundColor: `${c.primary}1F` },
+    bubbleTheirs: { alignSelf: 'flex-start', backgroundColor: c.surfaceContainerHigh },
+    note: { marginTop: 16, fontFamily: fonts.regular, fontSize: 13, lineHeight: 18, color: c.onSurfaceVariant, textAlign: 'center' },
+  });

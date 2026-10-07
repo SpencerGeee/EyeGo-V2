@@ -1,133 +1,83 @@
 import React, { useMemo } from 'react';
-import { View, StyleSheet, Pressable, ScrollView } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { fonts, spacing, radii } from '@eyego/config';
-import { Text, AppBackground, backgroundScrollPauseProps, goBack } from '@eyego/ui';
+import { View, StyleSheet } from 'react-native';
+import { fonts } from '@eyego/config';
+import { Text, Screen } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
-import { useThemeStore } from '../../stores/theme.store';
 
 const TERMS_SECTIONS: { heading: string; body: string }[] = [
   {
-    heading: '1. Acceptance of Terms',
-    body: 'These Terms of Service ("Terms") govern your use of the EyeGo mobile applications and services operated in Ghana. By creating an account or booking a ride you agree to these Terms and to our Privacy Policy. If you do not agree, do not use the service.',
+    heading: '1. Acceptance of terms',
+    body: 'These Terms of Service ("Terms") govern your use of the EyeGo apps and services operated in Ghana. By creating an account or booking a ride you agree to these Terms and to our Privacy Policy. If you do not agree, do not use the service.',
   },
   {
-    heading: '2. The Service',
-    body: 'EyeGo is a technology platform that connects riders with independent drivers operating shared vans and vehicles on fixed and dynamic routes. EyeGo itself does not provide transportation; drivers are independent providers responsible for their vehicles, licensing, and insurance as required by Ghanaian law.',
+    heading: '2. The service',
+    body: 'EyeGo is a technology platform that connects riders with independent drivers operating cars and shared vans. EyeGo does not itself provide transport; drivers are independent providers responsible for their vehicles, licensing and insurance as Ghanaian law requires.',
   },
   {
-    heading: '3. Your Account',
-    body: 'You must be at least 16 years old to use EyeGo (riders aged 16–17 require parental consent). You are responsible for the accuracy of your account details, for keeping your phone and login secure, and for all activity under your account. One account per person; accounts are not transferable.',
+    heading: '3. Your account',
+    body: 'You must be at least 16 to use EyeGo (riders aged 16–17 need a parent or guardian’s consent). You are responsible for your account details, for keeping your phone secure, and for all activity under your account. One account per person; accounts are not transferable.',
   },
   {
-    heading: '4. Bookings, Seats & Group Rides',
-    body: 'A confirmed booking reserves the selected seat(s) on the selected trip. Shared-ride fares may decrease as more passengers join a trip; the fare shown at checkout is the maximum you will pay for that seat. Group leads may invite others via link; each member is responsible for their own conduct, and the lead is responsible for group settings such as "pay for everyone" and heavy-cargo surcharges.',
+    heading: '4. Bookings, seats and group rides',
+    body: 'A confirmed booking reserves the seat(s) you chose on that trip. On shared trips the fare shown when you confirm is the most you will pay for that seat. A group lead may invite others by link; each member is responsible for their own conduct, and the lead for group settings such as paying for everyone and declaring heavy cargo.',
   },
   {
-    heading: '5. Fares & Payments',
-    body: 'Fares are shown before you confirm and may include distance, tier, surge, and surcharge components. Payments are processed by Paystack (card and mobile money). Wallet balances are non-interest-bearing and redeemable only within EyeGo. Promo codes are single-use unless stated otherwise, have no cash value, and may be withdrawn for misuse.',
+    heading: '5. Fares and payments',
+    body: 'Fares are shown before you confirm. Payments are processed by Paystack (card and mobile money) or taken in cash by the driver. Wallet balances earn no interest and can be used only within EyeGo. Promo codes have no cash value, are single-use unless stated, and may be withdrawn for misuse.',
   },
   {
-    heading: '6. Cancellations & Refunds',
-    body: 'Cancellations more than 15 minutes before departure receive a full refund to your original payment method or wallet. Cancellations within 15 minutes of departure may incur a fee. If your driver has not arrived within 10 minutes of the scheduled time, you may cancel free of charge. No-shows are charged the full seat fare.',
+    heading: '6. Cancellations and refunds',
+    body: 'Cancelling before your trip sets off is free. For an on-demand ride, cancelling before a driver is found, or within two minutes of one accepting, is free; after that a late-cancellation fee may apply, and the app shows it before you confirm. If you miss a trip that has already departed, you may be charged up to the full seat fare. Refunds go back to the way you paid or to your EyeGo wallet.',
   },
   {
-    heading: '7. Rider Conduct',
-    body: 'You agree to: treat drivers and co-riders with respect; wear a seatbelt where fitted; not carry illegal, dangerous, or oversized items without declaring heavy cargo; not smoke, vape, or consume alcohol in vehicles; and not damage vehicles. Violations may result in charges for cleaning or repair, suspension, or permanent removal from the platform.',
+    heading: '7. Rider conduct',
+    body: 'You agree to: treat drivers and other riders with respect; wear a seatbelt where fitted; not carry illegal or dangerous items, and declare heavy cargo; not smoke, vape or drink alcohol in vehicles; and not damage vehicles. Breaches may lead to cleaning or repair charges, suspension or removal from the platform.',
   },
   {
     heading: '8. Safety',
-    body: 'Safety features (SOS, trip sharing, RideCheck, emergency contacts) are aids, not substitutes for emergency services. In an emergency, contact the Ghana Police Service (191) or Ambulance (193) directly. You consent to EyeGo sharing your live trip data with emergency services and your emergency contacts when you trigger SOS.',
+    body: 'Safety features (emergency button, trip sharing, emergency contacts) help but do not replace the emergency services. In an emergency call 112, the Ghana Police Service (191) or Ambulance (193). You agree that EyeGo may share your live trip details with the emergency services and your emergency contacts when you raise an emergency.',
   },
   {
-    heading: '9. Scheduled & Reserved Rides',
-    body: 'Scheduled rides must be booked at least 30 minutes in advance and are subject to driver availability. EyeGo will notify you if a scheduled trip cannot be fulfilled and will refund any prepaid amount in full.',
+    heading: '9. Scheduled and reserved rides',
+    body: 'Scheduled rides depend on driver availability. If we cannot arrange one, we tell you and refund anything you paid in advance.',
   },
   {
-    heading: '10. Limitation of Liability',
-    body: 'To the maximum extent permitted by law, EyeGo is not liable for indirect or consequential losses, delays, missed connections, or the acts or omissions of drivers or other riders. Nothing in these Terms excludes liability that cannot be excluded under Ghanaian law. Claims relating to a trip must be raised via a support ticket within 30 days of the trip.',
+    heading: '10. Limitation of liability',
+    body: 'To the extent the law allows, EyeGo is not liable for indirect or consequential losses, delays, missed connections, or the acts of drivers or other riders. Nothing in these Terms excludes liability that cannot be excluded under Ghanaian law. Claims about a trip should be raised through Help within 30 days of the trip.',
   },
   {
-    heading: '11. Suspension & Termination',
-    body: 'We may suspend or terminate accounts for fraud, abuse, chargebacks, safety violations, or breach of these Terms. You may delete your account at any time from Privacy & Settings; outstanding fares and disputes survive termination.',
+    heading: '11. Suspension and termination',
+    body: 'We may suspend or close accounts for fraud, abuse, chargebacks, safety violations or breach of these Terms. You can delete your account at any time in Settings; outstanding fares and open disputes survive it.',
   },
   {
-    heading: '12. Changes to These Terms',
-    body: 'We may update these Terms as the service evolves. Material changes will be announced in the app at least 7 days before they take effect. Continued use after the effective date constitutes acceptance.',
+    heading: '12. Changes to these terms',
+    body: 'We may update these Terms as the service evolves. Material changes are announced in the app at least 7 days before they take effect. Using EyeGo after that date means you accept them.',
   },
   {
-    heading: '13. Governing Law & Contact',
-    body: 'These Terms are governed by the laws of the Republic of Ghana, and disputes are subject to the jurisdiction of Ghanaian courts. Contact: support@eyego.app · WhatsApp +233 26 149 0759.\n\nLast updated: July 2026',
+    heading: '13. Governing law and contact',
+    body: 'These Terms are governed by the laws of the Republic of Ghana, and disputes are subject to the jurisdiction of Ghanaian courts. Contact: support@eyego.app · WhatsApp +233 26 149 0759.',
   },
 ];
 
+/** TERMS OF SERVICE — plain reading page on the kit. */
 export default function TermsScreen() {
   const colors = useColors();
-  const isDark = useThemeStore((s) => s.isDark);
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const router = useRouter();
-
   return (
-    <SafeAreaView style={styles.safe}>
-      <AppBackground variant="static" isDark={isDark} />
-      <View style={styles.header}>
-        <Pressable onPress={() => goBack()} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
-          <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
-        </Pressable>
-        <Text variant="titleSmall">Terms of Service</Text>
-        <View style={{ width: 40 }} />
-      </View>
-
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} {...backgroundScrollPauseProps}>
-        <View style={styles.card}>
-          {TERMS_SECTIONS.map((section, i) => (
-            <View key={section.heading} style={i > 0 ? { marginTop: spacing.lg } : undefined}>
-              <Text variant="bodyMedium" color={colors.onSurface} style={{ fontFamily: fonts.semiBold, marginBottom: 4 }}>
-                {section.heading}
-              </Text>
-              <Text variant="caption" color={colors.onSurfaceVariant} style={{ lineHeight: 18 }}>
-                {section.body}
-              </Text>
-            </View>
-          ))}
+    <Screen title="Terms of service" subtitle="Last updated October 2026">
+      {TERMS_SECTIONS.map((s) => (
+        <View key={s.heading} style={styles.section}>
+          <Text style={styles.heading}>{s.heading}</Text>
+          <Text style={styles.body}>{s.body}</Text>
         </View>
-      </ScrollView>
-    </SafeAreaView>
+      ))}
+    </Screen>
   );
 }
 
-const makeStyles = (colors: Colors) =>
+const makeStyles = (c: Colors) =>
   StyleSheet.create({
-    safe: { flex: 1, backgroundColor: 'transparent' },
-    header: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      paddingHorizontal: spacing['2xl'],
-      paddingVertical: spacing.base,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.outlineVariant,
-    },
-    backBtn: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
-      backgroundColor: colors.surfaceContainer,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    scroll: {
-      paddingHorizontal: spacing['2xl'],
-      paddingTop: spacing['2xl'],
-      paddingBottom: spacing['3xl'],
-    },
-    card: {
-      backgroundColor: colors.surfaceContainer,
-      borderRadius: radii.xl,
-      padding: spacing.base,
-      borderWidth: 1,
-      borderColor: colors.outlineVariant,
-    },
+    section: { paddingHorizontal: 20, marginTop: 22 },
+    heading: { fontFamily: fonts.semiBold, fontSize: 16, lineHeight: 22, color: c.onSurface, marginBottom: 6 },
+    body: { fontFamily: fonts.regular, fontSize: 15, lineHeight: 23, color: c.onSurfaceVariant },
   });
