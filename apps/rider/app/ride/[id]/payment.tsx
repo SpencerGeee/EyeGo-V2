@@ -82,6 +82,8 @@ export default function PaymentScreen() {
   // Mounted guard: prevents state updates and navigation on unmounted component
   const isMountedRef = useRef(true);
   const pendingTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  // The back handler is registered once per checkout; it calls the latest close.
+  const closeCheckoutRef = useRef<() => void>(() => {});
   const [status, setStatus] = useState<'idle' | 'processing' | 'success' | 'failed'>('idle');
   const [promoExpanded, setPromoExpanded] = useState(false);
   const [promoInput, setPromoInput] = useState('');
@@ -102,7 +104,7 @@ export default function PaymentScreen() {
   useEffect(() => {
     if (!checkoutUrl) return;
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      setCheckoutUrl(null);
+      closeCheckoutRef.current();
       return true;
     });
     return () => sub.remove();
@@ -594,6 +596,28 @@ export default function PaymentScreen() {
     }
   };
 
+  /**
+   * CLOSING THE CHECKOUT IS OFTEN HOW A PAID RIDER LEAVES IT.
+   *
+   * No callback URL is set on the transaction, so Paystack shows its own
+   * "payment successful" page and never redirects with `reference=` — the
+   * rider pays, taps ✕, and used to land back on this form with nothing
+   * verified, free to pay a second time. One check on the way out: paid →
+   * the normal success path; not paid → they simply closed it, no error.
+   */
+  const closeCheckout = async () => {
+    setCheckoutUrl(null);
+    if (!paymentRef) return;
+    try {
+      const { data } = await paymentsApi.verify(paymentRef);
+      const b = (data as any)?.data?.booking;
+      if (b?.paymentStatus === 'PAID' || b?.status === 'CONFIRMED') void verifyCardPayment();
+    } catch {
+      // Not paid (verify answers 4xx for a pending charge) — nothing to say.
+    }
+  };
+  closeCheckoutRef.current = closeCheckout;
+
   // WebView: detect Paystack success redirect with secure whitelist filtering
   const handleWebViewNavigate = (url: string) => {
     // BUGFIX: WebView URL validation — require reference= parameter for success detection
@@ -630,7 +654,7 @@ export default function PaymentScreen() {
     return (
       <SafeAreaView style={styles.safe}>
         <View style={styles.webviewHeader}>
-          <Pressable onPress={() => setCheckoutUrl(null)} hitSlop={12} accessibilityRole="button" accessibilityLabel="Close checkout">
+          <Pressable onPress={() => void closeCheckout()} hitSlop={12} accessibilityRole="button" accessibilityLabel="Close checkout">
             <Ionicons name="close" size={24} color={colors.onSurface} />
           </Pressable>
           <Text variant="titleSmall">Card Payment</Text>

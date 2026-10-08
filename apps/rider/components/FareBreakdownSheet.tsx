@@ -224,7 +224,7 @@ export function FareBreakdownSheet({
       {/* Fare headline */}
       <View style={styles.fareHeader}>
         <Text variant="titleLarge">Fare</Text>
-        <Text variant="fareMedium" color={colors.onSurface} style={{ fontWeight: '700' }}>
+        <Text variant="fareMedium" color={colors.onSurface}>
           {formatGhs(farePesewas)}
         </Text>
       </View>

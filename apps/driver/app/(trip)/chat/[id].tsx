@@ -468,7 +468,7 @@ export default function TripChatScreen() {
       }}
      accessibilityRole="button">
       <View style={[styles.seatBadge, { backgroundColor: colors.primary + '22' }]}>
-        <Text variant="labelSmall" color={colors.primary} style={{ fontWeight: '700' }}>
+        <Text variant="labelSmall" color={colors.primary} style={{ fontFamily: fonts.bold }}>
           #{item.seatNumber ?? '?'}
         </Text>
       </View>
