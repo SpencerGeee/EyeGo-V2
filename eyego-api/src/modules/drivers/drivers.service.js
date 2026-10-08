@@ -2038,6 +2038,9 @@ async function boardPassenger(driverId, tripId, bookingId, { pin = null } = {}) 
             tripId,
           },
         });
+      }
+      // Outside the commission branch: a zero-commission cash seat still boards.
+      if (cashRows.length) {
         await tx.booking.updateMany({
           where: { id: { in: cashRows.map((b) => b.id) } },
           data: { status: 'BOARDED', paymentStatus: 'PAID' },

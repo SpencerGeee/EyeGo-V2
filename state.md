@@ -1,36 +1,34 @@
-# State — 2026-10-08 (UI + bug pass for the client demo)
+# State — 2026-10-08 (device-test round 2 before the client demo)
 
 ## Current Goal
-Uber/Bolt-grade UI across rider + driver AND hidden bugs found everywhere (client demo
-2026-10-08, iOS + Android parity, no subagents). Grilled + locked:
-- Look: Onyx (dark; rider green, driver blue) + Uber restraint — one glow per screen, flat rows.
-- Kit: packages/ui/src/page/Page.tsx (Screen, ScreenHeader, LargeTitle, ListSection, ListRow,
-  SkeletonRows) + QueryBoundary. ListRow holds pressed state itself (no style functions).
-- Delivery: batches, commit + push (OTA) after each.
+Fix the 8 items from the user's two-app device test and polish the pages no batch touched.
+Grilled + locked:
+- Driver trip = ONE screen `(trip)/active/[id]`: own map + TripStages sheet, manage folded into
+  the sheet (drag up), swipe pinned at the bottom, no tab bar. Home is idle-only with a
+  "Trip in progress / Your next trip" card. Supersedes 2026-09-17 "driver trip = stages on home".
+- Offer map = driver → pickup only; trip length shown as numbers + heading, destination hidden.
 
-## Plan status — ALL DONE, pushed to main
-- ① 0278583 kit + driver account/auth/onboarding.
-- ② 776f0ce rider account/settings hub.
-- ③ b916aed browse = map + 3-stop sheet, native clusters, Where-to, sort, boarding strip,
-  Notify me (TripAlert + migration 20261007180000_trip_alerts).
-- ④ c5fe935 → 130a422 sweep: hand-built dates/money (@eyego/utils/dates.ts, formatters
-  suite), driver tomorrow-trip picker, createTrip departure validation, lying screens fixed
-  (quests fallback, services fares, trip summary, notifications/activity errors), social
-  sign-in dead end removed, card-checkout close verifies, tips/top-ups pick MoMo network by
-  number, rate-tip retry, invite links survive sign-in, SOS number, invented capacities.
+## Plan status — done this round (main)
+- 8498eba driver trip screen, party boarding (server + client), minibus puck, offer card
+  facts, self-ride refusal message, softer chime, cancel releases cover-all, tripKm/tripMinutes.
+- da34cf6 rider: own hold selectable (isMyHold), hub releases hold after cancel lands, live card
+  kinds (searching / hold / ride), ended-while-closed → receipt, seat picker pass.
+- 519593d driver receipt one row per person, trips card honest seats/fares, alerts Today/Earlier.
+- (this commit) seat map `req.user.userId` (isMine was never true), zero-commission cash rows
+  board, offer card mojibake, completed trip → receipt, swipe labels, party-boarding e2e suite.
 
 ## Evidence
-- tsc rider/driver/admin clean. run-all 514/514 (25 suites) before the last rounds; money,
-  wallet, rider/driver feature suites re-run green after each server change.
+- tsc rider/driver/admin clean. conditional-hooks clean.
+- Local stack: party-boarding 6/6 (new), driver-happy 32/32, driver-features 42/42,
+  rider-features 30/30, rider-happy 35/35, ui/ux/motion/button/formatters/maestro invariants
+  green, wallet-commission 18/18.
 
 ## Open / tell the user
-- PRODUCTION API: deploy the server AND run `prisma migrate deploy`
-  (20261007120000_promo_subsidy_per_user_limit, 20261007180000_trip_alerts). OTA only ships apps.
-- `https://eyego.app/pay|invite` universal links need the domain + AASA/assetlinks; in-app
-  scanner and API-served /invite, /track pages work without it.
-- No Paystack callback_url is set (card checkout now verifies on close, so it is safe).
-- Social sign-in removed: server verifies Firebase tokens; needs a Firebase credential
-  exchange + Google SDK before it can come back.
-- No email service (business receipts / referrals removed from UI). KYC retention decision.
-- Driver support tickets create a shadow rider User (schema change needed).
-- Restart Claude Code (ECC hook env change from earlier).
+- PRODUCTION API must be redeployed (server changed: boarding, cancel, seat map, offer hint,
+  trips list). No new migration this round. Earlier: `prisma migrate deploy` still owed for
+  20261007120000_promo_subsidy_per_user_limit and 20261007180000_trip_alerts.
+- New chime + vehicle PNG are assets: OTA carries them, but verify on device.
+- Not device-verified: trip-screen sheet heights (0.42/0.52/0.42) with the pinned bar,
+  minibus puck rotation, seat picker live pulse.
+- Older open items: universal links domain, Paystack callback_url, social sign-in, email
+  service, driver support tickets shadow user.

@@ -442,7 +442,7 @@ Rejected:
 - KeyboardAwareScrollView inside native page-sheet Modals — separate window; RN KeyboardAvoidingView there.
 Open: device-test all 8; run `scripts/e2e/conditional-hooks.mjs` before every push (it caught the hooks crash).
 
-## 2026-09-17 13:40 [saved]
+## 2026-09-17 13:40 [saved] [superseded by 2026-10-08]
 Goal: 15-item device report — morph, dispatch offer, driver trip surface, seat drop-off, trip-end stack, biometrics.
 Decisions:
 - One offer renderer: root DispatchOfferSheet shows held offer OR tapped row; every entry path hydrates + openOffer; pushed routes are shims.
@@ -485,3 +485,14 @@ Decisions:
 - A failed load is never rendered as empty or as fallback data (quests, notifications, activity).
 Rejected: fake offline fallback content; hardcoded fares/ETAs/feature claims ("AC · WIFI", "TOP PICK").
 Open: prod API deploy + prisma migrate deploy (two 20261007 migrations); eyego.app universal-link domain.
+
+## 2026-10-08 23:00 [saved]
+Goal: Fix the 8 device-test items; driver trip gets its own screen again.
+Decisions:
+- Driver trip = one screen (map + TripStages sheet + manage in sheet + pinned swipe); home idle-only.
+- A host paying for everyone is one party: one roster row, one PIN boards every row server-side.
+- Offer map shows driver→pickup only; trip length as numbers, destination stays hidden.
+- Seat map marks only the viewer's re-pickable hold (isMyHold); covered/guest seats are not.
+- Rider JWT carries userId, never id — req.user.id reads are always undefined.
+Rejected: rendering the driving stages on the home tab (swipe sat under the tab bar).
+Open: prod API redeploy; device-verify sheet heights and minibus puck rotation.

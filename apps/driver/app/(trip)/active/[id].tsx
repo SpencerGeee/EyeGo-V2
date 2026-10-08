@@ -46,7 +46,7 @@ import type { GeoPlace } from '@eyego/utils';
 // camera state machine and the server's route geometry, so nothing map-shaped is
 // imported here any more.
 import { TripStatusRail, type RailStep } from '../../../components/trip/TripStatusRail';
-import { VALID_ADVANCE_STATUSES, nextStatusAfter, advanceRequest } from '../../../components/surface/useTripAdvance';
+import { VALID_ADVANCE_STATUSES, nextStatusAfter, advanceRequest, advanceLabel } from '../../../components/surface/useTripAdvance';
 import type { TripBooking } from '@eyego/types';
 
 // ─── Status config ────────────────────────────────────────────────────────────
@@ -1801,7 +1801,7 @@ export default function ActiveTripScreen() {
             label={
               startsTheRide && pendingBoarders.length > 0
                 ? `Swipe to board ${pendingBoarders.length === 1 ? pendingBoarders[0].name.split(' ')[0] : `${pendingBoarders.length} passengers`} & go`
-                : `Swipe to ${statusInfo.action.replace(/^(I've|Mark)\s+/i, '').toLowerCase()}`
+                : (advanceLabel(trip.status) ?? statusInfo.action)
             }
             loadingLabel={
               boardingRun ? `Boarding ${boardingRun.index + 1} of ${boardingRun.queue.length}…` : `${statusInfo.action}…`

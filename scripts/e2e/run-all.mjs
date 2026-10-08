@@ -58,6 +58,7 @@ const SUITES = [
   ['search-actions.mjs', 'boost the fare (all of it to the driver) and nudge the pickup while searching'],
   ['trip-alerts.mjs', '"Notify me": a published trip claims the riders waiting for it, once'],
   ['money-flows.mjs', 'P2P, refunds exactly once, platform-funded promos, ledger reconciliation'],
+  ['party-boarding.mjs', 'a host paying for everyone is one party: seat map, cancel, one-PIN boarding'],
   ['wallet-commission.mjs', 'the cash float: warned at the offer, charged at boarding'],
   ['lifecycle-edges.mjs', 'cancellations, races, no-shows, terminal states'],
   ['silent-failures.mjs', 'writes that do not write, and 200s that mean nothing'],

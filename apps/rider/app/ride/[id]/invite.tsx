@@ -87,7 +87,9 @@ export default function InviteScreen() {
         // meant no free seat existed, the seatNumber:1 fallback hit the seat
         // the driver's offline passenger was in, and the SeatTakenError came
         // back to the rider as "the trip may be full" on an empty bus.
-        const mine = seats.find((s) => s?.isMine);
+        // `isMyHold`, not `isMine`: a cover-all seat or a guest's seat is also
+        // "mine", and re-booking one of those collides instead of moving the hold.
+        const mine = seats.find((s) => s?.isMyHold);
         const firstFree = seats.find((s) => s?.status === 'AVAILABLE');
         const chosen = mine ?? firstFree;
         // `number` is the field the seat map returns; `seatNumber` is accepted

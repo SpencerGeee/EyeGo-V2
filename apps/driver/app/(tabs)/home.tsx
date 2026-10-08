@@ -1110,7 +1110,11 @@ export default function HomeScreen() {
                     <Ionicons name="navigate" size={18} color={colors.onPrimary ?? '#0A0D14'} />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={[styles.liveKicker, { color: colors.primary }]}>TRIP IN PROGRESS</Text>
+                    <Text style={[styles.liveKicker, { color: colors.primary }]}>
+                      {['SCHEDULED', 'FILLING', 'CONFIRMED'].includes(String(activeTripData.status))
+                        ? 'YOUR NEXT TRIP'
+                        : 'TRIP IN PROGRESS'}
+                    </Text>
                     <Text style={styles.liveTitle} numberOfLines={1}>
                       {driverStatusLabel(activeTripData.status)}
                     </Text>

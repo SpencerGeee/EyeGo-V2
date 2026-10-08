@@ -60,8 +60,10 @@ const getTripByShareToken = async (req, res) => {
 
 const getSeatMap = async (req, res) => {
   // The viewer's id is what lets the group-hub screen re-use the seat it
-  // already holds instead of trying to reserve a second one.
-  const seatMap = await tripsService.getSeatMap(req.params.id, req.user?.id ?? null);
+  // already holds instead of trying to reserve a second one. `userId`, not
+  // `id`: the JWT carries `userId`, and `req.user.id` was always undefined —
+  // so `isMine` was false for every seat, every rider, since it was written.
+  const seatMap = await tripsService.getSeatMap(req.params.id, req.user?.userId ?? null);
   ok(res, seatMap);
 };
 
