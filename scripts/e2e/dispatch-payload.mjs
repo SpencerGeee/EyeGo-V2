@@ -190,9 +190,12 @@ async function main() {
 
   section('3 · the socket frame (what a live app receives)');
   await check('an OFFER frame reached the driver namespace', async () => {
-    const f = ctx.sock.frames.find(
-      (fr) => fr.payload?.type === 'OFFER' || fr.event === 'dispatch:offer' || fr.payload?.offer,
-    );
+    // WAIT for it. The REST check above can be satisfied by the board ROW,
+    // which exists the moment the trip does; the exclusive OFFER follows when
+    // the cascade starts, a few seconds later on a slow stack. Looking once
+    // raced the two and failed a delivery that arrived three seconds on.
+    const isOffer = (fr) => fr.payload?.type === 'OFFER' || fr.event === 'dispatch:offer' || fr.payload?.offer;
+    const f = await ctx.sock.waitFor(isOffer, 20000, 'OFFER frame').catch(() => null);
     if (!f) {
       throw new Error(
         `no OFFER frame in ${ctx.sock.frames.length} frames (events: ` +
@@ -207,6 +210,14 @@ async function main() {
   await check('the socket frame carries the same contract as the REST offer', async () => {
     if (!ctx.frame) return 'skipped — no frame';
     return checkContract(ctx.frame, 'socket OFFER payload');
+  });
+
+  await check('the offer says how long the trip is, without revealing where it ends', async () => {
+    if (!ctx.frame) return 'skipped — no frame';
+    const { tripKm, tripMinutes } = ctx.frame;
+    if (!(typeof tripKm === 'number' && tripKm > 0)) throw new Error(`tripKm is ${tripKm} — the card falls back to fine print`);
+    if (!(typeof tripMinutes === 'number' && tripMinutes > 0)) throw new Error(`tripMinutes is ${tripMinutes}`);
+    return `${tripKm} km · ≈${tripMinutes} min`;
   });
 
   await check('the socket frame and the REST offer agree on the money', async () => {

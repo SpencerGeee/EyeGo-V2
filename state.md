@@ -20,7 +20,8 @@ Grilled + locked:
 ## Evidence
 - tsc rider/driver/admin clean. conditional-hooks clean.
 - Local stack: party-boarding 6/6 (new), driver-happy 32/32, driver-features 42/42,
-  rider-features 30/30, rider-happy 35/35, ui/ux/motion/button/formatters/maestro invariants
+  rider-features 30/30, rider-happy 35/35, dispatch-payload 15/15 (offer carries tripKm),
+  lifecycle-edges 17/17, completion-pass 19/19, silent-failures 28/28, ui/ux/motion/button/formatters/maestro invariants
   green, wallet-commission 18/18.
 
 ## Open / tell the user
