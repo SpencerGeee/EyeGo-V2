@@ -11,6 +11,7 @@ import { Text } from '@eyego/ui';
 import { describeError, formatPhone } from '@eyego/utils';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, Colors } from '../../utils/useColors';
+import { consumeReturnTo } from '../../utils/returnTo';
 
 const OTP_LENGTH = 6;
 const RESEND_SECONDS = 60;
@@ -40,9 +41,11 @@ export default function OtpScreen() {
     onSuccess: async ({ data }) => {
       const { user, accessToken, refreshToken, isNewUser } = data.data;
       await login(user, { accessToken, refreshToken });
-      // A returning rider goes home. This went to the intro carousel, so they
-      // swiped through it on every sign-in.
-      router.replace(isNewUser || !user.name ? '/(auth)/register' : '/(tabs)/home');
+      // A returning rider goes home — or back to the invite link that sent
+      // them here. This went to the intro carousel, so they swiped through it
+      // on every sign-in. A new rider keeps the target until setup finishes.
+      const needsProfile = isNewUser || !user.name;
+      router.replace((needsProfile ? '/(auth)/register' : consumeReturnTo() ?? '/(tabs)/home') as any);
     },
     onError: (err) => {
       setError(describeError(err, 'That code didn’t work. Try again.').message);

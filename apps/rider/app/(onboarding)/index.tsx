@@ -38,6 +38,7 @@ import {
   PREMIUM_RING_LOCATIONS,
 } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
+import { consumeReturnTo } from '../../utils/returnTo';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -191,8 +192,9 @@ export default function OnboardingScreen() {
   const handleDone = useCallback(async () => {
     await SecureStore.setItemAsync('eyego_onboarded', 'true').catch(() => {});
     // Straight to sign-in when signed out — it used to bounce off the tabs
-    // guard to get there.
-    router.replace(isLoggedIn ? '/(tabs)/home' : '/(auth)/phone');
+    // guard to get there. A new rider who came from an invite link goes back
+    // to it now that their account is set up (see utils/returnTo).
+    router.replace((isLoggedIn ? consumeReturnTo() ?? '/(tabs)/home' : '/(auth)/phone') as any);
   }, [router, isLoggedIn]);
 
   const handleNext = useCallback(() => {

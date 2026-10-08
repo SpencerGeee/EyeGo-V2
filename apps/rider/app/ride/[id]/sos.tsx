@@ -678,10 +678,14 @@ export default function SOSScreen() {
           onPress={confirmEmergencyCall}
           disabled={loading}
           style={({ pressed }) => [styles.emergencyButton, pressed && { transform: [{ scale: 0.98 }] }]}
-         accessibilityRole="button">
+          accessibilityRole="button"
+          accessibilityLabel={`Call the emergency services on ${emergencyNumber}`}
+        >
           <Ionicons name="call" size={20} color={colors.statusError} />
           <Text style={styles.emergencyButtonText}>
-            {alertSent ? 'Call 112' : 'Emergency Call'}
+            {/* The number the button actually dials (operator config), never a
+                hardcoded "112" that could disagree with it. */}
+            {alertSent ? `Call ${emergencyNumber}` : 'Emergency call'}
           </Text>
         </Pressable>
       </View>

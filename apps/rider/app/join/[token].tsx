@@ -11,6 +11,7 @@ import { spacing, radii, springs } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { Text, Button, Skeleton } from '@eyego/ui';
 import { formatGhs, formatTripDate } from '@eyego/utils';
+import { setReturnTo } from '../../utils/returnTo';
 
 export default function JoinScreen() {
   const colors = useColors();
@@ -40,7 +41,11 @@ export default function JoinScreen() {
           </Text>
           <Button
             label="Sign In"
-            onPress={() => goDeeper('/(auth)/phone')}
+            onPress={() => {
+              // Come straight back to this invite once signed in.
+              if (token) setReturnTo(`/join/${token}`);
+              goDeeper('/(auth)/phone');
+            }}
             style={{ marginTop: spacing['2xl'], width: 220 }}
           />
         </View>
