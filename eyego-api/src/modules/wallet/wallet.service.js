@@ -40,13 +40,16 @@ async function getWallet(driverId, transactionLimit = 50) {
 /** Nobody tops up a hundred thousand cedis by accident; a fat finger does. */
 const MAX_TOPUP_PESEWAS = 500_000; // ₵5,000
 
-async function topUp(driverId, amountPesewas, { method = 'MOMO_MTN' } = {}) {
+async function topUp(driverId, amountPesewas, { method: requestedMethod } = {}) {
   const safeAmount = assertPesewas(amountPesewas, 'top-up amount', { client: true });
   if (safeAmount > MAX_TOPUP_PESEWAS) {
     throw new AppError(`The most you can add at once is ${formatGhs(MAX_TOPUP_PESEWAS)}.`, 400);
   }
   const driver = await prisma.driver.findUnique({ where: { id: driverId } });
   if (!driver) throw new NotFoundError('Driver');
+  // The charge goes to the driver's own number, so the number names the
+  // network when the app did not. The old default was MTN for everyone.
+  const method = requestedMethod || paystack.momoMethodForPhone(driver.phone) || 'MOMO_MTN';
 
   /**
    * SIMULATED MODE — see env.PAYMENTS_SIMULATED for why this branch exists.

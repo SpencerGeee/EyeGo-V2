@@ -1507,11 +1507,13 @@ async function tipDriver(userId, bookingId, { amountPesewas, phone }) {
      * on the phone number given, so the only thing worth inheriting is the
      * network — and only when the ride was itself paid by MoMo.
      */
-    // Otherwise the NUMBER names the network. Defaulting everyone to MTN sent
-    // a Telecel or AirtelTigo rider's tip prompt to a network they are not on.
-    const method = MOMO_METHODS.has(booking.paymentMethod)
-      ? booking.paymentMethod
-      : paystack.momoMethodForPhone(payPhone) ?? DEFAULT_TIP_MOMO_METHOD;
+    // The NUMBER names the network — a MoMo wallet is the SIM. It wins over
+    // the booking's stored method, which `normalizePaymentMethod` writes as
+    // MOMO_MTN for every bare "MOMO": defaulting to that sent a Telecel or
+    // AirtelTigo rider's tip prompt to a network they are not on.
+    const method =
+      paystack.momoMethodForPhone(payPhone) ??
+      (MOMO_METHODS.has(booking.paymentMethod) ? booking.paymentMethod : DEFAULT_TIP_MOMO_METHOD);
 
     // The intent is written FIRST, inside the transaction: a charge with no
     // record of it is money nobody can trace back to a driver.

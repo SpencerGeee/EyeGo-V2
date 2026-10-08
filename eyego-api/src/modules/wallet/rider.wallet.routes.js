@@ -254,7 +254,8 @@ router.post('/topup', idempotency, async (req, res) => {
 
   const reference = `eyego_wallet_${uuidv4().replace(/-/g, '').slice(0, 20)}`;
   const userEmail = email || user.email || `${user.phone}@eyego.app`;
-  const payMethod = method || 'MOMO_MTN';
+  // No network chosen → the paying number names it (MTN only as a last resort).
+  const payMethod = method || paystack.momoMethodForPhone(momoPhone || user.phone) || 'MOMO_MTN';
 
   // Record the intent
   await prisma.paymentTransaction.create({
