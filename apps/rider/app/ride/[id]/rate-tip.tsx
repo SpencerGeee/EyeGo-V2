@@ -133,6 +133,7 @@ export default function RateTipScreen() {
     if (alreadyRated) setRating(existingRating!.stars);
   }, [alreadyRated, existingRating]);
   const [selectedCompliments, setSelectedCompliments] = useState<string[]>([]);
+  const ratedRef = useRef(false);
   const [selectedTipIndex, setSelectedTipIndex] = useState<number | null>(null);
   const [customTip, setCustomTip] = useState('');
   const [comment, setComment] = useState('');
@@ -169,14 +170,32 @@ export default function RateTipScreen() {
 
       // Never re-post a rating that already exists: the server answers 409 and
       // the rider would be shown a failure for having done nothing wrong.
-      if (rating > 0 && !alreadyRated) {
-        await bookingsApi.rate(resolvedBookingId, { rating, comment: commentText });
+      // `ratedRef`: a tip that fails AFTER the rating landed is retried
+      // without re-rating — the stale `alreadyRated` query used to re-post it
+      // and turn every retry into a 409.
+      if (rating > 0 && !alreadyRated && !ratedRef.current) {
+        try {
+          await bookingsApi.rate(resolvedBookingId, { rating, comment: commentText });
+        } catch (err: any) {
+          if (err?.response?.data?.code !== 'ALREADY_RATED') throw err;
+        }
+        ratedRef.current = true;
       }
       if (finalTipPesewas > 0) {
         await bookingsApi.tip(resolvedBookingId, { amountPesewas: finalTipPesewas, phone: user?.phone });
       }
     },
     onSuccess: () => {
+      // A tip is a MoMo charge: nothing moves until the rider approves the
+      // prompt, so say so instead of leaving silently.
+      if (finalTipPesewas > 0) {
+        notify('Approve the prompt on your phone', `Your ${formatGhs(finalTipPesewas)} tip is sent once you approve it.`, {
+          tone: 'info',
+          duration: 7000,
+        });
+      } else {
+        notify('Thanks for rating', 'Your feedback helps keep every ride great.', { tone: 'success' });
+      }
       clearRideState();
       // Refresh trips (Past tab) and profile trip count
       queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });

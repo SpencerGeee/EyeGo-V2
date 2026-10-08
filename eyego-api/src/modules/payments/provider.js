@@ -226,4 +226,6 @@ module.exports = {
   verifyTransfer: guard('verifyTransfer'),
   createTransferRecipient: guard('createTransferRecipient'),
   resolvePayoutBankCode: guard('resolvePayoutBankCode'),
+  /** Ghana number prefix → MOMO_* network, or null. Pure; not gateway-specific. */
+  momoMethodForPhone: paystack.momoMethodForPhone,
 };
