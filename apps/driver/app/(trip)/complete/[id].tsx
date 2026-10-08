@@ -218,6 +218,36 @@ export default function TripCompleteScreen() {
     return s + (isNaN(c) ? (parseFloat(b.fareAmountPesewas) || 0) * commissionRate : c);
   }, 0);
   const driverNetTotal = grossEarnings - commissionTotal;
+  /**
+   * ONE ROW PER PERSON. A cover-all host owns one booking per covered seat, so
+   * mapping rows printed the same name down the receipt — the repetition the
+   * manage screen already stopped. Same key as `groupParties`: an account with
+   * no named guest is one party.
+   */
+  const receiptParties = (() => {
+    const byKey = new Map<string, { key: string; name: string; seats: number; fare: number; paid: boolean; status: string }>();
+    for (const b of bookings as any[]) {
+      const uid = b.user?.id ?? b.userId ?? null;
+      const key = uid && !b.guestName ? `u:${uid}` : `b:${b.id}`;
+      const fare = parseFloat(b.fareAmountPesewas) || farePerSeatPesewas;
+      const prev = byKey.get(key);
+      if (prev) {
+        prev.seats += seatsOf(b);
+        prev.fare += fare;
+        prev.paid = prev.paid && b.paymentStatus === 'PAID';
+        continue;
+      }
+      byKey.set(key, {
+        key,
+        name: b.guestName ?? b.user?.name ?? `Seat ${b.seatNumber ?? '—'}`,
+        seats: seatsOf(b),
+        fare,
+        paid: b.paymentStatus === 'PAID',
+        status: b.status,
+      });
+    }
+    return [...byKey.values()];
+  })();
   /** Who is paying for whom — see attachGroupSummary in drivers.service.js. */
   const groupInfo = (completedTrip as {
     group?: { coverAll: boolean; leadName: string | null; seatCount: number; totalPesewas: number } | null;
@@ -387,7 +417,7 @@ export default function TripCompleteScreen() {
 
         {/* Title */}
         <Entrance animation="slideDown" delay={300} style={styles.titleContainer}>
-          <Text style={styles.headline}>Trip Complete!</Text>
+          <Text style={styles.headline}>Trip complete</Text>
           <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.subtitle}>
             {originLabel(completedTrip) ?? 'Pickup'} → {destinationLabel(completedTrip) ?? 'Destination'}
           </Text>
@@ -437,7 +467,9 @@ export default function TripCompleteScreen() {
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
-            <Text style={styles.statValue}>{formatDistance(completedTrip?.route?.distanceKm)}</Text>
+            <Text style={styles.statValue}>
+              {formatDistance(completedTrip?.route?.distanceKm ?? (completedTrip as any)?.distanceKm)}
+            </Text>
             <Text variant="caption" color={colors.onSurfaceVariant}>Distance</Text>
           </View>
           <View style={styles.statDivider} />
@@ -481,23 +513,21 @@ export default function TripCompleteScreen() {
           )}
 
           <View style={styles.passengerList}>
-            {bookings.map((b: any, i: number) => (
-              <View key={b.id ?? i} style={styles.passengerRow}>
+            {receiptParties.map((p) => (
+              <View key={p.key} style={styles.passengerRow}>
                 <View style={styles.passengerAvatar}>
-                  <Text style={styles.passengerInitial}>
-                    {((b.guestName ?? b.user?.name ?? '?') as string)[0]?.toUpperCase()}
-                  </Text>
+                  <Text style={styles.passengerInitial}>{(p.name[0] ?? '?').toUpperCase()}</Text>
                 </View>
-                <Text variant="caption" color={colors.onSurfaceVariant} style={{ flex: 1 }}>
-                  {b.guestName ?? b.user?.name ?? `Seat ${b.seatNumber ?? "—"}`}{seatsOf(b) > 1 ? ` · ${seatsOf(b)} seats` : ""}
+                <Text variant="caption" color={colors.onSurfaceVariant} style={{ flex: 1 }} numberOfLines={1}>
+                  {p.name}{p.seats > 1 ? ` · ${p.seats} seats` : ''}
                 </Text>
-                <View style={[styles.payBadge, { backgroundColor: b.paymentStatus === 'PAID' ? `${colors.online}22` : `${colors.warning}22` }]}>
-                  <Text style={[styles.payBadgeText, { color: b.paymentStatus === 'PAID' ? colors.online : colors.warning }]}>
-                    {b.paymentStatus === 'PAID' ? 'Paid' : b.paymentStatus === 'PENDING' ? 'Cash' : bookingStatusLabel(b.status)}
+                <View style={[styles.payBadge, { backgroundColor: p.paid ? `${colors.online}22` : `${colors.warning}22` }]}>
+                  <Text style={[styles.payBadgeText, { color: p.paid ? colors.online : colors.warning }]}>
+                    {p.paid ? 'PAID' : ['CONFIRMED', 'BOARDED', 'COMPLETED'].includes(p.status) ? 'CASH' : bookingStatusLabel(p.status)}
                   </Text>
                 </View>
                 <Text variant="bodySmall" style={{ fontFamily: fonts.semiBold, color: colors.onSurface, marginLeft: spacing.sm }}>
-                  {formatGhs((parseFloat(b.fareAmountPesewas) || farePerSeatPesewas))}
+                  {formatGhs(p.fare)}
                 </Text>
               </View>
             ))}
@@ -515,7 +545,7 @@ export default function TripCompleteScreen() {
           </View>
           <View style={styles.receiptRow}>
             <Text variant="bodyMedium" color={colors.onSurfaceVariant}>EyeGo Commission ({Math.round(commissionRate * 100)}%)</Text>
-            <Text variant="bodyMedium" color={colors.error}>− {formatGhs(commissionTotal)}</Text>
+            <Text variant="bodyMedium" color={colors.onSurfaceVariant}>− {formatGhs(commissionTotal)}</Text>
           </View>
 
           <View style={styles.divider} />
@@ -552,28 +582,30 @@ export default function TripCompleteScreen() {
             * every ratable passenger on this trip is in that list, and it says
             * "Passengers rated" rather than staying inert and unexplained.
             */}
-          <Button
-            label={allPassengersRated ? 'Passengers rated' : 'Rate Passengers'}
-            onPress={() => goDeeper(`/(trip)/rate-passengers/${id}`)}
-            variant="secondary"
-            disabled={allPassengersRated}
-          />
-          {allPassengersRated && (
-            <Text variant="caption" color={colors.onSurfaceVariant} style={{ textAlign: 'center', marginTop: -spacing.xs }}>
-              Your ratings for this trip are saved.
-            </Text>
-          )}
+          {!allPassengersRated ? (
+            <Button label="Rate your passengers" onPress={() => goDeeper(`/(trip)/rate-passengers/${id}`)} />
+          ) : null}
           {/* `goOut`, not `replace`: replacing this screen with `(tabs)` stacked a
               SECOND tabs navigator on the first — two home surfaces mounted. */}
           <Button
-            label="Back to Home"
+            label="Done"
+            variant={allPassengersRated ? undefined : 'secondary'}
             onPress={() => goOut('/(tabs)/home')}
           />
-          <Button
-            label="View Earnings"
-            variant="secondary"
+          {allPassengersRated && (
+            <Text variant="caption" color={colors.onSurfaceVariant} style={{ textAlign: 'center' }}>
+              Your ratings for this trip are saved.
+            </Text>
+          )}
+          <Pressable
             onPress={() => goOut('/(tabs)/earnings')}
-          />
+            hitSlop={8}
+            style={styles.earningsLink}
+            accessibilityRole="link"
+          >
+            <Text variant="bodySmall" color={colors.primary}>View today's earnings</Text>
+            <Ionicons name="chevron-forward" size={14} color={colors.primary} />
+          </Pressable>
         </Entrance>
       </ScrollView>
     </SafeAreaView>
@@ -651,6 +683,13 @@ const makeStyles = (colors: DriverColors) =>
       color: colors.onSurface,
     },
     ctaWrapper: { width: '100%', gap: spacing.md },
+    earningsLink: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 4,
+      paddingVertical: spacing.sm,
+    },
     receiptCard: {
       width: '100%',
       borderRadius: radii['2xl'],

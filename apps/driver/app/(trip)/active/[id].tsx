@@ -413,6 +413,13 @@ export default function ActiveTripScreen() {
   useEffect(() => {
     const s = trip?.status;
     if (!s || !isFocused || endedRef.current) return;
+    // Finished elsewhere (or opened from an old notification): the receipt is
+    // where a completed trip lives. Our own swipe sets `endedRef` first.
+    if (s === 'COMPLETED') {
+      endedRef.current = true;
+      router.replace({ pathname: '/(trip)/complete/[id]', params: { id } } as Href);
+      return;
+    }
     if (!['CANCELLED', 'NO_SHOW', 'EXPIRED', 'NO_DRIVERS_FOUND'].includes(s)) return;
     endedRef.current = true;
     notify(
@@ -736,6 +743,7 @@ export default function ActiveTripScreen() {
         const earningsThisTrip = raw?.data?.earningsThisTrip ?? raw?.data?.totalEarningsPesewas ?? 0;
         const safeEarnings = (typeof earningsThisTrip === 'number' && !isNaN(earningsThisTrip)) ? earningsThisTrip : 0;
         addNotification({ type: 'COMPLETED', title: 'Trip completed!', body: `You earned ${formatGhs(safeEarnings)} from this trip.`, tripId: id });
+        endedRef.current = true;
         router.replace({ pathname: '/(trip)/complete/[id]', params: { id, earnings: String(safeEarnings) } } as Href);
         return;
       }

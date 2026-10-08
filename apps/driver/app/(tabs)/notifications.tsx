@@ -6,7 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Entrance, GlassSurface, AnimatedList, goDeeper } from '@eyego/ui';
+import { Text, Entrance, GlassSurface, AnimatedList, LargeTitle, goDeeper } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
 import { useNotificationsStore, type DriverNotification, type NotificationType } from '../../stores/notifications.store';
@@ -106,6 +106,19 @@ export default function NotificationsScreen() {
     return notifications.filter((n) => types.includes(n.type));
   }, [notifications, activeCategory]);
 
+  /** Today / Earlier — the list reads as a day, not as one long column. */
+  type Row = DriverNotification | { id: string; header: string };
+  const rows = useMemo<Row[]>(() => {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const today = filtered.filter((n) => new Date(n.timestamp).getTime() >= startOfToday.getTime());
+    const earlier = filtered.filter((n) => new Date(n.timestamp).getTime() < startOfToday.getTime());
+    return [
+      ...(today.length ? [{ id: 'h-today', header: 'Today' }, ...today] : []),
+      ...(earlier.length ? [{ id: 'h-earlier', header: 'Earlier' }, ...earlier] : []),
+    ];
+  }, [filtered]);
+
   const handlePress = useCallback((n: DriverNotification) => {
     if (!n.read) markRead(n.id);
     if (!n.tripId) return;
@@ -119,7 +132,11 @@ export default function NotificationsScreen() {
     }
   }, [markRead, router]);
 
-  const renderItem = useCallback(({ item }: { item: DriverNotification }) => {
+  const renderItem = useCallback(({ item: row }: { item: DriverNotification | { id: string; header: string } }) => {
+    if ('header' in row) {
+      return <Text style={styles.sectionHeader}>{row.header.toUpperCase()}</Text>;
+    }
+    const item = row;
     const cfg = TYPE_CONFIG[item.type] ?? TYPE_CONFIG.INFO;
     return (
       <Pressable
@@ -151,7 +168,7 @@ export default function NotificationsScreen() {
     <SafeAreaView style={styles.safe} edges={['top']}>
       {/* Header */}
       <Entrance animation="slideUp" style={styles.header}>
-        <Text variant="headlineMedium">Alerts</Text>
+        <LargeTitle title="Alerts" />
         {hasUnread && (
           <Pressable onPress={markAllRead} hitSlop={8} accessibilityRole="button" accessibilityLabel="Mark all read">
             <Text variant="label" color={colors.primary}>Mark all read</Text>
@@ -209,7 +226,7 @@ export default function NotificationsScreen() {
         </View>
       ) : (
         <AnimatedList
-          data={filtered}
+          data={rows}
           keyExtractor={(item) => item.id}
           style={{ flex: 1 }}
           contentContainerStyle={styles.list}
@@ -228,13 +245,21 @@ const makeStyles = (colors: DriverColors) =>
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
-      paddingHorizontal: spacing['2xl'],
+      // LargeTitle carries its own 20pt gutter; this only pads the trailing action.
+      paddingRight: 20,
       paddingTop: spacing.xl,
-      paddingBottom: spacing.sm,
+    },
+    sectionHeader: {
+      fontFamily: fonts.semiBold,
+      fontSize: 11,
+      letterSpacing: 1.1,
+      color: colors.onSurfaceVariant,
+      marginTop: spacing.md,
+      marginBottom: 2,
     },
     categoryRow: {
       flexDirection: 'row',
-      paddingHorizontal: spacing['2xl'],
+      paddingHorizontal: 20,
       gap: spacing.lg,
       paddingBottom: spacing.base,
       borderBottomWidth: 1,
@@ -262,7 +287,7 @@ const makeStyles = (colors: DriverColors) =>
       borderRadius: radii.full,
     },
     list: {
-      paddingHorizontal: spacing['2xl'],
+      paddingHorizontal: 20,
       paddingBottom: 100,
       gap: spacing.sm,
     },

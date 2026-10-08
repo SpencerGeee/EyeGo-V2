@@ -6,7 +6,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
 import { describeError } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button, EmptyState, Entrance, AnimatedList, Skeleton, usePressScale, goDeeper, notify } from '@eyego/ui';
+import { Text, Button, EmptyState, Entrance, AnimatedList, Skeleton, LargeTitle, usePressScale, goDeeper, notify } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
@@ -131,7 +131,7 @@ export default function TripsScreen() {
     <SafeAreaView style={styles.safe}>
       {/* Header */}
       <Entrance animation="slideUp" delay={50} style={styles.header}>
-        <Text variant="headlineMedium" style={styles.title}>My Trips</Text>
+        <LargeTitle title="Trips" />
       </Entrance>
 
       {/* Segmented control */}
@@ -237,17 +237,17 @@ function AnimatedSegBtn({
 const makeStyles = (colors: DriverColors) =>
   StyleSheet.create({
     safe: { flex: 1, backgroundColor: 'transparent' },
+    // LargeTitle carries the kit's 20pt gutter; everything below matches it.
     header: {
-      paddingHorizontal: spacing['2xl'],
       paddingTop: spacing.xl,
-      paddingBottom: spacing.md,
+      paddingBottom: spacing.xs,
     },
     title: {
       fontFamily: fonts.displayBold,
       letterSpacing: -0.5,
     },
     segmentWrapper: {
-      paddingHorizontal: spacing['2xl'],
+      paddingHorizontal: 20,
       marginBottom: spacing.lg,
     },
     segmentContainer: {
@@ -273,7 +273,7 @@ const makeStyles = (colors: DriverColors) =>
       lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
     },
     loadingContainer: {
-      paddingHorizontal: spacing['2xl'],
+      paddingHorizontal: 20,
       gap: spacing.md,
     },
     skeleton: {
@@ -286,13 +286,13 @@ const makeStyles = (colors: DriverColors) =>
       flexDirection: 'row',
       alignItems: 'center',
       gap: spacing.xs,
-      paddingHorizontal: spacing['2xl'],
+      paddingHorizontal: spacing.xs,
       paddingVertical: spacing.sm,
       marginTop: -spacing.sm,
       marginBottom: spacing.xs,
     },
     listContent: {
-      paddingHorizontal: spacing['2xl'],
+      paddingHorizontal: 20,
       paddingBottom: 120,
     },
   });

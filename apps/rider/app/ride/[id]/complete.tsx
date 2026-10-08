@@ -148,7 +148,9 @@ export default function TripCompleteScreen() {
     };
   }, [snapshot, storeTrip, ride?.quotedKm]);
 
-  const bookingId = paramBookingId || activeBooking?.id || '';
+  // The snapshot names this rider's own booking — what a receipt opened cold
+  // (the app was closed when the ride ended) has to fall back on.
+  const bookingId = paramBookingId || activeBooking?.id || (snapshot as any)?.booking?.id || '';
   const { data: receiptData } = useQuery({
     queryKey: ['receipt', bookingId],
     queryFn: () => bookingsApi.getReceipt(bookingId),

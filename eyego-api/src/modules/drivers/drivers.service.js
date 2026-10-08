@@ -720,7 +720,7 @@ async function getAllTrips(driverId) {
         // without them the trip-complete receipt could only count rows, which is
         // how "one seat at 8 cedis" was printed for a 36-cedi twelve-seat ride.
         select: {
-          id: true, userId: true, seatNumber: true, fareAmountPesewas: true,
+          id: true, userId: true, seatNumber: true, seats: true, fareAmountPesewas: true,
           commissionAmountPesewas: true, paymentStatus: true, paymentMethod: true,
           status: true, isOffline: true, isCoveredByLead: true, heavyCargo: true,
           deviationSurchargePesewas: true,
