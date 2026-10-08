@@ -60,8 +60,9 @@ interface AppBackgroundProps {
    * say so, and only the root layout does.
    */
   variant?: 'animated' | 'static';
-  /** Pass the current theme's dark/light state so the shader can tone down
-   *  in light mode. Defaults to dark (existing behaviour). */
+  /** The theme. Omitted → read off the palette itself (a light background
+   *  means light mode), so a mount that forgets it cannot render light mode
+   *  with dark-mode settings. */
   isDark?: boolean;
   /** When paused, the shader stops updating (frozen frame / no-op interval).
    *  Set when an opaque detailPush screen covers the background entirely —
@@ -85,8 +86,47 @@ function withAlpha(hex: string, alpha: number): string {
   return `${hex}${byte}`;
 }
 
-export function AppBackground({ style, variant = 'static', isDark = true, paused = false }: AppBackgroundProps) {
+function rgbOf(hex: string): [number, number, number] | null {
+  if (!/^#[0-9a-fA-F]{6}$/.test(hex)) return null;
+  return [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255) as [number, number, number];
+}
+
+/** Relative luminance of the colour's fully-saturated hue (brightest channel → 1). */
+function hueLuminance(hex: string): number {
+  const c = rgbOf(hex);
+  if (!c) return 0.5;
+  const m = Math.max(...c) || 1;
+  return 0.2126 * (c[0] / m) + 0.7152 * (c[1] / m) + 0.0722 * (c[2] / m);
+}
+
+export function AppBackground({ style, variant = 'static', isDark: isDarkProp, paused = false }: AppBackgroundProps) {
   const colors = useThemedColors();
+  const bg = rgbOf(colors.background);
+  const isDark = isDarkProp ?? (bg ? 0.2126 * bg[0] + 0.7152 * bg[1] + 0.0722 * bg[2] < 0.5 : true);
+  /**
+   * LIGHT MODE IS A WHITE PAGE WITH THE WAVE ON IT — NOT DARK MODE UNDER A VEIL.
+   *
+   * BUGFIX ("when you switch to light mode… it's like a veil has been put on
+   * the background and everything seems toned down. The background light needs
+   * to be clear white").
+   *
+   * Three things made the veil: the shader drew at 0.72 alpha, so 28% of
+   * whatever was under it showed through; what was under it was a brand wash at
+   * ~25% over the palette's `backgroundDeep` — slate #E2E8F0 on the driver; and
+   * the shader's lit regions mixed toward the DARK light-theme primary, so the
+   * wave itself came out muddy. Light mode now has a pure white ground, an
+   * opaque shader with its own composite (white valleys, brand-coloured crests
+   * — see the SkSL), and a floor that is white with a breath of brand at the
+   * top. Dark mode is untouched.
+   */
+  const ground = isDark ? colors.backgroundDeep : '#FFFFFF';
+  /**
+   * Blue at full depth sits far heavier on white than green does (it is a much
+   * darker hue), so black text over the driver's wave lost contrast. The crest
+   * depth is scaled by the hue's own luminance, which lands both apps at the
+   * same visual weight: ~1.0 for the rider's green, ~0.68 for the driver's blue.
+   */
+  const lightCrest = Math.min(1, Math.max(0.55, 0.35 + 0.8 * hueLuminance(colors.primary)));
   const tier = usePerformanceTier();
   const { width, height } = Dimensions.get('window');
 
@@ -160,7 +200,7 @@ export function AppBackground({ style, variant = 'static', isDark = true, paused
    * `primary` is already the darker #1a7a3c, not the neon dark-mode green), not
    * in the opacity.
    */
-  const ambientOpacity = isDark ? 0.85 : 0.72;
+  const ambientOpacity = isDark ? 0.85 : 1;
 
   // Mid/high tiers get the real GPU shader (Skia "LightPillar" port) —
   // a vertical rotating light beam in the app's brand color, continuously
@@ -203,14 +243,17 @@ export function AppBackground({ style, variant = 'static', isDark = true, paused
    */
   const ambientFloor = (
     <LinearGradient
-      colors={[
-        // Same reasoning as `ambientOpacity`: a wash over white needs a
-        // bigger alpha than the same wash over near-black to land with the
-        // same weight. These were 0.14/0.16 and read as nothing at all.
-        withAlpha(colors.primary, isDark ? 0.26 : 0.24),
-        withAlpha(colors.onPrimaryFixedVariant, isDark ? 0.34 : 0.28),
-        colors.backgroundDeep,
-      ]}
+      colors={
+        isDark
+          ? [
+              withAlpha(colors.primary, 0.26),
+              withAlpha(colors.onPrimaryFixedVariant, 0.34),
+              colors.backgroundDeep,
+            ]
+          : // White with a breath of brand at the top — the light page, not a
+            // film over it. These were 0.24/0.28 and read as a grey-green veil.
+            [withAlpha(colors.primary, 0.07), withAlpha(colors.primary, 0.02), ground]
+      }
       locations={[0, 0.45, 1]}
       start={{ x: 0.35, y: 0 }}
       end={{ x: 0.65, y: 1 }}
@@ -228,7 +271,7 @@ export function AppBackground({ style, variant = 'static', isDark = true, paused
         style={[
           StyleSheet.absoluteFillObject,
           styles.container,
-          { backgroundColor: colors.backgroundDeep },
+          { backgroundColor: ground },
           style,
         ]}
       >
@@ -244,7 +287,7 @@ export function AppBackground({ style, variant = 'static', isDark = true, paused
         style={[
           StyleSheet.absoluteFillObject,
           styles.container,
-          { backgroundColor: colors.backgroundDeep },
+          { backgroundColor: ground },
           style,
         ]}
       >
@@ -253,14 +296,16 @@ export function AppBackground({ style, variant = 'static', isDark = true, paused
           topColor={colors.primary}
           bottomColor={colors.onPrimaryFixedVariant}
           animated={animated}
-          intensity={isDark ? 1.0 : 0.85}
+          intensity={isDark ? 1.0 : 0.9}
           rotationSpeed={tier === 'high' ? 0.4 : 0.25}
           glowAmount={tier === 'high' ? 0.006 : 0.004}
           pillarWidth={3.0}
           pillarHeight={0.4}
           noiseIntensity={isDark ? (tier === 'high' ? 0.5 : 0.3) : 0}
           opacity={ambientOpacity}
-          baseColor={colors.backgroundDeep}
+          baseColor={ground}
+          light={!isDark}
+          lightCrest={lightCrest}
         />
       </View>
     );
@@ -318,7 +363,7 @@ export function AppBackground({ style, variant = 'static', isDark = true, paused
       style={[
         StyleSheet.absoluteFillObject,
         styles.container,
-        { backgroundColor: colors.backgroundDeep },
+        { backgroundColor: ground },
         style,
       ]}
     >

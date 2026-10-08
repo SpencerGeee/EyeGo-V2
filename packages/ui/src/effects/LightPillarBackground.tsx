@@ -36,6 +36,8 @@ uniform float uNoiseIntensity;
 uniform float uRotationSpeed;
 uniform float uOpacity;
 uniform float3 uBaseColor;
+uniform float uLight;
+uniform float uLightCrest;
 
 // Raymarch cost is LINEAR in MAX_ITER. 28 -> 20, with a slightly longer step so
 // the march still covers the same distance: the beam is a soft volumetric glow,
@@ -117,8 +119,19 @@ half4 main(float2 C) {
   // transparent (which made light mode's effect nearly invisible). Lit
   // regions (near the beam) blend toward the actual glow color, unchanged
   // from the original dark-mode look.
-  float glowStrength = clamp(max(col.r, max(col.g, col.b)) * 1.6, 0.0, 1.0);
-  float3 finalColor = mix(uBaseColor, col * uIntensity, glowStrength);
+  float peak = max(col.r, max(col.g, col.b));
+  float glowStrength = clamp(peak * 1.6, 0.0, 1.0);
+  // DARK: the glow lights a near-black ground.
+  float3 darkColor = mix(uBaseColor, col * uIntensity, glowStrength);
+  // LIGHT: the same field inverted in VALUE, not in hue. The valleys become
+  // the white ground and the crests keep the wave colour at brand depth.
+  // Opaque, so nothing sits over the white as a veil.
+  float3 crest = mix(float3(1.0), (col / max(peak, 0.0001)) * 0.8, uLightCrest);
+  // A contrast curve: the beam's wide low glow falls to clean white and only
+  // the wave itself carries colour, so the ground never reads as a tinted film.
+  float lightStrength = smoothstep(0.12, 0.95, glowStrength);
+  float3 lightColor = mix(uBaseColor, crest, lightStrength * uIntensity);
+  float3 finalColor = mix(darkColor, lightColor, uLight);
   return half4(finalColor, 1.0) * uOpacity;
 }
 `;
@@ -137,6 +150,8 @@ uniform float uNoiseIntensity;
 uniform float uRotationSpeed;
 uniform float uOpacity;
 uniform float3 uBaseColor;
+uniform float uLight;
+uniform float uLightCrest;
 
 const float STEP_MULT = 1.5;
 const int MAX_ITER = 24;
@@ -188,8 +203,19 @@ half4 main(float2 C) {
   float widthNorm = uPillarWidth / 3.0;
   col = tanhv(col * uGlowAmount / widthNorm);
 
-  float glowStrength = clamp(max(col.r, max(col.g, col.b)) * 1.6, 0.0, 1.0);
-  float3 finalColor = mix(uBaseColor, col * uIntensity, glowStrength);
+  float peak = max(col.r, max(col.g, col.b));
+  float glowStrength = clamp(peak * 1.6, 0.0, 1.0);
+  // DARK: the glow lights a near-black ground.
+  float3 darkColor = mix(uBaseColor, col * uIntensity, glowStrength);
+  // LIGHT: the same field inverted in VALUE, not in hue. The valleys become
+  // the white ground and the crests keep the wave colour at brand depth.
+  // Opaque, so nothing sits over the white as a veil.
+  float3 crest = mix(float3(1.0), (col / max(peak, 0.0001)) * 0.8, uLightCrest);
+  // A contrast curve: the beam's wide low glow falls to clean white and only
+  // the wave itself carries colour, so the ground never reads as a tinted film.
+  float lightStrength = smoothstep(0.12, 0.95, glowStrength);
+  float3 lightColor = mix(uBaseColor, crest, lightStrength * uIntensity);
+  float3 finalColor = mix(darkColor, lightColor, uLight);
   return half4(finalColor, 1.0) * uOpacity;
 }
 `;
@@ -244,6 +270,10 @@ export interface LightPillarBackgroundProps {
    *  glow on it" instead of always trending toward black. Defaults to
    *  black, matching the original dark-only behavior. */
   baseColor?: string;
+  /** Light-theme composite: white valleys, brand-coloured crests (see the SkSL). */
+  light?: boolean;
+  /** How far the light-mode crest goes from white toward the brand hue (0..1). Tuning knob. */
+  lightCrest?: number;
   style?: StyleProp<ViewStyle>;
 }
 
@@ -259,6 +289,8 @@ export function LightPillarBackground({
   opacity = 1,
   animated = true,
   baseColor = '#000000',
+  light = false,
+  lightCrest = 1,
   style,
 }: LightPillarBackgroundProps) {
   const tier = usePerformanceTier();
@@ -376,8 +408,10 @@ export function LightPillarBackground({
       uRotationSpeed: rotationSpeed,
       uOpacity: opacity,
       uBaseColor: hexToRgb(baseColor),
+      uLight: light ? 1 : 0,
+      uLightCrest: lightCrest,
     };
-  }, [topColor, bottomColor, intensity, glowAmount, pillarWidth, pillarHeight, noiseIntensity, rotationSpeed, opacity, baseColor, cw, ch, tier]);
+  }, [topColor, bottomColor, intensity, glowAmount, pillarWidth, pillarHeight, noiseIntensity, rotationSpeed, opacity, baseColor, light, lightCrest, cw, ch, tier]);
 
   const uniforms = useDerivedValue(
     () => ({

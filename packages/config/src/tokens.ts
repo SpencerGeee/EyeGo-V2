@@ -277,7 +277,7 @@ export const driverColors: DriverColorTokens = {
 };
 
 export const driverLightColors: DriverColorTokens = {
-  backgroundDeep: '#E2E8F0',
+  backgroundDeep: '#FFFFFF', // the light page is WHITE — slate here read as a grey veil under the ambient wave
   background: '#F1F5F9',
   surfaceDim: '#F1F5F9',
   surfaceCard: '#FFFFFF',
