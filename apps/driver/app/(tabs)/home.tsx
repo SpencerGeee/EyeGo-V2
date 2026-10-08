@@ -1,11 +1,10 @@
 import React, { useRef, useMemo, useEffect, useCallback, useState } from 'react';
-import { formatGhs } from '@eyego/utils';
+import { formatGhs, originLabel, destinationLabel } from '@eyego/utils';
 import {
   View,
   StyleSheet,
   Pressable,
   useWindowDimensions,
-  BackHandler,
 } from 'react-native';
 import MapboxGL from '../../utils/mapbox';
 import { useRouter, type Href } from 'expo-router';
@@ -13,7 +12,7 @@ import * as Haptics from 'expo-haptics';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi, walletApi, heatmapApi, connectDriverSocket, disconnectDriverSocket, getDriverSocket, driverSocketEvents } from '@eyego/api';
 import * as Location from 'expo-location';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, driverStatusLabel } from '@eyego/config';
 import { Text, Button, Entrance, GlassSurface, GradientGlowBorder, SkeletonValue, AnnouncementBanner, SheetContent, goDeeper, SmoothDefer, notify } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -33,7 +32,6 @@ import DemandOverlay from '../../components/DemandOverlay';
 import { DriverSheetHost } from '../../components/surface/DriverSheetHost';
 import { deriveDriverStage, useDriverSurface, type DriverStage } from '../../components/surface/driverStage';
 import { DriverSurfaceMap } from '../../components/surface/DriverSurfaceMap';
-import { TripStages } from '../../components/surface/TripStages';
 import mapStyles from '@eyego/map-styles';
 import { setDriverWidgetData } from '../../modules/eyego-driver-widget';
 
@@ -155,21 +153,21 @@ export default function HomeScreen() {
     select: (r) => r.data.data?.trip ?? null,
     refetchInterval: isOnline ? 10000 : false,
   });
-  const surfaceStage = deriveDriverStage(activeTripData?.status);
-  /** The live leg ETA the map computes; the sheet's headline reads it. */
-  const [legEta, setLegEta] = useState<{
-    leg: 'toPickup' | 'toDropoff';
-    minutes: number;
-    distanceKm: number | null;
-  } | null>(null);
-  useEffect(() => {
-    if (surfaceStage === 'idle') setLegEta(null);
-  }, [surfaceStage]);
-  const stageRef = useRef<DriverStage>(surfaceStage);
-  const previousStage = stageRef.current === surfaceStage ? null : stageRef.current;
-  useEffect(() => {
-    stageRef.current = surfaceStage;
-  }, [surfaceStage]);
+  /**
+   * HOME IS ALWAYS IDLE NOW.
+   *
+   * "The tracking page was on the homepage which is wrong cuz the swipe to
+   * start and all happened to come under the bottom bar." The live trip has
+   * its own screen again — (trip)/active/[id], map + stage sheet + pinned
+   * swipe — and home only says a trip is running and opens it.
+   */
+  const surfaceStage: DriverStage = 'idle';
+  const tripLive = deriveDriverStage(activeTripData?.status) !== 'idle';
+  const openLiveTrip = useCallback(() => {
+    if (activeTripData?.id) {
+      goDeeper({ pathname: '/(trip)/active/[id]', params: { id: activeTripData.id } } as Href);
+    }
+  }, [activeTripData?.id]);
 
   // A tapped row that has since left the board (taken, cancelled, expired)
   // must not stay focused, or the next open of the sheet shows a ghost.
@@ -191,11 +189,6 @@ export default function HomeScreen() {
    *   idle     → not handled, so the system does its normal thing (leave the
    *              app), which is correct on a home tab.
    */
-  useEffect(() => {
-    if (surfaceStage === 'idle') return undefined;
-    const sub = BackHandler.addEventListener('hardwareBackPress', () => true);
-    return () => sub.remove();
-  }, [surfaceStage]);
 
   /**
    * IS THERE WORK ON THE BOARD RIGHT NOW?
@@ -742,27 +735,6 @@ export default function HomeScreen() {
    * camera to `free` when the driver pans — none of which the hand-written
    * pair did. This screen now only says WHAT to frame, never how.
    */
-  /**
-   * The legs the map draws for the CURRENT stage. The offer's approach is
-   * framed by the takeover's own mini map now (see DispatchOfferSheet); this
-   * surface only ever frames the trip in hand, and the map's own status logic
-   * picks which leg to follow.
-   */
-  const stagePickup = useMemo(() => {
-    const t: any = activeTripData;
-    const la = t?.pickupLat ?? t?.route?.originLat;
-    const ln = t?.pickupLng ?? t?.route?.originLng;
-    return Number.isFinite(la) && Number.isFinite(ln) ? ([ln, la] as [number, number]) : null;
-  }, [activeTripData]);
-
-  const stageDropoff = useMemo(() => {
-    if (surfaceStage === 'idle') return null;
-    const t: any = activeTripData;
-    const la = t?.dropoffLat ?? t?.route?.destLat;
-    const ln = t?.dropoffLng ?? t?.route?.destLng;
-    return Number.isFinite(la) && Number.isFinite(ln) ? ([ln, la] as [number, number]) : null;
-  }, [surfaceStage, activeTripData]);
-
 
   return (
     <View style={styles.container}>
@@ -793,22 +765,15 @@ export default function HomeScreen() {
       */}
       <DriverSurfaceMap
         stage={surfaceStage}
-        trip={activeTripData ? { id: activeTripData.id, status: activeTripData.status } : null}
-        pickup={stagePickup}
-        dropoff={stageDropoff}
+        trip={null}
+        pickup={null}
+        dropoff={null}
         location={location}
         puckColor={isOnline ? colors.online : colors.offline}
-        onEta={setLegEta}
         styleURL={mapStyle}
       >
-        {location && (
-          <MapboxGL.MarkerView coordinate={[location.longitude, location.latitude]}>
-            <View style={[styles.driverMarker, { backgroundColor: isOnline ? colors.online : colors.offline }]}>
-              <Ionicons name="car" size={16} color="#fff" />
-            </View>
-          </MapboxGL.MarkerView>
-        )}
-
+        {/* No marker of our own: the map draws the driver as the same minibus
+            the rider watches arrive (see DriverTripMap's UserLocation). */}
         {/*
           Demand heat map — real ground, not screen-space blobs. See DemandOverlay.
 
@@ -1125,27 +1090,61 @@ export default function HomeScreen() {
             * surface's own driving stage (see `TripStages` below), which
             * replaces this body the moment `activeTripData` has a live status.
             */}
-          <Entrance animation="slideDown" delay={200} style={styles.ctaWrapper}>
-            <GradientGlowBorder
-              palette="driver"
-              fillColor={colors.surfaceContainerHigh}
-              borderRadius={radii['2xl']}
-              glow
-              disabled={!isOnline}
-              style={styles.ctaGlow}
-            >
-              <Button
-                label="+ Create Trip"
-                onPress={() => goDeeper('/(trip)/create')}
+          {tripLive && activeTripData ? (
+            /* A trip is running: the hero is the way back to it. */
+            <Entrance animation="slideDown" delay={110} style={styles.ctaWrapper}>
+              <GradientGlowBorder
+                palette="driver"
+                fillColor={colors.surfaceContainerHigh}
+                borderRadius={radii['2xl']}
+                glow
+                style={styles.ctaGlow}
+              >
+                <Pressable
+                  onPress={openLiveTrip}
+                  style={styles.liveTrip}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open your trip in progress"
+                >
+                  <View style={[styles.liveIcon, { backgroundColor: colors.primary }]}>
+                    <Ionicons name="navigate" size={18} color={colors.onPrimary ?? '#0A0D14'} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.liveKicker, { color: colors.primary }]}>TRIP IN PROGRESS</Text>
+                    <Text style={styles.liveTitle} numberOfLines={1}>
+                      {driverStatusLabel(activeTripData.status)}
+                    </Text>
+                    <Text variant="caption" color={colors.onSurfaceVariant} numberOfLines={1}>
+                      {`${originLabel(activeTripData) ?? 'Pickup'} → ${destinationLabel(activeTripData) ?? 'Destination'}`}
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceVariant} />
+                </Pressable>
+              </GradientGlowBorder>
+            </Entrance>
+          ) : (
+            <Entrance animation="slideDown" delay={200} style={styles.ctaWrapper}>
+              <GradientGlowBorder
+                palette="driver"
+                fillColor={colors.surfaceContainerHigh}
+                borderRadius={radii['2xl']}
+                glow
                 disabled={!isOnline}
-              />
-            </GradientGlowBorder>
-            {!isOnline && !activeTripData && (
-              <Text variant="caption" color={colors.onSurfaceVariant} style={styles.offlineHint}>
-                Go online to start accepting trips
-              </Text>
-            )}
-          </Entrance>
+                style={styles.ctaGlow}
+              >
+                <Button
+                  label="+ Create Trip"
+                  onPress={() => goDeeper('/(trip)/create')}
+                  disabled={!isOnline}
+                />
+              </GradientGlowBorder>
+              {!isOnline && !activeTripData && (
+                <Text variant="caption" color={colors.onSurfaceVariant} style={styles.offlineHint}>
+                  Go online to start accepting trips
+                </Text>
+              )}
+            </Entrance>
+          )}
         </View>
       </SheetContent>
 
@@ -1158,18 +1157,7 @@ export default function HomeScreen() {
       */}
       {/* The driving stages — enroute / arrived / intrip. They own no map: the
           surface map above is the map, and it is never rebuilt between them. */}
-      <TripStages
-        stage={surfaceStage}
-        trip={activeTripData}
-        eta={legEta}
-        onManage={() =>
-          activeTripData?.id
-            ? goDeeper({ pathname: '/(trip)/active/[id]', params: { id: activeTripData.id } } as Href)
-            : undefined
-        }
-      />
-
-      <DriverSheetHost current={surfaceStage} previous={previousStage} />
+      <DriverSheetHost current={surfaceStage} previous={null} />
     </View>
   );
 }
@@ -1251,6 +1239,30 @@ const makeStyles = (colors: DriverColors) =>
     },
     ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
     ctaWrapper: { gap: spacing.md },
+    liveTrip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.md,
+      paddingHorizontal: spacing.base,
+      paddingVertical: spacing.md,
+    },
+    liveIcon: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    liveKicker: {
+      fontFamily: fonts.semiBold,
+      fontSize: 10,
+      letterSpacing: 1.2,
+    },
+    liveTitle: {
+      fontFamily: fonts.displayBold,
+      fontSize: fontSizes.bodyLarge,
+      color: colors.onSurface,
+    },
     ctaGlow: { padding: spacing.base, gap: spacing.sm },
     // `activeTripBanner` / `activeDot` / `activeTripText` lived here for the
     // one-line "Active trip: X → Y" strip. That is now `LiveTripCard`, which

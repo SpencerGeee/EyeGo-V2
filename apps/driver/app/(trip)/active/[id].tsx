@@ -13,6 +13,7 @@ import {
 import QRCode from 'react-native-qrcode-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import * as KeepAwake from 'expo-keep-awake';
 import * as Location from 'expo-location';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -30,9 +31,13 @@ import { useDriverSocket } from '../../../hooks/useDriverSocket';
 import { useDriverLocation } from '../../../hooks/useDriverLocation';
 import * as Haptics from 'expo-haptics';
 import { SeatMap } from '../../../components/SeatMap';
-import { StopTimelineSurface } from '../../../components/trip/StopTimelineSurface';
-import { StopTimeline, CabinStrip } from '../../../components/trip/StopTimeline';
-import { useTripStops } from '../../../components/trip/useTripStops';
+import mapStyles from '@eyego/map-styles';
+import { DriverSurfaceMap } from '../../../components/surface/DriverSurfaceMap';
+import { DriverSheetHost } from '../../../components/surface/DriverSheetHost';
+import { TripStages } from '../../../components/surface/TripStages';
+import { deriveDriverStage, type DriverStage } from '../../../components/surface/driverStage';
+import { CabinStrip } from '../../../components/trip/StopTimeline';
+import { useTripStops, type StopPassenger } from '../../../components/trip/useTripStops';
 import { PassengerSheet, type PassengerSheetData } from '../../../components/trip/PassengerSheet';
 import { offlineQueue } from '../../../utils/offlineQueue';
 import { openExternalNavigation } from '../../../utils/externalNav';
@@ -395,6 +400,29 @@ export default function ActiveTripScreen() {
     if (tripMissing) goOut('/(tabs)/home');
   }, [tripMissing]);
 
+  /**
+   * A TRIP THAT ENDED ELSEWHERE LEAVES THIS SCREEN.
+   *
+   * This is the driver's whole trip surface now, so a rider-side cancel would
+   * otherwise park the driver on a map with no sheet and no swipe. Focus-gated:
+   * the driver's own cancel runs on the cancel screen above this one, which
+   * does its own navigating.
+   */
+  const isFocused = useIsFocused();
+  const endedRef = useRef(false);
+  useEffect(() => {
+    const s = trip?.status;
+    if (!s || !isFocused || endedRef.current) return;
+    if (!['CANCELLED', 'NO_SHOW', 'EXPIRED', 'NO_DRIVERS_FOUND'].includes(s)) return;
+    endedRef.current = true;
+    notify(
+      s === 'CANCELLED' ? 'This trip was cancelled' : 'This trip has ended',
+      'Nothing is owed on it. You are free for new requests.',
+      { tone: 'info' },
+    );
+    goOut('/(tabs)/home');
+  }, [trip?.status, isFocused]);
+
   const isActiveTrip = !!trip && !['COMPLETED', 'CANCELLED'].includes(trip.status);
 
   useEffect(() => {
@@ -415,33 +443,30 @@ export default function ActiveTripScreen() {
   // ETA for the leg the driver is ACTUALLY on, straight from the server. This
   // screen previously showed no ETA at all — the only number on it was the
   // scheduled departure time, which says nothing once a trip is moving.
-  const [eta, setEta] = useState<string | null>(null);
-  const handleEta = useCallback(
-    (next: { leg: 'toPickup' | 'toDropoff'; minutes: number; distanceKm: number | null; rerouted: boolean }) => {
-      const where = next.leg === 'toPickup' ? 'to pickup' : 'to drop-off';
-      const dist = next.distanceKm != null ? ` · ${next.distanceKm} km` : '';
-      setEta(`${Math.max(1, Math.round(next.minutes))} min ${where}${dist}`);
-    },
-    [],
-  );
-  // The map used to feed this; the page has no map now, so it reads the same
-  // server frame the map read. Home's surface map keeps the room joined.
+  // The live leg ETA. This screen owns the trip map again, and the map
+  // (DriverTripMap's `onEta`) is what feeds the stage sheet's headline badge.
+  const [legEta, setLegEta] = useState<{
+    leg: 'toPickup' | 'toDropoff';
+    minutes: number;
+    distanceKm: number | null;
+  } | null>(null);
+
+  /**
+   * ── THE TRIP SCREEN'S STAGE ───────────────────────────────────────────────
+   * "The tracking page and the manage page should have their own screen…
+   * intertwined since they are seen as one component." The stage sheet the
+   * driver liked on home now lives HERE, over this screen's own map, with
+   * manage folded into the same sheet. Derived from the status, never stored.
+   * `previousStage` is a ref so the host can crossfade without re-rendering.
+   */
+  const tripStage = deriveDriverStage(trip?.status);
+  const stageRef = useRef<DriverStage>(tripStage);
+  const previousStage = stageRef.current === tripStage ? null : stageRef.current;
   useEffect(() => {
-    if (!id) return undefined;
-    const off = driverSocketEvents.onTripEta?.((payload: any) => {
-      if (payload?.tripId && payload.tripId !== id) return;
-      if (!Number.isFinite(payload?.etaMinutes)) return;
-      handleEta({
-        leg: payload.leg ?? 'toPickup',
-        minutes: payload.etaMinutes,
-        distanceKm: Number.isFinite(payload?.distanceKm) ? payload.distanceKm : null,
-        rerouted: Boolean(payload?.rerouted),
-      });
-    });
-    return () => {
-      off?.();
-    };
-  }, [id, handleEta]);
+    stageRef.current = tripStage;
+  }, [tripStage]);
+  const theme = useDriverStore((s) => s.theme);
+  const mapStyle = theme === 'light' ? mapStyles.eyegoLightStyle : mapStyles.eyegoDriverDarkStyle;
 
   useEffect(() => {
     if (!trip) return;
@@ -637,8 +662,9 @@ export default function ActiveTripScreen() {
         addNotification({ type: 'DRIVER_EN_ROUTE', title: 'Trip started', body: 'You are now en route to the pickup stop.', tripId: id });
         qc.invalidateQueries({ queryKey: ['driver', 'trip', 'active', id] });
         qc.invalidateQueries({ queryKey: ['driver', 'activeTrip'] });
-        // The live map is the home surface now — see components/surface.
-        goOut('/(tabs)/home');
+        // This screen IS the live trip now (map + stage sheet + swipe), so
+        // nothing navigates — the stage sheet morphs in place.
+        flashConfirmed('Heading to pickup');
         return;
       }
       /**
@@ -692,7 +718,6 @@ export default function ActiveTripScreen() {
         addNotification({ type: 'IN_PROGRESS', title: 'Trip in progress', body: 'You have departed. Ride is underway.', tripId: id });
         qc.invalidateQueries({ queryKey: ['driver', 'trip', 'active', id] });
         qc.invalidateQueries({ queryKey: ['driver', 'activeTrip'] });
-        setTimeout(() => goOut('/(tabs)/home'), 520);
         return;
       }
 
@@ -1211,6 +1236,14 @@ export default function ActiveTripScreen() {
       .filter((b) => b.status !== 'BOARDED' && b.status !== 'COMPLETED' && !isHeld(b))
       .slice()
       .sort((a, b) => (a.seatNumber ?? 0) - (b.seatNumber ?? 0))
+      // ONE STEP PER PERSON. The server boards a whole party (every seat one
+      // account holds, no named guest) off one PIN — so a host paying for four
+      // is asked once, not four times. Mirrors `groupParties` in useTripStops.
+      .filter((b, i, all) => {
+        const uid = b.user?.id ?? b.userId;
+        if (!uid || b.guestName) return true;
+        return all.findIndex((o) => (o.user?.id ?? o.userId) === uid && !o.guestName) === i;
+      })
       .map((b) => ({
         bookingId: b.id as string,
         seatNumber: typeof b.seatNumber === 'number' ? b.seatNumber : 0,
@@ -1519,168 +1552,144 @@ export default function ActiveTripScreen() {
 
   // ─── Render ──────────────────────────────────────────────────────────────
 
+  /**
+   * Tap a person → the rich passenger sheet. The seat row is the source, so the
+   * sheet gets payment method, held-vs-paid and PIN state, not just the summary
+   * the stage row renders.
+   */
+  const openPassenger = (p: StopPassenger) => {
+    void Haptics.selectionAsync().catch(() => {});
+    const seat = seats.find((s: any) => s.bookingId === p.bookingId);
+    setSheetPassenger({
+      bookingId: p.bookingId,
+      name: p.name,
+      bookedBy: p.bookedBy,
+      coveredBy: null,
+      phone: p.phone,
+      photo: null,
+      seatNumber: p.seatNumber,
+      seatsHeld: p.seatCount,
+      farePesewas: p.farePesewas,
+      paymentMethod: seat?.paymentMethod ?? null,
+      paymentStatus: p.paid ? 'PAID' : (seat?.paymentStatus ?? null),
+      boarded: p.boarded,
+      noShow: p.noShow,
+      held: seat?.status === 'HELD',
+      needsPin: seat?.needsPin ?? false,
+    });
+  };
+
+  const confirmSos = () =>
+    Alert.alert(
+      'Emergency SOS',
+      `This will call the emergency services on ${emergencyNumber}. Are you in immediate danger?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: `Call ${emergencyNumber}`,
+          style: 'destructive',
+          onPress: async () => {
+            let pos: Awaited<ReturnType<typeof Location.getLastKnownPositionAsync>> = null;
+            try { pos = await Location.getLastKnownPositionAsync(); } catch { /* no position — send alert without coords */ }
+            const payload = {
+              latitude: pos?.coords.latitude,
+              longitude: pos?.coords.longitude,
+              timestamp: new Date().toISOString(),
+            };
+            try {
+              await driverApi.emergencyAlert(id, payload);
+            } catch {
+              // Never block the actual emergency call — but the alert must
+              // still reach dispatch, so queue it for retry.
+              offlineQueue.enqueue('SOS', `/driver/trips/${id}/emergency`, 'POST', payload);
+            }
+            void callNumber(emergencyNumber, { label: 'the emergency services' });
+          },
+        },
+      ],
+    );
+
+  /** Room kept under the sheet's content for the pinned action bar. */
+  const actionBarSpace = statusInfo.next ? 96 + insets.bottom : 0;
+
   return (
     /**
-     * ── MANAGE, AS A STOP TIMELINE ───────────────────────────────────────────
+     * ── THE TRIP, AS ONE SCREEN ──────────────────────────────────────────────
      *
-     * REDESIGN ("completely redesign the manage trip page of the driver app
-     * where it shows the seat map and all… I don't want to see the same design
-     * you've made of those two pages — take a whole different approach").
+     * "The tracking page and the manage page should have their own screen…
+     * intertwined since they are seen as one component. The animation and
+     * aesthetics should also be there."
      *
-     * What this replaced was a full-bleed map with a draggable sheet over it,
-     * and inside that sheet: a route card, a status chip row, a six-step rail, a
-     * seat GRID whose only affordance was an OS `Alert`, a quick-action row, a
-     * swipe control, a pause toggle, a no-show button and a cancel button —
-     * stacked vertically, so the single most important control on the screen was
-     * usually below the fold, and the map it all sat on was a strip.
+     * Tracking had moved onto the home tab, where the swipe sat under the tab
+     * bar, and manage was a separate stop-timeline page. Now: this screen's
+     * own full-bleed map, the stage sheet the driver liked (headline + rolling
+     * ETA, journey card, people, fare) published into the same MapSheetHost,
+     * and manage folded into the SAME sheet — drag it up for the full roster,
+     * PIN boarding, add rider, scan to pay, pause and the two bad endings. The
+     * one action is pinned below everything and never scrolls or hides.
      *
-     * The deeper problem was the projection. That layout shows the trip's STATE,
-     * and a driver is not asking what state the trip is in — they are asking
-     * where they are going and who gets on or off when they arrive. On a minibus
-     * with four passengers and three drop-offs, a status chip cannot answer
-     * either question and a seat grid answers only half of one.
-     *
-     * So the trip is a list of STOPS, with the people who board or alight at
-     * each one nested beneath it, exactly one action pinned at the bottom, and a
-     * map pane the driver can trade against the list by dragging. The seat grid
-     * becomes a `CabinStrip` inside the current stop — occupancy is context, and
-     * the passengers themselves are already listed where they belong.
-     *
-     * WHAT DID NOT CHANGE: every mutation, socket handler, query key, transition
-     * and guard above this line. This is the presentation layer only. Manage
-     * remains the sole owner of status transitions (tracking defers to it), and
-     * the boarding-PIN run and its keypad are untouched.
+     * WHAT DID NOT CHANGE: every mutation, socket handler, transition, guard,
+     * the boarding run and its keypad. Presentation only.
      */
-    <>
-      <StopTimelineSurface
-        onBack={() => goBack()}
-        title={`${originLabel(trip) ?? 'Pickup'} → ${destinationLabel(trip) ?? 'Destination'}`}
-        subtitle={statusCfg.label}
-        mapOverlay={
-          /**
-           * SOS is the only thing that has earned a place on the map.
-           *
-           * It used to sit in the header next to the back button, which is where
-           * a thumb goes by accident. On the map, bottom-right, it is reachable
-           * and deliberate — and it is the one control whose value is that it
-           * can be found without reading.
-           */
-          <View style={styles.mapOverlayRow} pointerEvents="box-none">
-            <View style={{ flex: 1 }} />
-            <Pressable
-              style={styles.sosBtn}
-              hitSlop={8}
-              accessibilityRole="button"
-              accessibilityLabel="Emergency SOS"
-              onPress={() =>
-                Alert.alert(
-                  'Emergency SOS',
-                  `This will call the emergency services on ${emergencyNumber}. Are you in immediate danger?`,
-                  [
-                    { text: 'Cancel', style: 'cancel' },
-                    {
-                      text: `Call ${emergencyNumber}`,
-                      style: 'destructive',
-                      onPress: async () => {
-                        let pos: Awaited<ReturnType<typeof Location.getLastKnownPositionAsync>> = null;
-                        try { pos = await Location.getLastKnownPositionAsync(); } catch { /* no position — send alert without coords */ }
-                        const payload = {
-                          latitude: pos?.coords.latitude,
-                          longitude: pos?.coords.longitude,
-                          timestamp: new Date().toISOString(),
-                        };
-                        try {
-                          await driverApi.emergencyAlert(id, payload);
-                        } catch {
-                          // Never block the actual emergency call — but the alert
-                          // must still reach dispatch, so queue it for retry.
-                          offlineQueue.enqueue('SOS', `/driver/trips/${id}/emergency`, 'POST', payload);
-                        }
-                        void callNumber(emergencyNumber, { label: 'the emergency services' });
-                      },
-                    },
-                  ],
-                )
-              }
-            >
-              <Text style={styles.sosBtnText}>SOS</Text>
-            </Pressable>
-          </View>
-        }
-        action={
-          /**
-           * ONE ACTION, PINNED.
-           *
-           * A status transition is legal exactly once and is the reason this
-           * screen exists, so it never scrolls away. The swipe (rather than a
-           * tap) is unchanged and deliberate — see @eyego/ui SwipeToConfirm: a
-           * phone in a cradle on a bad road taps itself.
-           */
-          statusInfo.next ? (
-            <SwipeToConfirm
-              label={
-                startsTheRide && pendingBoarders.length > 0
-                  ? `Swipe to board ${pendingBoarders.length === 1 ? pendingBoarders[0].name.split(' ')[0] : `${pendingBoarders.length} passengers`} & go`
-                  : `Swipe to ${statusInfo.action.replace(/^(I've|Mark)\s+/i, '').toLowerCase()}`
-              }
-              loadingLabel={
-                boardingRun ? `Boarding ${boardingRun.index + 1} of ${boardingRun.queue.length}…` : `${statusInfo.action}…`
-              }
-              onConfirm={beginPrimaryAction}
-              loading={advanceStatus.isPending || boardingRun != null}
-              confirmed={confirmedLabel != null}
-              confirmedLabel={confirmedLabel ?? undefined}
-              color={colors.primary}
-              onColor={colors.onPrimary ?? '#0A0D14'}
-              trackColor={colors.surfaceContainer}
-              borderColor={colors.outline}
-            />
-          ) : null
-        }
-      >
-        <StopTimeline
-          stops={stops}
-          onNavigate={() => openNavigation(false)}
-          onPassenger={(p) => {
-            void Haptics.selectionAsync().catch(() => {});
-            /**
-             * The seat's own row is the source, so the sheet gets the RICH
-             * record (payment method, held-vs-paid, PIN requirement) rather
-             * than the timeline's summary — the timeline only carries what a
-             * row needs to render.
-             */
-            const seat = seats.find((s: any) => s.bookingId === p.bookingId);
-            setSheetPassenger({
-              bookingId: p.bookingId,
-              name: p.name,
-              bookedBy: p.bookedBy,
-              coveredBy: seat?.coveredBy ?? null,
-              phone: p.phone,
-              photo: null,
-              seatNumber: p.seatNumber,
-              seatsHeld: seat?.seatsHeld ?? 1 + (p.extraSeats?.length ?? 0),
-              farePesewas: p.farePesewas,
-              paymentMethod: seat?.paymentMethod ?? null,
-              paymentStatus: p.paid ? 'PAID' : (seat?.paymentStatus ?? null),
-              boarded: p.boarded,
-              noShow: p.noShow,
-              held: seat?.status === 'HELD',
-              needsPin: seat?.needsPin ?? false,
-            });
-          }}
-          currentStopAccessory={
-            <CabinStrip
-              seatsTotal={total}
-              seatsTaken={passengers}
-              boarded={boardedSeats}
-              onPress={() => setSeatMapNudge(true)}
-            />
-          }
-        />
+    <View style={styles.tripRoot}>
+      <DriverSurfaceMap
+        stage={tripStage}
+        trip={{ id: trip.id, status: trip.status }}
+        pickup={pickupCoord}
+        dropoff={destCoord !== pickupCoord ? destCoord : null}
+        location={location}
+        puckColor={colors.primary}
+        onEta={setLegEta}
+        styleURL={mapStyle}
+      />
 
-        {/* ── SECONDARY ACTIONS ── */}
+      {/* Floating chrome: back, where this trip goes, and SOS. */}
+      <View style={[styles.tripTopBar, { top: insets.top + spacing.sm }]} pointerEvents="box-none">
+        <Pressable
+          onPress={() => goBack()}
+          hitSlop={8}
+          style={styles.roundBtn}
+          accessibilityRole="button"
+          accessibilityLabel="Back"
+        >
+          <GlassSurface style={StyleSheet.absoluteFill} borderRadius={22} />
+          <Ionicons name="chevron-back" size={22} color={colors.onSurface} />
+        </Pressable>
+        <View style={styles.titlePill}>
+          <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii['2xl']} />
+          <View style={[styles.titleDot, { backgroundColor: statusCfg.color }]} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.titleText} numberOfLines={1}>
+              {`${originLabel(trip) ?? 'Pickup'} → ${destinationLabel(trip) ?? 'Destination'}`}
+            </Text>
+            <Text style={styles.titleSub} numberOfLines={1}>{statusCfg.label}</Text>
+          </View>
+        </View>
+        <Pressable
+          style={styles.sosBtn}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Emergency SOS"
+          onPress={confirmSos}
+        >
+          <Text style={styles.sosBtnText}>SOS</Text>
+        </Pressable>
+      </View>
+
+      {/* The stage sheet, with manage underneath — drag up to reach it. */}
+      <TripStages
+        stage={tripStage}
+        trip={trip}
+        eta={legEta}
+        onPassenger={openPassenger}
+        hideAdvance
+        bottomInset={actionBarSpace}
+        onNavigate={() => openNavigation(false)}
+        chatBadge={unreadChats}
+      >
+        <Text style={styles.manageHeading}>MANAGE TRIP</Text>
+        <CabinStrip seatsTotal={total} seatsTaken={passengers} boarded={boardedSeats} />
         <View style={styles.quickRow}>
-          <QuickAction icon="navigate" label="Navigate" color={colors.primary} colors={colors} onPress={() => openNavigation(false)} />
           {canAddRider && (
             <QuickAction
               icon="person-add"
@@ -1690,19 +1699,6 @@ export default function ActiveTripScreen() {
             />
           )}
           <QuickAction
-            icon="chatbubble"
-            label="Chat"
-            color={colors.primary} colors={colors}
-            badge={unreadChats}
-            onPress={() => goDeeper(`/(trip)/chat/${id}` as Href)}
-          />
-          <QuickAction
-            icon="map"
-            label="Tracking"
-            color={colors.primary} colors={colors}
-            onPress={() => goOut('/(tabs)/home')}
-          />
-          <QuickAction
             icon="qr-code"
             label="Scan to pay"
             color={colors.primary} colors={colors}
@@ -1711,13 +1707,9 @@ export default function ActiveTripScreen() {
         </View>
 
         {/*
-          PAUSE REQUESTS — mid-trip, without going offline.
-
-          Kept, and kept HERE, for the reason it was added: the offers that
-          matter arrive while the driver is still carrying someone, and going
-          offline to stop them costs their place in the supply index. Optimistic,
-          because a switch that waits on a round trip reads as broken and this
-          one is tapped in traffic.
+          PAUSE REQUESTS — mid-trip, without going offline. Optimistic, because
+          a switch that waits on a round trip reads as broken and this one is
+          tapped in traffic.
         */}
         <Pressable
           style={styles.pauseRow}
@@ -1738,6 +1730,7 @@ export default function ActiveTripScreen() {
           accessibilityState={{ checked: requestsPaused }}
           accessibilityLabel="Pause incoming trip requests"
         >
+          <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii.xl} intensity="low" />
           <Ionicons
             name={requestsPaused ? 'pause-circle' : 'play-circle-outline'}
             size={20}
@@ -1783,7 +1776,39 @@ export default function ActiveTripScreen() {
             <Text style={[styles.endBtnText, { color: colors.error }]}>Cancel trip</Text>
           </Pressable>
         </View>
-      </StopTimelineSurface>
+      </TripStages>
+
+      {tripStage !== 'idle' ? <DriverSheetHost current={tripStage} previous={previousStage} /> : null}
+
+      {/*
+        ONE ACTION, PINNED — below the sheet's content, above everything, and
+        never under a tab bar. At the kerb it is the whole boarding run (one
+        step per PERSON — a host paying for four boards once); elsewhere it is
+        the plain status transition. A swipe, not a tap: a phone in a cradle
+        on a bad road taps itself.
+      */}
+      {statusInfo.next ? (
+        <View style={[styles.actionBar, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
+          <SwipeToConfirm
+            label={
+              startsTheRide && pendingBoarders.length > 0
+                ? `Swipe to board ${pendingBoarders.length === 1 ? pendingBoarders[0].name.split(' ')[0] : `${pendingBoarders.length} passengers`} & go`
+                : `Swipe to ${statusInfo.action.replace(/^(I've|Mark)\s+/i, '').toLowerCase()}`
+            }
+            loadingLabel={
+              boardingRun ? `Boarding ${boardingRun.index + 1} of ${boardingRun.queue.length}…` : `${statusInfo.action}…`
+            }
+            onConfirm={beginPrimaryAction}
+            loading={advanceStatus.isPending || boardingRun != null}
+            confirmed={confirmedLabel != null}
+            confirmedLabel={confirmedLabel ?? undefined}
+            color={colors.primary}
+            onColor={colors.onPrimary ?? '#0A0D14'}
+            trackColor={colors.surfaceContainer}
+            borderColor={colors.outline}
+          />
+        </View>
+      ) : null}
 
       {/*
         The passenger sheet — what tapping a person opens.
@@ -2028,7 +2053,7 @@ export default function ActiveTripScreen() {
           </Pressable>
         </Pressable>
       </Modal>
-    </>
+    </View>
   );
 }
 
@@ -2221,8 +2246,70 @@ const makeStyles = (colors: DriverColors) =>
       borderRadius: radii.full,
     },
 
-    // ── Stop-timeline surface ──
-    /** Bottom-right of the map pane. SOS only — see the render. */
+    // ── The one trip screen: map + stage sheet + pinned action ──
+    tripRoot: { flex: 1, backgroundColor: colors.background },
+    tripTopBar: {
+      position: 'absolute',
+      left: spacing.base,
+      right: spacing.base,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      zIndex: 5,
+    },
+    roundBtn: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      alignItems: 'center',
+      justifyContent: 'center',
+      overflow: 'hidden',
+    },
+    titlePill: {
+      flex: 1,
+      minHeight: 44,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      paddingHorizontal: spacing.base,
+      paddingVertical: 6,
+      borderRadius: radii['2xl'],
+      overflow: 'hidden',
+    },
+    titleDot: { width: 8, height: 8, borderRadius: 4 },
+    titleText: {
+      fontFamily: fonts.semiBold,
+      fontSize: fontSizes.bodySmall,
+      color: colors.onSurface,
+    },
+    titleSub: {
+      fontFamily: fonts.regular,
+      fontSize: fontSizes.caption,
+      color: colors.onSurfaceVariant,
+    },
+    manageHeading: {
+      fontFamily: fonts.semiBold,
+      fontSize: 11,
+      letterSpacing: 1.2,
+      color: colors.onSurfaceVariant,
+      marginTop: spacing.lg,
+    },
+    /**
+     * Opaque, the sheet's own colour, so the sheet's content scrolls UNDER it
+     * rather than through it. The hairline is the only seam.
+     */
+    actionBar: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      bottom: 0,
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.md,
+      backgroundColor: colors.background,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.outlineVariant,
+      zIndex: 20,
+    },
     mapOverlayRow: { flexDirection: 'row', alignItems: 'flex-end' },
     /** The secondary verbs, under the timeline, evenly weighted. */
     quickRow: {

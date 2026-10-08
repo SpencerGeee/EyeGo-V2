@@ -53,9 +53,36 @@ export interface TripStagesProps {
   eta?: { leg: 'toPickup' | 'toDropoff'; minutes: number; distanceKm: number | null } | null;
   /** Opens the full manage screen for roster / PIN / seat work. */
   onManage?: () => void;
+  /**
+   * Tap a passenger. When set, the WHOLE roster is listed (one row per
+   * person — see `groupParties`) rather than the first two, because this sheet
+   * is the manage surface too: drag it up and the work is there.
+   */
+  onPassenger?: (p: StopPassenger) => void;
+  /** The trip screen pins its own swipe (it carries the boarding run). */
+  hideAdvance?: boolean;
+  /** Manage content under the summary — revealed by dragging the sheet up. */
+  children?: React.ReactNode;
+  /** Space kept clear at the bottom for a pinned action bar. */
+  bottomInset?: number;
+  /** Replaces the default "current stop" hand-off (the trip screen offers both legs). */
+  onNavigate?: () => void;
+  /** Unread chat messages — shown on the Chat action. */
+  chatBadge?: number;
 }
 
-export function TripStages({ stage, trip, eta, onManage }: TripStagesProps) {
+export function TripStages({
+  stage,
+  trip,
+  eta,
+  onManage,
+  onPassenger,
+  hideAdvance = false,
+  children,
+  bottomInset = 0,
+  onNavigate,
+  chatBadge = 0,
+}: TripStagesProps) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
@@ -108,8 +135,8 @@ export function TripStages({ stage, trip, eta, onManage }: TripStagesProps) {
       : stage === 'arrived'
         ? {
             title: 'At the pickup',
-            sub: passengers.length
-              ? `Boarding ${passengers.length} passenger${passengers.length === 1 ? '' : 's'}`
+            sub: seatsTaken
+              ? `Boarding ${seatsTaken} passenger${seatsTaken === 1 ? '' : 's'}`
               : 'Waiting for your passenger',
           }
         : waitingToDepart
@@ -123,7 +150,7 @@ export function TripStages({ stage, trip, eta, onManage }: TripStagesProps) {
   // the receipt. Summed from the live bookings the roster already projects.
   const farePesewas = passengers.reduce((n, p) => n + (p.farePesewas ?? 0), 0);
   const cashOwed = passengers.reduce((n, p) => n + (p.owesPesewas ?? 0), 0);
-  const shownPassengers = passengers.slice(0, 2);
+  const shownPassengers = onPassenger ? passengers : passengers.slice(0, 2);
   const morePassengers = passengers.length - shownPassengers.length;
 
   return (
@@ -176,7 +203,14 @@ export function TripStages({ stage, trip, eta, onManage }: TripStagesProps) {
         </View>
 
         {shownPassengers.map((p) => (
-          <PassengerRow key={p.bookingId} passenger={p} tripId={trip.id} colors={colors} styles={styles} />
+          <PassengerRow
+            key={p.bookingId}
+            passenger={p}
+            tripId={trip.id}
+            colors={colors}
+            styles={styles}
+            onPress={onPassenger ? () => onPassenger(p) : undefined}
+          />
         ))}
         {morePassengers > 0 && onManage ? (
           <Pressable onPress={onManage} accessibilityRole="button" style={styles.moreRow}>
@@ -200,8 +234,8 @@ export function TripStages({ stage, trip, eta, onManage }: TripStagesProps) {
           >
             <Text variant="bodySmall" color={colors.onSurfaceVariant}>Trip fare</Text>
             <Text style={styles.fareValue}>{formatGhs(farePesewas)}</Text>
-            {passengers.length > 1 ? (
-              <Text variant="caption" color={colors.onSurfaceVariant}>· {passengers.length} seats</Text>
+            {seatsTaken > 1 ? (
+              <Text variant="caption" color={colors.onSurfaceVariant}>· {seatsTaken} seats</Text>
             ) : null}
             {cashOwed > 0 ? (
               <Text variant="caption" color={colors.statusWarning}>· {formatGhs(cashOwed)} cash to collect</Text>
@@ -210,11 +244,12 @@ export function TripStages({ stage, trip, eta, onManage }: TripStagesProps) {
         ) : null}
 
         <View style={styles.actions}>
-          <Action icon="navigate-outline" label="Navigate" onPress={handleNavigate} colors={colors} styles={styles} />
+          <Action icon="navigate-outline" label="Navigate" onPress={onNavigate ?? handleNavigate} colors={colors} styles={styles} />
           <Action
             icon="chatbubble-outline"
             label="Chat"
             onPress={() => goDeeper({ pathname: '/(trip)/chat/[id]', params: { id: trip.id } } as never)}
+            badge={chatBadge}
             colors={colors}
             styles={styles}
           />
@@ -235,7 +270,7 @@ export function TripStages({ stage, trip, eta, onManage }: TripStagesProps) {
           step. A status change is a different action, so it is a different
           control: the old one unmounts full, the new one mounts at rest.
         */}
-        {canAdvance && label ? (
+        {canAdvance && label && !hideAdvance ? (
           <SwipeToConfirm
             key={status}
             label={label}
@@ -248,6 +283,9 @@ export function TripStages({ stage, trip, eta, onManage }: TripStagesProps) {
             borderColor={colors.outline}
           />
         ) : null}
+
+        {children}
+        {bottomInset > 0 ? <View style={{ height: bottomInset }} /> : null}
       </View>
     </SheetContent>
   );
@@ -258,12 +296,16 @@ function PassengerRow({
   tripId,
   colors,
   styles,
+  onPress,
 }: {
   passenger: StopPassenger;
   tripId: string;
   colors: DriverColors;
   styles: ReturnType<typeof makeStyles>;
+  onPress?: () => void;
 }) {
+  const seatsLabel =
+    p.seats.length > 1 ? `Seats ${p.seats.join(', ')}` : p.seatNumber != null ? `Seat ${p.seatNumber}` : null;
   return (
     <GradientGlowBorder
       palette="driver"
@@ -275,18 +317,40 @@ function PassengerRow({
       maxGlowRadius={16}
       style={styles.passengerRow}
     >
-      <Avatar name={p.name} size={36} />
-      <View style={{ flex: 1 }}>
-        <Text variant="bodySmall" numberOfLines={1}>{p.name}</Text>
-        <Text variant="caption" color={colors.onSurfaceVariant} numberOfLines={1}>
-          {[
-            p.seatNumber != null ? `Seat ${p.seatNumber}` : null,
-            p.boarded ? 'On board' : p.noShow ? 'No-show' : p.paid ? 'Paid' : p.owesPesewas ? 'Pays cash' : null,
-          ]
-            .filter(Boolean)
-            .join(' · ')}
-        </Text>
-      </View>
+      <Pressable
+        onPress={onPress}
+        disabled={!onPress}
+        accessibilityRole={onPress ? 'button' : undefined}
+        accessibilityLabel={onPress ? `${p.name}, ${seatsLabel ?? ''}. Open passenger` : undefined}
+        style={styles.passengerTap}
+      >
+        <View>
+          <Avatar name={p.name} size={36} />
+          {p.boarded ? (
+            <View style={[styles.boardedTick, { backgroundColor: colors.statusSuccess, borderColor: colors.surfaceContainerHigh }]}>
+              <Ionicons name="checkmark" size={10} color="#fff" />
+            </View>
+          ) : null}
+        </View>
+        <View style={{ flex: 1 }}>
+          <View style={styles.nameRow}>
+            <Text variant="bodySmall" numberOfLines={1} style={{ flexShrink: 1 }}>{p.name}</Text>
+            {p.paysForGroup ? (
+              <View style={[styles.partyTag, { backgroundColor: colors.primary + '1F', borderColor: colors.primary + '44' }]}>
+                <Text style={[styles.partyTagText, { color: colors.primary }]}>PAYING FOR {p.seatCount}</Text>
+              </View>
+            ) : null}
+          </View>
+          <Text variant="caption" color={colors.onSurfaceVariant} numberOfLines={1}>
+            {[
+              seatsLabel,
+              p.boarded ? 'On board' : p.noShow ? 'No-show' : p.paid ? 'Paid' : p.owesPesewas ? 'Pays cash' : null,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          </Text>
+        </View>
+      </Pressable>
       {p.phone ? (
         <Pressable
           onPress={() => callNumber(p.phone!)}
@@ -315,12 +379,14 @@ function Action({
   icon,
   label,
   onPress,
+  badge = 0,
   colors,
   styles,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   onPress: () => void;
+  badge?: number;
   colors: DriverColors;
   styles: ReturnType<typeof makeStyles>;
 }) {
@@ -328,6 +394,11 @@ function Action({
     <Pressable onPress={onPress} style={styles.action} accessibilityRole="button" accessibilityLabel={label}>
       <Ionicons name={icon} size={18} color={colors.onSurface} />
       <Text style={[styles.actionLabel, { color: colors.onSurface }]}>{label}</Text>
+      {badge > 0 ? (
+        <View style={[styles.actionBadge, { backgroundColor: colors.primary }]}>
+          <Text style={[styles.actionBadgeText, { color: colors.onPrimary ?? '#0A0D14' }]}>{badge > 9 ? '9+' : badge}</Text>
+        </View>
+      ) : null}
     </Pressable>
   );
 }
@@ -335,6 +406,15 @@ function Action({
 const makeStyles = (colors: DriverColors) =>
   StyleSheet.create({
     body: { gap: spacing.lg, paddingTop: 2 },
+    actionBadge: {
+      minWidth: 18,
+      height: 18,
+      borderRadius: 9,
+      paddingHorizontal: 5,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    actionBadgeText: { fontFamily: fonts.semiBold, fontSize: 10, lineHeight: 12 },
     headline: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
     title: {
       fontFamily: fonts.displayBold,
@@ -380,6 +460,21 @@ const makeStyles = (colors: DriverColors) =>
       paddingHorizontal: spacing.md,
       paddingVertical: spacing.md,
     },
+    passengerTap: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.md, minHeight: 40 },
+    boardedTick: {
+      position: 'absolute',
+      right: -2,
+      bottom: -2,
+      width: 16,
+      height: 16,
+      borderRadius: 8,
+      borderWidth: 2,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    nameRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    partyTag: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, borderWidth: StyleSheet.hairlineWidth },
+    partyTagText: { fontFamily: fonts.bold, fontSize: 9, letterSpacing: 0.6 },
     moreRow: {
       flexDirection: 'row',
       alignItems: 'center',

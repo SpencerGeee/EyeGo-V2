@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIsFocused } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { driverSocketEvents } from '@eyego/api';
-import { useRouteReveal, FOLLOW_ZOOM, NAV_PITCH, RESUME_AFTER_MS, type Coord } from '@eyego/maps';
+import { useRouteReveal, useVehicleHeading, FOLLOW_ZOOM, NAV_PITCH, RESUME_AFTER_MS, type Coord } from '@eyego/maps';
 import { eyegoDriverDarkStyle } from '@eyego/map-styles';
 import { GlassSurface, PulseRing } from '@eyego/ui';
 import MapboxGL from '../../utils/mapbox';
@@ -75,6 +75,9 @@ export interface DriverTripMapProps {
   styleURL?: any;
 }
 
+/** The rider sees this minibus coming; the driver sees the same one. */
+const VEHICLE_PUCK = require('../../assets/vehicle/minibus.png');
+
 export function DriverTripMapImpl({
   tripId,
   status,
@@ -93,6 +96,11 @@ export function DriverTripMapImpl({
   const { height: screenHeight } = useWindowDimensions();
   const isFocused = useIsFocused();
   const live = active && isFocused;
+  const vehicleHeading = useVehicleHeading(
+    location
+      ? { latitude: location.latitude, longitude: location.longitude, gpsCourse: location.heading ?? null, speedMps: location.speed ?? null }
+      : null,
+  );
 
   const carrying = CARRYING.has(status ?? '');
   const target = (carrying ? dropoff : pickup) ?? dropoff ?? pickup ?? null;
@@ -262,7 +270,11 @@ export function DriverTripMapImpl({
         {/* The platform puck — drawn and animated by the engine, in step with
             the camera. The navigation arrow while driving, the plain dot when
             parked. */}
-        <MapboxGL.UserLocation mode={track === 'course' ? 'course' : 'default'} />
+        <MapboxGL.UserLocation
+          mode={track === 'course' ? 'course' : 'default'}
+          vehicleImage={VEHICLE_PUCK}
+          heading={vehicleHeading}
+        />
 
         {shape && (
           <MapboxGL.ShapeSource id="driver-route" shape={shape}>

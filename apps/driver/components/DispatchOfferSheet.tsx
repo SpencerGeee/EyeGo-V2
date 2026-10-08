@@ -22,7 +22,7 @@ import { lastKnownReportedFix } from '../hooks/useDriverLocation';
 import { startDispatchAlert, stopDispatchAlert } from '../utils/dispatchAlert';
 import { fetchRoute } from '../utils/routing';
 import { DispatchOfferCard, type DispatchOfferView } from './dispatch/DispatchOfferCard';
-import { goOut } from '@eyego/ui';
+import { goDeeper, notify } from '@eyego/ui';
 
 /**
  * THE OFFER — the ONE place a ride is put in front of a driver.
@@ -250,18 +250,34 @@ export default function DispatchOfferSheet() {
       await useDriverTripStore.getState().hydrate();
       setTimeout(() => {
         dismiss();
-        // Home IS the trip surface now — see driverStage.ts.
-        goOut('/(tabs)/home');
+        // The trip has its own screen — map, stages and manage in one place.
+        goDeeper({ pathname: '/(trip)/active/[id]', params: { id: tripId } } as never);
       }, 420);
     } catch (err: any) {
       const status = err?.response?.status;
+      const code: string | undefined = err?.response?.data?.code;
       setBusy(null);
       dismiss();
-      // 409/410 is the normal race, not a failure worth an alert box: someone
-      // else took it, or it expired while the tap was in flight.
-      if (status !== 409 && status !== 410) {
+      /**
+       * SAY WHY. BUGFIX ("when I swiped to accept, it got me to the homepage
+       * then it went back to the dispatch screen… no error message was given").
+       * Every refusal was swallowed, so a rule (your own ride, a short wallet)
+       * looked exactly like a glitch and the offer came straight back.
+       */
+      if (status === 409 || status === 410) {
+        notify('This ride is no longer available', 'Another driver took it or the request ended.', { tone: 'info' });
+      } else {
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
+        notify(
+          code === 'SELF_RIDE_REFUSED' ? 'That’s your own ride request' : 'Could not accept this ride',
+          code === 'SELF_RIDE_REFUSED'
+            ? 'This request came from your own rider account (same phone number). Use a different number on the rider app to test.'
+            : err?.response?.data?.message ?? 'Check your connection and try again.',
+        );
       }
+      // A ride this driver may never take is passed for good, so it does not
+      // come straight back as a fresh offer.
+      if (code === 'SELF_RIDE_REFUSED') void ridesApi.decline(tripId).catch(() => {});
       void useDriverTripStore.getState().hydrate();
     }
   };
@@ -290,6 +306,8 @@ export default function DispatchOfferSheet() {
         dropoffAddress: held.dropoffAddress,
         dropoffBearing: held.dropoffBearing,
         dropoffDistanceKm: held.dropoffDistanceKm,
+        tripKm: held.tripKm,
+        tripMinutes: held.tripMinutes,
         pickup,
         dropoff: coordOf(held.dropoffLng, held.dropoffLat),
         geometry: held.geometry ?? (road?.tripId === held.tripId ? road.coords : null),
@@ -311,6 +329,8 @@ export default function DispatchOfferSheet() {
         dropoffAddress: row!.dropoffAddress,
         dropoffBearing: row!.dropoffBearing ?? null,
         dropoffDistanceKm: row!.dropoffDistanceKm ?? null,
+        tripKm: row!.tripKm ?? null,
+        tripMinutes: row!.tripMinutes ?? null,
         pickup,
         dropoff: coordOf(row!.dropoffLng, row!.dropoffLat),
         geometry: road?.tripId === row!.tripId ? road.coords : null,

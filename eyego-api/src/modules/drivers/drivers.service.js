@@ -1955,21 +1955,44 @@ async function boardPassenger(driverId, tripId, bookingId, { pin = null } = {}) 
   if (!booking) throw new NotFoundError('Booking');
 
   /**
-   * "VERIFY MY RIDE" — the PIN gate.
+   * ONE PERSON, ONE BOARDING — however many seats they hold.
    *
-   * Enforced HERE, in the service, rather than in the driver's UI, because a
-   * check that lives only on the client is not a security feature: this is the
-   * single call that puts a passenger aboard, so it is the only place the
-   * guarantee can actually hold.
+   * BUGFIX ("I chose to pay for everyone… when I boarded, it didn't tick for
+   * each and every one of my names since it's the same person. I had to
+   * manually board each one").
    *
-   * Only bookings that HAVE a pin are gated. A rider who never turned the
-   * setting on has `boardingPin: null` and boards exactly as before, so this
-   * cannot strand the drivers and riders who never asked for it.
-   *
-   * Compared as trimmed strings: the pin is stored as text (leading zeroes are
-   * real — "0421" is not 421) and the driver's keypad sends text.
+   * Cover-all writes one booking row per seat, all under the host's account
+   * with no guest name. Those rows are one party standing at one kerb, so
+   * boarding any of them boards all of them — one PIN, one tap. A NAMED guest
+   * is a different person and boards on their own.
    */
-  if (booking.boardingPin && !booking.pinVerifiedAt) {
+  const party =
+    booking.userId && !booking.guestName
+      ? await prisma.booking.findMany({
+          where: {
+            tripId,
+            userId: booking.userId,
+            guestName: null,
+            status: { in: ['PENDING', 'SEAT_HELD', 'CONFIRMED', 'PAID'] },
+          },
+        })
+      : [booking];
+  const toBoard = party.filter(
+    (b) =>
+      b.id === booking.id ||
+      b.status === booking.status ||
+      b.paymentStatus === 'PAID' ||
+      ['CONFIRMED', 'PAID'].includes(b.status),
+  );
+  if (!toBoard.some((b) => b.id === booking.id)) toBoard.push(booking);
+
+  /**
+   * The party's code is the code on whichever of its rows carries one (only
+   * the host's own seat is issued a PIN). Checked against that row, so tapping
+   * a covered seat first cannot board the party without the code.
+   */
+  const pinRow = toBoard.find((b) => b.boardingPin && !b.pinVerifiedAt);
+  if (pinRow) {
     const supplied = typeof pin === 'string' ? pin.trim() : '';
     if (!supplied) {
       throw new AppError(
@@ -1978,18 +2001,58 @@ async function boardPassenger(driverId, tripId, bookingId, { pin = null } = {}) 
         'PIN_REQUIRED',
       );
     }
-    if (supplied !== booking.boardingPin) {
+    if (supplied !== pinRow.boardingPin) {
       throw new AppError(
         "That code doesn't match. Check the rider is showing you the code for this trip.",
         400,
         'PIN_INCORRECT',
       );
     }
-    await prisma.booking.update({
-      where: { id: bookingId },
+    await prisma.booking.updateMany({
+      where: { id: { in: toBoard.filter((b) => b.boardingPin).map((b) => b.id) } },
       data: { pinVerifiedAt: new Date() },
     });
   }
+
+  // In-app riders who chose CASH never trigger a payment webhook, so their
+  // commission is taken here at boarding (see the single-seat note below).
+  const cashRows = toBoard.filter((b) => b.paymentMethod === 'CASH' && b.paymentStatus !== 'PAID');
+  const cashCommission = cashRows.reduce((n, b) => n + (b.commissionAmountPesewas || 0), 0);
+  if (toBoard.length > 1) {
+    await prisma.$transaction(async (tx) => {
+      if (cashCommission > 0) {
+        const driver = await tx.driver.findUnique({ where: { id: driverId } });
+        const debited = await tx.driver.updateMany({
+          where: { id: driverId, walletBalancePesewas: { gte: cashCommission } },
+          data: { walletBalancePesewas: { decrement: cashCommission } },
+        });
+        if (debited.count === 0) throw new InsufficientWalletError();
+        await tx.walletTransaction.create({
+          data: {
+            driverId,
+            type: 'COMMISSION_DEDUCTION',
+            amountPesewas: cashCommission,
+            description: `Cash passenger commission — ${cashRows.length} seats`,
+            balanceBeforePesewas: driver.walletBalancePesewas,
+            balanceAfterPesewas: driver.walletBalancePesewas - cashCommission,
+            tripId,
+          },
+        });
+        await tx.booking.updateMany({
+          where: { id: { in: cashRows.map((b) => b.id) } },
+          data: { status: 'BOARDED', paymentStatus: 'PAID' },
+        });
+      }
+      await tx.booking.updateMany({
+        where: { id: { in: toBoard.filter((b) => !cashRows.includes(b)).map((b) => b.id) } },
+        data: { status: 'BOARDED' },
+      });
+    });
+    announceBoarding(tripId, bookingId);
+    return prisma.booking.findUnique({ where: { id: bookingId } });
+  }
+
+  // The PIN was checked above, against the party's own row.
 
   // In-app riders who chose CASH never trigger a payment webhook, so unlike
   // card/MoMo bookings their commission is never deducted at confirmPayment

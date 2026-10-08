@@ -14,7 +14,7 @@
  * native (dev-client/EAS) build after this lands.
  */
 import React, { useEffect, useImperativeHandle, useRef, useState, useCallback } from 'react';
-import { View, Text, Pressable, Dimensions } from 'react-native';
+import { View, Text, Pressable, Dimensions, Image } from 'react-native';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const MapLibreModule = require('@maplibre/maplibre-react-native');
@@ -1240,10 +1240,48 @@ export interface UserLocationProps {
   mode?: 'default' | 'heading' | 'course';
   /** @deprecated v11 has no such prop; kept so old call sites type-check. */
   showsUserHeadingIndicator?: boolean;
+  /**
+   * Draw THIS vehicle instead of the platform dot — a top-down render, nose
+   * up. The engine still moves it (the layer rides v11's own animated
+   * user-location source), so it stays in step with a `trackUserLocation`
+   * camera; only the artwork changes. BUGFIX ("the driver icon is a round
+   * circle… it needs to be a real puck, the same one the rider uses").
+   */
+  vehicleImage?: number;
+  /** Degrees clockwise from north for `vehicleImage`. */
+  heading?: number | null;
+  /** On-screen width of `vehicleImage`, in points. */
+  vehicleSize?: number;
 }
 
-export const UserLocation = ({ visible = true, mode = 'default' }: UserLocationProps) =>
-  visible ? <NativeUserLocation mode={mode} /> : null;
+const NativeImages = MapLibre.Images;
+
+export const UserLocation = ({ visible = true, mode = 'default', vehicleImage, heading, vehicleSize = 40 }: UserLocationProps) => {
+  if (!visible) return null;
+  if (!vehicleImage) return <NativeUserLocation mode={mode} />;
+  const px = (Image.resolveAssetSource?.(vehicleImage)?.width ?? 402) || 402;
+  return (
+    <>
+      <NativeImages images={{ 'eyego-vehicle-puck': vehicleImage }} />
+      <NativeUserLocation>
+        <NativeLayer
+          id="eyego-vehicle-puck"
+          type="symbol"
+          source="mlrn-user-location"
+          layout={{
+            'icon-image': 'eyego-vehicle-puck',
+            'icon-size': vehicleSize / px,
+            'icon-rotate': Number.isFinite(heading) ? (heading as number) : 0,
+            'icon-rotation-alignment': 'map',
+            'icon-pitch-alignment': 'map',
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true,
+          }}
+        />
+      </NativeUserLocation>
+    </>
+  );
+};
 
 // ── Last-resort fallback (native module failed to load) ─────────────────
 

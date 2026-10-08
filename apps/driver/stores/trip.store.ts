@@ -70,6 +70,8 @@ export interface DispatchOffer {
   /** Coarse shape of the ride while the drop-off is withheld — see `directionHint`. */
   dropoffBearing: string | null;
   dropoffDistanceKm: number | null;
+  tripKm: number | null;
+  tripMinutes: number | null;
   kind: string | null;
 }
 
@@ -100,6 +102,8 @@ function offerFromPayload(p: any): DispatchOffer {
     geometry: Array.isArray(coords) && coords.length >= 2 ? coords : null,
     dropoffBearing: p.dropoffBearing ?? null,
     dropoffDistanceKm: p.dropoffDistanceKm ?? null,
+    tripKm: p.tripKm ?? null,
+    tripMinutes: p.tripMinutes ?? null,
     kind: p.kind ?? null,
   };
 }
@@ -497,6 +501,8 @@ export const useDriverTripStore = create<DriverTripState>((set, get) => ({
               heldByAnother: false,
               dropoffBearing: p.dropoffBearing ?? null,
               dropoffDistanceKm: p.dropoffDistanceKm ?? null,
+              tripKm: p.tripKm ?? null,
+              tripMinutes: p.tripMinutes ?? null,
               // The frame carries no search deadline; keep the one the REST
               // read already gave this row, if any.
               searchExpiresAtServerMs:

@@ -76,6 +76,9 @@ export interface DispatchOfferView {
   dropoffBearing?: string | null;
   /** Straight-line km to the drop-off, rounded to a half km by the server. */
   dropoffDistanceKm?: number | null;
+  /** Road km of the ride itself and its estimated minutes — no address. */
+  tripKm?: number | null;
+  tripMinutes?: number | null;
   pickup?: Coord | null;
   dropoff?: Coord | null;
   /** The road from the driver to the pickup — see `DispatchOffer.geometry`. */
@@ -446,6 +449,9 @@ export function DispatchOfferCard({
   const pickupKm = kmBetween(driverAt, offer.pickup);
   const rideKm = kmBetween(offer.pickup, offer.dropoff);
   const etaMin = offer.etaSeconds != null ? Math.max(1, Math.round(offer.etaSeconds / 60)) : null;
+  /** The ride's own length — server road km first, the straight line only as a fallback. */
+  const tripKm = offer.tripKm ?? rideKm ?? offer.dropoffDistanceKm ?? null;
+  const tripMin = offer.tripMinutes ?? null;
 
   const earnings = offer.driverEarningsPesewas ?? offer.farePesewas ?? null;
 
@@ -462,8 +468,8 @@ export function DispatchOfferCard({
    * computed from half the journey is worse than no rate at all.
    */
   const ratePerKm =
-    earnings != null && rideKm != null && rideKm > 0
-      ? earnings / (rideKm + (pickupKm ?? 0))
+    earnings != null && tripKm != null && tripKm > 0
+      ? earnings / (tripKm + (pickupKm ?? 0))
       : null;
 
   /**
@@ -495,7 +501,9 @@ export function DispatchOfferCard({
         <View>
           <DispatchMiniMap
             pickup={offer.pickup}
-            dropoff={offer.dropoff}
+            // The approach only — driver to pickup. The ride itself is told in
+            // numbers below, never drawn: the destination stays withheld.
+            dropoff={null}
             driver={driverAt}
             approachGeometry={offer.geometry ?? null}
             height={mapHeight}
@@ -623,7 +631,7 @@ export function DispatchOfferCard({
                 </View>
               ) : null}
 
-              {offer.dropoffDistanceKm != null && offer.dropoffDistanceKm >= LONG_TRIP_KM ? (
+              {tripKm != null && tripKm >= LONG_TRIP_KM ? (
                 <View style={[styles.chip, { backgroundColor: colors.surfaceContainerHigh, borderColor: colors.outline }]}>
                   <Ionicons name="time-outline" size={10} color={colors.onSurface} />
                   <Text style={[styles.chipText, { color: colors.onSurface }]}>LONG TRIP</Text>
@@ -694,76 +702,48 @@ export function DispatchOfferCard({
         </View>
 
         {/*
-          ── THE RIDE, AS A SPINE — WITH THE NUMBERS ON THE RAIL ──────────────
-
-          Two stops joined by a line, and the line is labelled. That is the
-          shape of a journey, and it is what every navigation product draws,
-          because the reader's eye follows the connector and arrives at the
-          number without being sent to look for it.
-
-          The two markers are deliberately DIFFERENT SHAPES, not two dots in
-          different colours: a hollow ring is a place you leave from, a filled
-          square is a place you arrive at. Shape survives a glance through a
-          windscreen in daylight; hue does not.
+          ── THE JOB IN TWO LINES, THE WAY UBER AND BOLT SAY IT ─────────────
+          ("the driver can see how long the trip is from just looking without
+          checking the fineprint"). Two rows, the numbers BIG: how far away the
+          pickup is, and how long the ride is. The address under each is the
+          detail; the minutes and kilometres are what a driver decides on at a
+          glance. The drop-off stays withheld until the ride starts — the trip
+          row says how long and which way, never where.
         */}
-        <View style={styles.spine}>
-          <View style={styles.spineRail}>
-            <View style={[styles.spineOrigin, { borderColor: accent }]} />
-            <View style={[styles.spineLine, { backgroundColor: colors.outline }]} />
-            <View style={[styles.spineDest, { backgroundColor: colors.error }]} />
-          </View>
-
-          <View style={styles.spineBody}>
-            <View style={styles.leg}>
-              <Text style={[styles.legLabel, { color: colors.onSurfaceVariant }]}>PICKUP</Text>
-              <Text style={styles.legText} numberOfLines={2}>
+        <View style={styles.facts}>
+          <View style={styles.fact}>
+            <View style={[styles.factIcon, { backgroundColor: accent + '1F' }]}>
+              <Ionicons name="navigate" size={15} color={accent} />
+            </View>
+            <View style={styles.factBody}>
+              <Text style={[styles.factMain, { color: colors.onSurface }]} numberOfLines={1}>
+                {[etaMin != null ? `${etaMin} min` : null, pickupKm != null ? `${pickupKm.toFixed(1)} km` : null]
+                  .filter(Boolean)
+                  .join(' · ') || 'Nearby'}
+                <Text style={[styles.factUnit, { color: colors.onSurfaceVariant }]}>  away</Text>
+              </Text>
+              <Text style={[styles.factSub, { color: colors.onSurfaceVariant }]} numberOfLines={1}>
                 {offer.pickupAddress ?? 'Pickup point on the map'}
               </Text>
             </View>
-
-            {/* The gap between the two stops — which is exactly what these two
-                numbers measure. See the note above. */}
-            <View style={styles.legGap}>
-              {etaMin != null || pickupKm != null ? (
-                <View style={styles.legGapRow}>
-                  <Ionicons name="navigate" size={11} color={accent} />
-                  <Text style={[styles.legGapText, { color: accent }]}>
-                    {[
-                      etaMin != null ? `${etaMin} min` : null,
-                      pickupKm != null ? `${pickupKm.toFixed(1)} km` : null,
-                    ]
-                      .filter(Boolean)
-                      .join(' · ')}{' '}
-                    to collect
-                  </Text>
-                </View>
-              ) : null}
-              {rideKm != null ? (
-                <View style={styles.legGapRow}>
-                  <Ionicons name="git-commit-outline" size={11} color={colors.onSurfaceVariant} />
-                  <Text style={[styles.legGapText, { color: colors.onSurfaceVariant }]}>
-                    {rideKm.toFixed(1)} km on the ride
-                  </Text>
-                </View>
-              ) : null}
+          </View>
+          <View style={[styles.factDivider, { backgroundColor: colors.outlineVariant }]} />
+          <View style={styles.fact}>
+            <View style={[styles.factIcon, { backgroundColor: colors.surfaceContainerHigh }]}>
+              <Ionicons name="flag" size={14} color={colors.onSurface} />
             </View>
-
-            <View style={styles.leg}>
-              <Text style={[styles.legLabel, { color: colors.onSurfaceVariant }]}>DROP-OFF</Text>
-              <Text style={styles.legText} numberOfLines={2}>
-                {/* The address is now withheld by the SERVER until the ride
-                    starts — it is not in the payload at all, so there is
-                    nothing here to reveal accidentally. What the driver gets
-                    instead is the shape of the job: which way it goes and
-                    roughly how far. Enough to decide whether to take it, far
-                    too coarse to cherry-pick a destination with. See
-                    `directionHint` in dispatch-cascade.service. */}
+            <View style={styles.factBody}>
+              <Text style={[styles.factMain, { color: colors.onSurface }]} numberOfLines={1}>
+                {[tripMin != null ? `≈${tripMin} min` : null, tripKm != null ? `${tripKm.toFixed(1)} km` : null]
+                  .filter(Boolean)
+                  .join(' · ') || 'Length on start'}
+                <Text style={[styles.factUnit, { color: colors.onSurfaceVariant }]}>  trip</Text>
+              </Text>
+              <Text style={[styles.factSub, { color: colors.onSurfaceVariant }]} numberOfLines={1}>
                 {offer.dropoffAddress ??
                   (offer.dropoffBearing
-                    ? `Heading ${offer.dropoffBearing}${
-                        offer.dropoffDistanceKm ? ` · about ${offer.dropoffDistanceKm} km` : ''
-                      }`
-                    : 'Destination shared when you start the ride')}
+                    ? `Heading ${offer.dropoffBearing} · drop-off shared when you start`
+                    : 'Drop-off shared when you start the ride')}
               </Text>
             </View>
           </View>
@@ -1114,6 +1094,14 @@ const makeStyles = (colors: DriverColors) =>
       alignItems: 'center', justifyContent: 'center',
     },
 
+    facts: { gap: spacing.md, paddingVertical: spacing.xs },
+    fact: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+    factIcon: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
+    factBody: { flex: 1, gap: 1 },
+    factMain: { fontFamily: fonts.displayBold, fontSize: 20, lineHeight: 26, letterSpacing: -0.3 },
+    factUnit: { fontFamily: fonts.medium, fontSize: 14, letterSpacing: 0 },
+    factSub: { fontFamily: fonts.regular, fontSize: 13, lineHeight: 17 },
+    factDivider: { height: StyleSheet.hairlineWidth, marginLeft: 46 },
     spine: { flexDirection: 'row', gap: spacing.md },
     spineRail: { width: 16, alignItems: 'center', paddingTop: 16 },
     spineDot: { width: 9, height: 9, borderRadius: 5 },

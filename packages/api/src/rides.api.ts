@@ -166,6 +166,9 @@ export interface PendingDispatch {
   /** Coarse shape of the ride while the drop-off is withheld. */
   dropoffBearing?: string | null;
   dropoffDistanceKm?: number | null;
+  /** Road length of the ride and its estimated minutes — no address. */
+  tripKm?: number | null;
+  tripMinutes?: number | null;
   /**
    * This driver's exclusive window on this ride already ran out.
    *

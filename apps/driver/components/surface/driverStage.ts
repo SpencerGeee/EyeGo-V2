@@ -90,9 +90,9 @@ export const DRIVER_SHEET_CHROME: Record<DriverStage, SheetChrome> = {
    * driver is stopped, looking down at names and seat numbers rather than out
    * of the windscreen.
    */
-  enroute: { radius: 28, glass: false, collapsed: 0.34, aurora: 0.15 },
-  arrived: { radius: 28, glass: false, collapsed: 0.46, aurora: 0.13 },
-  intrip: { radius: 28, glass: false, collapsed: 0.34, aurora: 0.15 },
+  enroute: { radius: 28, glass: false, collapsed: 0.42, aurora: 0.15 },
+  arrived: { radius: 28, glass: false, collapsed: 0.52, aurora: 0.13 },
+  intrip: { radius: 28, glass: false, collapsed: 0.42, aurora: 0.15 },
 };
 
 /**

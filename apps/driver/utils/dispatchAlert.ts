@@ -34,7 +34,7 @@ import * as Haptics from 'expo-haptics';
  */
 
 /** How often the alert repeats while an offer is still live. */
-const REPEAT_MS = 4000;
+const REPEAT_MS = 7000;
 /** Never nag past the longest offer window; a stuck timer is a furious driver. */
 const MAX_ALERT_MS = 60_000;
 

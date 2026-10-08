@@ -41,6 +41,51 @@ export interface StopPassenger {
   noShow: boolean;
   /** Cash still to collect from this passenger, in pesewas. */
   owesPesewas: number | null;
+  /** Every seat this person holds, anchor first. */
+  seats: number[];
+  /** Every booking row behind this one person (a cover-all host has one per seat). */
+  bookingIds: string[];
+  /** One account paying for several seats with no named guests — "Paying for all". */
+  paysForGroup: boolean;
+  /** Seats this person occupies — `Booking.seats` summed across their rows. */
+  seatCount: number;
+}
+
+/**
+ * ONE ROW PER PERSON, NOT PER SEAT.
+ *
+ * BUGFIX ("I chose to pay for everyone… it was showing my name for all the
+ * seats which is bad cuz its way too repetitive. It should be once with a tag
+ * saying paying all"). Cover-all writes one booking per seat under the host's
+ * account with no guest name, so the roster printed the host N times. Rows
+ * sharing an account and carrying no guest name are one party: one row, all
+ * their seats, money summed, boarded only when every seat is.
+ */
+function groupParties(rows: { b: any; p: StopPassenger }[]): StopPassenger[] {
+  const byKey = new Map<string, StopPassenger>();
+  const out: StopPassenger[] = [];
+  for (const { b, p } of rows) {
+    const uid = b?.user?.id ?? b?.userId ?? null;
+    const key = uid && !str(b?.guestName) ? `u:${uid}` : `b:${p.bookingId}`;
+    const prev = byKey.get(key);
+    if (!prev) {
+      byKey.set(key, p);
+      out.push(p);
+      continue;
+    }
+    prev.seats.push(...p.seats);
+    prev.bookingIds.push(p.bookingId);
+    prev.paysForGroup = true;
+    prev.seatCount += p.seatCount;
+    prev.boarded = prev.boarded && p.boarded;
+    prev.noShow = prev.noShow && p.noShow;
+    prev.paid = prev.paid && p.paid;
+    prev.farePesewas = (prev.farePesewas ?? 0) + (p.farePesewas ?? 0);
+    prev.owesPesewas =
+      prev.owesPesewas == null && p.owesPesewas == null ? null : (prev.owesPesewas ?? 0) + (p.owesPesewas ?? 0);
+  }
+  for (const p of out) p.seats.sort((x, y) => x - y);
+  return out;
 }
 
 export interface TripStop {
@@ -97,6 +142,13 @@ function passengerFrom(b: any): StopPassenger {
     // nothing rather than a zero, so the driver's eye goes to the ones that
     // actually need collecting.
     owesPesewas: !paid && fare != null && fare > 0 ? fare : null,
+    seats: [
+      ...(num(b?.seatNumber) != null ? [num(b?.seatNumber) as number] : []),
+      ...(Array.isArray(b?.extraSeatNumbers) ? b.extraSeatNumbers.filter((n: unknown) => typeof n === 'number') : []),
+    ],
+    bookingIds: [String(b?.id ?? '')],
+    paysForGroup: false,
+    seatCount: Math.max(num(b?.seats) ?? 1, 1 + (Array.isArray(b?.extraSeatNumbers) ? b.extraSeatNumbers.length : 0)),
   };
 }
 
@@ -135,9 +187,11 @@ export function useTripStops(trip: any): UseTripStopsResult {
     const live = bookings.filter(
       (b) => !DEAD_BOOKING.includes(String(b?.status ?? '').toUpperCase()),
     );
-    const passengers = live
-      .map(passengerFrom)
-      .sort((a, b) => (a.seatNumber ?? 99) - (b.seatNumber ?? 99));
+    const passengers = groupParties(
+      live
+        .map((b) => ({ b, p: passengerFrom(b) }))
+        .sort((x, y) => (x.p.seatNumber ?? 99) - (y.p.seatNumber ?? 99)),
+    );
 
     const pickupTitle =
       str(trip?.route?.originName) ??
@@ -168,7 +222,7 @@ export function useTripStops(trip: any): UseTripStopsResult {
      * metres apart, and a timeline that shows "Madina" twice is telling the
      * driver about a rounding error rather than about their route.
      */
-    const byDrop = new Map<string, StopPassenger[]>();
+    const byDrop = new Map<string, { b: any; p: StopPassenger }[]>();
     // Where each group actually alights: a rider's own pin on the route, a
     // named stop, or the trip's end. Kept beside the label so the stop the
     // driver navigates to is the kerb the rider chose, not the terminus.
@@ -181,7 +235,7 @@ export function useTripStops(trip: any): UseTripStopsResult {
         str(trip?.route?.destinationName) ??
         'Drop-off';
       const list = byDrop.get(label) ?? [];
-      list.push(passengerFrom(b));
+      list.push({ b, p: passengerFrom(b) });
       byDrop.set(label, list);
       if (!dropAt.has(label)) {
         dropAt.set(label, {
@@ -205,7 +259,7 @@ export function useTripStops(trip: any): UseTripStopsResult {
         lat: dropAt.get(label)?.lat ?? num(trip?.dropoffLat) ?? num(trip?.route?.destLat) ?? num(trip?.route?.destinationLat),
         lng: dropAt.get(label)?.lng ?? num(trip?.dropoffLng) ?? num(trip?.route?.destLng) ?? num(trip?.route?.destinationLng),
         state: 'UPCOMING',
-        passengers: group.sort((a, b) => (a.seatNumber ?? 99) - (b.seatNumber ?? 99)),
+        passengers: groupParties(group.sort((x, y) => (x.p.seatNumber ?? 99) - (y.p.seatNumber ?? 99))),
       });
     }
 
@@ -217,7 +271,7 @@ export function useTripStops(trip: any): UseTripStopsResult {
     const seatsTotal =
       num(trip?.maxSeats) ?? num(trip?.vehicle?.seaterCount) ?? passengers.length;
     const seatsTaken = passengers.reduce(
-      (n, p) => n + 1 + (p.extraSeats?.length ?? 0),
+      (n, p) => n + p.seatCount,
       0,
     );
 

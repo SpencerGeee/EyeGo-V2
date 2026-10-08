@@ -118,8 +118,23 @@ function directionHint(trip) {
   const toLng = trip.dropoffLng ?? trip.route?.destLng;
 
   if (![fromLat, fromLng, toLat, toLng].every((v) => Number.isFinite(v))) {
-    return { dropoffBearing: null, dropoffDistanceKm: null };
+    return { dropoffBearing: null, dropoffDistanceKm: null, tripKm: null, tripMinutes: null };
   }
+
+  /**
+   * HOW LONG THE JOB IS — the number a driver decides on, without the address.
+   *
+   * ("the driver can see how long the trip is from just looking"). The road
+   * distance the trip was priced on when there is one, else the straight line
+   * stretched by a typical road factor. Minutes assume ~24 km/h, Accra's
+   * daytime average; it is labelled as an estimate on the card.
+   */
+  const roadKm =
+    Number.isFinite(trip.route?.distanceKm) && trip.route.distanceKm > 0
+      ? trip.route.distanceKm
+      : haversineKm(fromLat, fromLng, toLat, toLng) * 1.3;
+  const tripKm = Math.round(roadKm * 10) / 10;
+  const tripMinutes = Math.max(1, Math.round((roadKm / 24) * 60));
 
   const toRad = (d) => (d * Math.PI) / 180;
   const dLng = toRad(toLng - fromLng);
@@ -134,6 +149,8 @@ function directionHint(trip) {
     // Straight-line, and rounded to a half km. The road distance would be a
     // sharper number than this is allowed to be.
     dropoffDistanceKm: Math.round(haversineKm(fromLat, fromLng, toLat, toLng) * 2) / 2,
+    tripKm,
+    tripMinutes,
   };
 }
 /** Nearest-first search radius, then the two wider sweeps used if nobody is close. */
@@ -594,6 +611,7 @@ async function offerNext(tripId) {
           select: {
             originName: true, originLat: true, originLng: true,
             destinationName: true, destLat: true, destLng: true,
+            distanceKm: true,
           },
         },
         bookings: {
@@ -1247,6 +1265,7 @@ async function listSearchesForDriver(driverId, { limit = 10 } = {}) {
           select: {
             originName: true, originLat: true, originLng: true,
             destinationName: true, destLat: true, destLng: true,
+            distanceKm: true,
           },
         },
         bookings: {

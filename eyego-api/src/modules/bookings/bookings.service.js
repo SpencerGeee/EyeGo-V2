@@ -983,6 +983,32 @@ async function cancelBooking(bookingId, userId, { reason, note } = {}) {
     data: { status: 'CANCELLED', seatNumber: null },
   });
 
+  /**
+   * THE HOST WALKED AWAY, SO THE SEATS THEY WERE COVERING GO TOO.
+   *
+   * BUGFIX ("I chose book and invite my group, went back and chose book my
+   * seat… the continue button was grayed out", then home showed a live card
+   * for a ride I never booked). Leaving the group hub cancels the host's own
+   * hold, but the seats pay-for-everyone had claimed stayed SEAT_HELD under
+   * their account — the van looked full to them and they looked "on a ride".
+   */
+  if (!booking.isCoveredByLead && !booking.guestName) {
+    try {
+      const group = await prisma.rideGroup.findUnique({
+        where: { tripId: booking.tripId },
+        select: { id: true, isCoverAll: true, leadPassengerId: true },
+      });
+      if (group?.isCoverAll && group.leadPassengerId === userId) {
+        await prisma.$transaction(async (tx) => {
+          await syncCoveredSeatsTx(tx, booking.tripId, userId, false);
+          await tx.rideGroup.update({ where: { id: group.id }, data: { isCoverAll: false } });
+        });
+      }
+    } catch (err) {
+      logger.warn(`Cover-all release failed for ${bookingId}: ${err.message}`);
+    }
+  }
+
   // If this was the last active booking on the trip and the trip hasn't started,
   // revert the trip status back to SCHEDULED so it still shows up in search
   try {
