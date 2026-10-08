@@ -635,7 +635,7 @@ async function getSeatMap(tripId, viewerUserId = null) {
 
   const bookings = await prisma.booking.findMany({
     where: { tripId, ...seatOccupyingWhere() },
-    select: { seatNumber: true, status: true, userId: true, isOffline: true },
+    select: { seatNumber: true, status: true, userId: true, isOffline: true, guestName: true, isCoveredByLead: true },
   });
 
   const seats = Array.from({ length: trip.maxSeats }, (_, i) => {
@@ -650,6 +650,16 @@ async function getSeatMap(tripId, viewerUserId = null) {
         status: displayStatus,
         isOffline: booking?.isOffline || false,
         isMine: !!viewerUserId && booking.userId === viewerUserId,
+        // The viewer's OWN unpaid hold — the one seat createBooking releases
+        // and re-books for them (see "staleHold" there). The picker treats it
+        // as theirs to choose rather than as somebody else's seat on hold;
+        // a guest's seat or a cover-all seat is never this.
+        isMyHold:
+          !!viewerUserId &&
+          booking.userId === viewerUserId &&
+          booking.status === 'SEAT_HELD' &&
+          !booking.guestName &&
+          !booking.isCoveredByLead,
       };
     }
     // A SEAT WITH NO BOOKING IS FREE. Nothing else is defensible.
@@ -669,6 +679,7 @@ async function getSeatMap(tripId, viewerUserId = null) {
       status: 'AVAILABLE',
       isOffline: false,
       isMine: false,
+      isMyHold: false,
     };
   });
 

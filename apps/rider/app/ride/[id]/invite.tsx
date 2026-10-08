@@ -205,15 +205,22 @@ export default function InviteScreen() {
       const heldBookingId = abandonedHoldRef.current;
       if (!heldBookingId) return;
       abandonedHoldRef.current = null;
-      bookingsApi.cancel(heldBookingId).catch(() => {});
       // The rider is going back to a screen that shows seat counts, so the
-      // freed seat has to be visible there rather than on the next poll.
-      queryClient.invalidateQueries({
-        predicate: (q) => {
-          const k = q.queryKey as unknown[];
-          return k[0] === 'trip' || k[0] === 'trips' || k[0] === 'bookings';
-        },
-      });
+      // freed seat has to be visible there rather than on the next poll — and
+      // only AFTER the cancel lands, or the refetch races it and re-reads the
+      // hold. `seats` is the seat picker's key: leaving it stale is how the
+      // rider's own released seat still read "on hold" there.
+      void bookingsApi
+        .cancel(heldBookingId)
+        .catch(() => {})
+        .finally(() =>
+          queryClient.invalidateQueries({
+            predicate: (q) => {
+              const k = q.queryKey as unknown[];
+              return ['trip', 'trips', 'bookings', 'seats', 'rides'].includes(k[0] as string);
+            },
+          }),
+        );
       setActiveBooking(null as any);
     },
     // Mount/unmount only — see the ref note above.
@@ -273,12 +280,20 @@ export default function InviteScreen() {
 
   /**
    * Somebody else is now depending on this seat, so it stops being an abandoned
-   * hold and starts being a group. The host's own row is always in `members`,
-   * which is why the test is "more than one" rather than "any".
+   * hold and starts being a group.
+   *
+   * `members` is everyone ELSE on the trip (the server excludes the host), so
+   * the old "more than one" test needed TWO joiners before the hold was kept —
+   * and on a shared bus it also counted strangers who booked earlier. A joiner
+   * is someone who took a seat after this hold was made.
    */
+  const holdCreatedAt = Date.parse((activeBooking as any)?.createdAt ?? '') || 0;
+  const someoneJoined = members.some(
+    (m: any) => (Date.parse(m?.joinedAt ?? '') || 0) > holdCreatedAt,
+  );
   useEffect(() => {
-    if (members.length > 1) keepHold();
-  }, [members.length, keepHold]);
+    if (someoneJoined) keepHold();
+  }, [someoneJoined, keepHold]);
 
   /**
    * THE MONEY, AS THE SERVER ADDED IT UP.

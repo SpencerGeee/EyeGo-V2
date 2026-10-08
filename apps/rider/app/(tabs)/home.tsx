@@ -976,10 +976,48 @@ export default function HomeScreen() {
           useToastStore
             .getState()
             .show('That request timed out before a driver accepted — nothing was charged.', 'warning');
+        } else if (status === 'COMPLETED') {
+          // Ended while the app was closed — the receipt and rating are still owed.
+          goDeeper(`/ride/${clearedId}/complete` as any);
         }
       })
       .catch(() => {});
   }, [activeRideAnswered, serverActiveTripId, storedPendingRequestId, setPendingTripRequest]);
+
+  /**
+   * A RIDE THAT ENDED WHILE THE APP WAS CLOSED STILL GETS ITS ENDING.
+   *
+   * BUGFIX ("if im on a trip and it ends with the app being closed, when its
+   * opened, it should show a screen that says the trip ended and to rate… it
+   * should be accountable"). The COMPLETED hand-off lives on a socket frame
+   * (TripStatusListener), and a killed app never receives it — so reopening
+   * landed on home with a persisted booking for a ride that was over. When the
+   * server says there is no live ride but this device still holds a booking,
+   * ask the trip once: completed → its receipt; ended any other way → drop it.
+   */
+  // The PERSISTED booking — the server-derived `activeBooking` above already
+  // drops a completed trip, which is exactly the one this needs to see.
+  const storedBooking = useRideStore((s) => s.activeBooking);
+  const endedCheckRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!activeRideAnswered || serverActiveTripId || storedPendingRequestId) return;
+    const tripId: string | null = (storedBooking as any)?.tripId ?? null;
+    if (!tripId || endedCheckRef.current === tripId) return;
+    endedCheckRef.current = tripId;
+    const bookingId: string | null = (storedBooking as any)?.id ?? null;
+    void tripsApi
+      .getById(tripId)
+      .then((res: any) => {
+        const status = res?.data?.data?.trip?.status ?? res?.data?.data?.status ?? null;
+        if (status === 'COMPLETED') {
+          useRideStore.getState().setActiveBooking(null);
+          goDeeper(`/ride/${tripId}/complete${bookingId ? `?bookingId=${bookingId}` : ''}` as any);
+        } else if (['CANCELLED', 'NO_SHOW', 'EXPIRED', 'NO_DRIVERS_FOUND'].includes(status)) {
+          useRideStore.getState().setActiveBooking(null);
+        }
+      })
+      .catch(() => {});
+  }, [activeRideAnswered, serverActiveTripId, storedPendingRequestId, storedBooking]);
 
   // The stored id is a CACHE of the server's answer, so it may only be trusted
   // while the server has not contradicted it. Once `/rides/active` has answered,
@@ -987,6 +1025,28 @@ export default function HomeScreen() {
   const pendingRequestId = activeRideAnswered
     ? serverActiveTripId
     : (storedPendingRequestId ?? serverActiveTripId);
+
+  /**
+   * WHAT THE LIVE CARD IS ABOUT — asked, not assumed.
+   *
+   * BUGFIX ("when i went back to the homepage it was showing me a finding your
+   * driver card and when i clicked on it, it took me to the live tracking
+   * page"). `/rides/active` answers for ANY live seat — including an unpaid
+   * hold on a trip a driver created, which already has its driver. The card
+   * called every one of them "finding your driver" and opened the request
+   * surface, which then (correctly) showed tracking. Three kinds now:
+   *   searching → no driver yet, the request surface;
+   *   hold      → a seat you have not paid for, back to that trip to finish;
+   *   ride      → a booked ride, its live surface.
+   */
+  const serverTripStatus: string | null = serverActiveTrip?.status ?? null;
+  const serverBookingStatus: string | null = serverActiveTrip?.booking?.status ?? null;
+  const liveCardKind: 'searching' | 'hold' | 'ride' =
+    !serverTripStatus || ['REQUESTED', 'MATCHING', 'REASSIGNING'].includes(serverTripStatus)
+      ? 'searching'
+      : serverBookingStatus === 'SEAT_HELD' || serverBookingStatus === 'PENDING'
+        ? 'hold'
+        : 'ride';
 
   const { data: scheduledData } = useQuery({
     queryKey: ['trips', 'scheduled'],
@@ -1295,6 +1355,10 @@ export default function HomeScreen() {
             <Pressable
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                if (liveCardKind === 'hold') {
+                  goDeeper(`/ride/${pendingRequestId}` as any);
+                  return;
+                }
                 morphTo('home-pending-request', () =>
                   goDeeper(
                     `/trip?stage=request&morphId=home-pending-request&resumeRequestId=${pendingRequestId}` as any,
@@ -1312,12 +1376,22 @@ export default function HomeScreen() {
                 >
                   <View style={styles.statusBentoRow}>
                     <View style={[styles.statusBentoIcon, { backgroundColor: withOpacity(colors.primary, 0.12) }]}>
-                      <Ionicons name="search" size={20} color={colors.primary} />
+                      <Ionicons
+                        name={liveCardKind === 'searching' ? 'search' : liveCardKind === 'hold' ? 'time-outline' : 'car-sport-outline'}
+                        size={20}
+                        color={colors.primary}
+                      />
                     </View>
                     <View style={{ flex: 1 }}>
                       <View style={styles.statusBentoLabelRow}>
                         <View style={[styles.statusBentoDot, { backgroundColor: colors.primary }]} />
-                        <Text style={styles.statusBentoLabel}>FINDING YOUR DRIVER</Text>
+                        <Text style={styles.statusBentoLabel}>
+                          {liveCardKind === 'searching'
+                            ? 'FINDING YOUR DRIVER'
+                            : liveCardKind === 'hold'
+                              ? 'SEAT ON HOLD · TAP TO FINISH BOOKING'
+                              : 'YOUR RIDE'}
+                        </Text>
                       </View>
                       <Text style={styles.statusBentoTitle} numberOfLines={1}>
                         {pendingRequestDestination ?? 'Your destination'}

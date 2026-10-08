@@ -2,21 +2,18 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { View, StyleSheet, Pressable, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, type Href } from 'expo-router';
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withSequence,
-  withSpring,
-} from 'react-native-reanimated';
+import { useIsFocused } from '@react-navigation/native';
+import Animated, { FadeInDown } from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { tripsApi, bookingsApi, socketEvents, connectSocket } from '@eyego/api';
 import { useShallow } from 'zustand/react/shallow';
-import { formatGhs } from '@eyego/utils';
+import { formatGhs, clockTime } from '@eyego/utils';
 import { useRideStore } from '../../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
-import { VehicleCabin, layoutFor, type CabinSeat } from '../../../components/seat/VehicleCabin';
+import { VehicleCabin, layoutFor, type CabinSeat, type CabinLayout } from '../../../components/seat/VehicleCabin';
 import { RouteDropoffMap, type RouteDropoff } from '../../../components/seat/RouteDropoffMap';
 import { useThemeStore } from '../../../stores/theme.store';
 import {
@@ -28,6 +25,8 @@ import {
   goDeeper,
   goBack,
   getTierTheme,
+  notify,
+  PulseRing,
 } from '@eyego/ui';
 import type { Seat } from '@eyego/types';
 
@@ -117,6 +116,21 @@ export default function SeatPickerScreen() {
 
   const rawSeats = (data?.data?.data as any)?.seats || (data?.data as any)?.seats || [];
 
+  /**
+   * YOUR OWN HOLD IS YOURS TO PICK.
+   *
+   * BUGFIX ("i chose book and invite my group, went back… on the pick a seat
+   * page the continue button was grayed out"). The group hub holds a seat the
+   * moment it opens, and that hold came back here as PENDING — amber, "someone
+   * else's", unselectable — so on a small car the rider's only seat was the one
+   * they could not touch. The server now marks the viewer's own releasable hold
+   * (`isMyHold`); it reads as free, is chosen for them, and booking it simply
+   * moves the hold (createBooking releases it first).
+   */
+  const myHoldNumbers = useMemo(
+    () => new Set<number>(rawSeats.filter((s: any) => s?.isMyHold).map((s: any) => s.number)),
+    [rawSeats],
+  );
   const seats: Seat[] = useMemo(
     () =>
       rawSeats.map((s: any) => ({
@@ -124,9 +138,14 @@ export default function SeatPickerScreen() {
         number: s.number,
         row: Math.floor((s.number - 1) / SEATS_PER_ROW),
         column: (s.number - 1) % SEATS_PER_ROW,
-        // PENDING = SEAT_HELD (payment not confirmed) — amber, still unselectable.
+        // PENDING = SEAT_HELD by someone else (payment not confirmed) — amber,
+        // unselectable. The rider's own hold is free to them.
         status:
-          s.status === 'AVAILABLE' ? 'AVAILABLE' : s.status === 'PENDING' ? 'PENDING' : 'OCCUPIED',
+          s.status === 'AVAILABLE' || s.isMyHold
+            ? 'AVAILABLE'
+            : s.status === 'PENDING'
+              ? 'PENDING'
+              : 'OCCUPIED',
       })),
     [rawSeats],
   );
@@ -144,6 +163,53 @@ export default function SeatPickerScreen() {
 
   const selectedSeat = seats.find((s) => s.id === selectedId);
   const freeCount = seats.filter((s) => s.status === 'AVAILABLE').length;
+  const cabinLayout = useMemo(() => layoutFor(seatCount || seats.length || 4), [seatCount, seats.length]);
+
+  // Arrive holding a seat → it is already chosen. Once: a rider who then taps
+  // it off has made a choice, and the next seat-map refresh must not undo it.
+  const preselectedRef = useRef(false);
+  useEffect(() => {
+    if (preselectedRef.current || selectedId || myHoldNumbers.size === 0) return;
+    preselectedRef.current = true;
+    setSelectedId(`seat-${Math.min(...myHoldNumbers)}`);
+  }, [myHoldNumbers, selectedId]);
+
+  /**
+   * THE MAP IS LIVE — SAY SO WHEN IT MOVES UNDER YOU.
+   *
+   * Seat updates arrive over the socket. If the seat this rider has chosen is
+   * taken by somebody else in the meantime, the old screen kept it "selected"
+   * and the booking failed at payment. Let go of it here, and tell them.
+   */
+  // Focus-gated: this screen stays mounted under payment, where the rider's
+  // own confirmed booking turns this very seat OCCUPIED.
+  const isFocused = useIsFocused();
+  useEffect(() => {
+    if (!isFocused || !selectedSeat || selectedSeat.status === 'AVAILABLE') return;
+    setSelectedId(null);
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+    notify(`Seat ${selectedSeat.number} was just taken`, 'Pick another — the seat map is live.', { tone: 'info' });
+  }, [selectedSeat, isFocused]);
+
+  const chooseSeat = (seatId: string | null) => {
+    void Haptics.selectionAsync().catch(() => {});
+    setSelectedId(seatId);
+  };
+
+  /** "Pick for me": windows front to back, then the front seat, the bench ends, the rest. */
+  const pickForMe = () => {
+    const free = new Set(seats.filter((x) => x.status === 'AVAILABLE').map((x) => x.number));
+    const { rows, bench, front } = cabinLayout;
+    const order = [
+      ...rows.flatMap((r) => [r.pair[0], r.single].filter((n): n is number => n != null)),
+      ...front,
+      ...bench.filter((_, i) => i === 0 || i === bench.length - 1),
+      ...rows.map((r) => r.pair[1]),
+      ...bench,
+    ];
+    const best = order.find((n) => free.has(n));
+    if (best != null) chooseSeat(`seat-${best}`);
+  };
   const heldCount = seats.filter((s) => (s.status as string) === 'PENDING').length;
   // `trip.tier` is the wire string ('ECO'), so `.tier.name` was always undefined
   // and every tag said "Standard". The tier's own human label instead.
@@ -155,10 +221,13 @@ export default function SeatPickerScreen() {
     ((selectedTrip as any)?.route?.origin && (selectedTrip as any)?.route?.destination
       ? `${(selectedTrip as any).route.origin} → ${(selectedTrip as any).route.destination}`
       : null);
-  const bodyLabel = `${layoutFor(seatCount || seats.length || 4).label} ${seatCount || seats.length}-Seater`;
-  const subtitle = seats.length
-    ? `${routeName ? `${routeName} • ` : ''}${bodyLabel} • ${freeCount} free`
-    : null;
+  const bodyLabel = `${cabinLayout.label} · ${seatCount || seats.length} seats`;
+  const shortPlace = (v: unknown): string | null =>
+    typeof v === 'string' && v.trim() ? v.split(',')[0].trim() : null;
+  const fromName = shortPlace((selectedTrip as any)?.origin?.address);
+  const toName = shortPlace((selectedTrip as any)?.destination?.address);
+  const routeLabel = fromName && toName ? `${fromName} → ${toName}` : routeName;
+  const departs = (selectedTrip as any)?.departureTime ? clockTime((selectedTrip as any).departureTime) : null;
 
   /**
    * ── WHERE DO YOU GET OFF? ───────────────────────────────────────────────
@@ -271,7 +340,34 @@ export default function SeatPickerScreen() {
     <SafeAreaView style={styles.safe}>
       <AppBackground variant="static" isDark={isDark} />
 
-      <Header colors={colors} styles={styles} subtitle={subtitle} />
+      <Header colors={colors} styles={styles} subtitle={routeLabel} />
+
+      {/* The trip at a glance — when it leaves, how many seats are left (live),
+          and what you are getting into. */}
+      {seats.length ? (
+        <Animated.View entering={FadeInDown.duration(320)} style={styles.facts}>
+          {departs && departs !== '—' ? (
+            <View style={styles.fact}>
+              <Ionicons name="time-outline" size={14} color={colors.onSurfaceVariant} />
+              <Text style={styles.factText}>Leaves {departs}</Text>
+            </View>
+          ) : null}
+          <View style={[styles.fact, freeCount > 0 && freeCount <= 2 ? { borderColor: colors.statusWarning } : null]}>
+            <PulseRing size={14} ringCount={1} color={freeCount > 2 ? colors.primary : colors.statusWarning}>
+              <View
+                style={[styles.liveDot, { backgroundColor: freeCount > 2 ? colors.primary : colors.statusWarning }]}
+              />
+            </PulseRing>
+            <Text style={styles.factText}>
+              {freeCount === 0 ? 'Full' : `${freeCount} left${freeCount <= 2 ? ' · filling fast' : ''}`}
+            </Text>
+          </View>
+          <View style={styles.fact}>
+            <Ionicons name="car-sport-outline" size={14} color={colors.onSurfaceVariant} />
+            <Text style={styles.factText}>{bodyLabel}</Text>
+          </View>
+        </Animated.View>
+      ) : null}
 
       {/*
         THE CABIN.
@@ -300,7 +396,7 @@ export default function SeatPickerScreen() {
           selectedId={selectedId}
           onSelect={(seat: CabinSeat) => {
             if (seat.status !== 'AVAILABLE') return;
-            setSelectedId(selectedId === seat.id ? null : seat.id);
+            chooseSeat(selectedId === seat.id ? null : seat.id);
           }}
           colors={colors as unknown as Record<string, string>}
           accent={colors.primary}
@@ -391,11 +487,37 @@ export default function SeatPickerScreen() {
         <View style={styles.sheetRow}>
           <View style={{ flex: 1 }}>
             <Text variant="caption" color={colors.onSurfaceVariant}>
-              {selectedSeat ? 'Your seat' : 'Pick a seat to continue'}
+              {selectedSeat
+                ? myHoldNumbers.has(selectedSeat.number)
+                  ? 'Your seat · already held for you'
+                  : 'Your seat'
+                : freeCount > 0
+                  ? 'Tap a lit seat, or'
+                  : 'This ride is full'}
             </Text>
-            <Text style={styles.sheetValue} numberOfLines={1}>
-              {selectedSeat ? `Seat ${selectedSeat.number}` : '—'}
-            </Text>
+            {selectedSeat ? (
+              <Animated.View key={selectedSeat.id} entering={FadeInDown.duration(220)}>
+                <Text style={styles.sheetValue} numberOfLines={1}>
+                  Seat {selectedSeat.number}
+                </Text>
+                <Text variant="caption" color={colors.primary} numberOfLines={1}>
+                  {describeSeat(selectedSeat.number, cabinLayout)}
+                </Text>
+              </Animated.View>
+            ) : freeCount > 0 ? (
+              <Pressable
+                onPress={pickForMe}
+                hitSlop={8}
+                style={styles.pickForMe}
+                accessibilityRole="button"
+                accessibilityLabel="Pick the best seat for me"
+              >
+                <Ionicons name="sparkles" size={14} color={colors.primary} />
+                <Text style={[styles.pickForMeText, { color: colors.primary }]}>Pick the best seat for me</Text>
+              </Pressable>
+            ) : (
+              <Text style={styles.sheetValue}>—</Text>
+            )}
           </View>
           {farePesewas != null ? (
             <View style={styles.fareBlock}>
@@ -406,11 +528,29 @@ export default function SeatPickerScreen() {
             </View>
           ) : null}
         </View>
-        <Button variant="glow" label="Confirm seat" onPress={handleConfirm} disabled={!selectedId} />
+        <Button
+          variant="glow"
+          label={selectedSeat ? `Continue with seat ${selectedSeat.number}` : 'Choose a seat'}
+          onPress={handleConfirm}
+          disabled={!selectedId}
+        />
         </View>
       </MorphSheet>
     </SafeAreaView>
   );
+}
+
+/** Where a seat is, in the words a rider uses: window or aisle, which row. */
+function describeSeat(n: number, layout: CabinLayout): string {
+  if (layout.front.includes(n)) return 'Front · beside the driver';
+  const ri = layout.rows.findIndex((r) => r.pair.includes(n) || r.single === n);
+  if (ri >= 0) {
+    const r = layout.rows[ri];
+    return `${r.pair[1] === n ? 'Aisle' : 'Window'} · Row ${ri + 1}`;
+  }
+  const bi = layout.bench.indexOf(n);
+  if (bi >= 0) return bi === 0 || bi === layout.bench.length - 1 ? 'Back row · window' : 'Back row · middle';
+  return '';
 }
 
 function AlightChip({
@@ -470,9 +610,9 @@ function Header({
         <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
       </Pressable>
       <View style={{ flex: 1 }}>
-        <Text style={styles.title}>Select seat</Text>
+        <Text style={styles.title}>Pick your seat</Text>
         {subtitle ? (
-          <Text variant="caption" color={colors.onSurfaceVariant}>
+          <Text variant="caption" color={colors.onSurfaceVariant} numberOfLines={1}>
             {subtitle}
           </Text>
         ) : null}
@@ -636,6 +776,28 @@ const makeStyles = (colors: Colors) =>
       borderColor: `${colors.onSurface}14`,
     },
 
+    facts: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: spacing.sm,
+      paddingHorizontal: spacing.xl,
+      marginBottom: spacing.md,
+    },
+    fact: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingHorizontal: spacing.md,
+      paddingVertical: 6,
+      borderRadius: radii.full,
+      backgroundColor: `${colors.surfaceContainerHigh}CC`,
+      borderWidth: 1,
+      borderColor: `${colors.onSurface}14`,
+    },
+    factText: { fontFamily: fonts.medium, fontSize: fontSizes.caption, color: colors.onSurface },
+    liveDot: { width: 7, height: 7, borderRadius: 3.5 },
+    pickForMe: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
+    pickForMeText: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodyMedium },
     sheet: { paddingHorizontal: spacing['2xl'], paddingBottom: spacing.md },
     /* The gap belongs here, on the view that holds both the row and the button
        — see the note at the MorphSheet. */
