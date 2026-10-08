@@ -55,7 +55,10 @@ export default function AddPassengerScreen() {
     staleTime: 10_000,
   });
 
-  const maxSeats: number = trip?.maxSeats ?? trip?.vehicle?.seatCapacity ?? 14;
+  // `seatCapacity` is not a Vehicle column (it is `seaterCount`), and `?? 14`
+  // offered fourteen seats on a four-seat car until the trip loaded. Unknown
+  // capacity is 0 — nothing to sell — until the trip says otherwise.
+  const maxSeats: number = trip?.maxSeats ?? trip?.vehicle?.seaterCount ?? 0;
 
   /**
    * ── A BOOKING CAN BE MORE THAN ONE PERSON ──────────────────────────────────
@@ -285,7 +288,8 @@ export default function AddPassengerScreen() {
             * seat must exist, so the error must be a fault. Refusing up front,
             * with the reason, is the difference between a rule and a failure.
             */}
-          {mode === 'select' && (isPrivateRide || firstFreeSeat == null) && (
+          {/* `trip &&`: while it loads, capacity is unknown (0) — that is not "full". */}
+          {mode === 'select' && !!trip && (isPrivateRide || firstFreeSeat == null) && (
             <Entrance animation="slideDown" style={styles.optionsContainer}>
               <View style={styles.blockedCard}>
                 <View style={[styles.optionIcon, { backgroundColor: `${colors.onSurfaceVariant}22` }]}>

@@ -200,7 +200,7 @@ export default function TripCompleteScreen() {
    * payload that predates it. Both now answer in the same unit.
    */
   const boarded = sold?.seatCount ?? bookings.reduce((n: number, b: any) => n + seatsOf(b), 0);
-  const total = completedTrip?.maxSeats ?? 14;
+  const total = completedTrip?.maxSeats ?? boarded;
   const surchargesPesewas = sold?.surchargesPesewas ?? 0;
   const farePerSeatPesewas =
     sold?.perSeatPesewas ??

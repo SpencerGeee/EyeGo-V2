@@ -589,7 +589,7 @@ export default function RideDetailScreen() {
                 transition={{ type: 'spring', ...springs.snappy, delay: 65 }}
               >
                 <SeatBar
-                  total={trip?.totalSeats ?? 10}
+                  total={totalSeats ?? 0}
                   confirmed={occupiedSeats}
                   pending={0}
                 />
