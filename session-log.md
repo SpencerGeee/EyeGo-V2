@@ -474,3 +474,14 @@ Decisions:
 - Scheduled intents hold no money; a stale expiry now tells the rider.
 Rejected: hard wallet block on deletion (impossible below withdrawal minimum / no rider withdrawal); blacklisting before the guard.
 Open: KYC retention period; migration 20261007120000 needs `prisma migrate deploy`; new build/OTA for client changes.
+
+## 2026-10-08 00:50 [saved]
+Goal: Demo-ready UI pass (page kit, browse map, Notify me) plus app-wide hidden-bug sweep.
+Decisions:
+- Every user-facing date/money string goes through @eyego/utils (dates.ts, money.ts); toLocale* differs per platform ICU.
+- The paying phone number decides the MoMo network; stored MOMO_MTN on bookings is not evidence of the rider's SIM.
+- Removed social sign-in UI: server verifies Firebase tokens and the app never exchanged for one.
+- Browse sheet: only the header drags; list pads by the hidden sheet height so every row stays reachable.
+- A failed load is never rendered as empty or as fallback data (quests, notifications, activity).
+Rejected: fake offline fallback content; hardcoded fares/ETAs/feature claims ("AC · WIFI", "TOP PICK").
+Open: prod API deploy + prisma migrate deploy (two 20261007 migrations); eyego.app universal-link domain.
