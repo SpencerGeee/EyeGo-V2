@@ -9,7 +9,7 @@ import { TAB_BAR_BASE_HEIGHT } from './_layout';
 import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { bookingsApi, notificationsApi, queryKeys } from '@eyego/api';
-import { relativeTime, formatGhs } from '@eyego/utils';
+import { relativeTime, formatGhs, shortDateTime } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 // `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
@@ -455,9 +455,7 @@ function LiveScheduledCard({
           </Text>
         </View>
         <Text style={styles.liveStatus}>
-          {new Date(intent.scheduledAt).toLocaleString('en-GH', {
-            weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-          })}
+          {shortDateTime(intent.scheduledAt)}
           {'  ·  '}
           {SCHEDULED_STATUS_LABEL[intent.status] ?? intent.status}
         </Text>
@@ -521,9 +519,7 @@ function ScheduledItem({
           )}
         </Text>
         <Text style={styles.itemMeta}>
-          {new Date(intent.scheduledAt).toLocaleString('en-GH', {
-            weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-          })}
+          {shortDateTime(intent.scheduledAt)}
           {'  ·  '}{intent.seatCount} seat{intent.seatCount > 1 ? 's' : ''}
         </Text>
         <View style={[styles.statusChip, { backgroundColor: withOpacity(statusColor, 0.15) }]}>
@@ -669,6 +665,7 @@ export default function ActivityScreen() {
   const {
     data: bookings,
     isLoading: bookingsLoading,
+    isError: bookingsError,
     isRefetching: bookingsRefetching,
     refetch: refetchBookings,
   } = useQuery({
@@ -681,6 +678,7 @@ export default function ActivityScreen() {
   const {
     data: notifications,
     isLoading: notifsLoading,
+    isError: notifsError,
     isRefetching: notifsRefetching,
     refetch: refetchNotifs,
   } = useQuery({
@@ -692,6 +690,7 @@ export default function ActivityScreen() {
   const {
     data: scheduledData,
     isLoading: scheduledLoading,
+    isError: scheduledError,
     isRefetching: scheduledRefetching,
     refetch: refetchScheduled,
   } = useQuery({
@@ -775,6 +774,12 @@ export default function ActivityScreen() {
     filter === 'trips' ? bookingsRefetching :
     filter === 'alerts' ? notifsRefetching :
     scheduledRefetching;
+  // A failed load is not an empty history — say so, with a retry.
+  const loadFailed =
+    filter === 'trips' ? bookingsError && !bookings :
+    filter === 'alerts' ? notifsError && !notifications :
+    scheduledError && !scheduledData;
+
   const onRefresh = useCallback(() => {
     if (filter === 'trips') refetchBookings();
     else if (filter === 'alerts') refetchNotifs();
@@ -809,7 +814,22 @@ export default function ActivityScreen() {
         </View>
       </Entrance>
 
-      {filter === 'scheduled' ? (
+      {loadFailed ? (
+        <View style={styles.emptyWrap}>
+          <Ionicons name="cloud-offline-outline" size={44} color={colors.onSurfaceVariant} />
+          <Text style={styles.emptyText}>Couldn’t load your activity</Text>
+          <Text style={styles.emptyHint}>Check your connection and try again.</Text>
+          <Pressable
+            style={({ pressed }) => [styles.emptyCta, pressed && { opacity: 0.8 }, { marginTop: spacing.lg }]}
+            onPress={onRefresh}
+            accessibilityRole="button"
+            accessibilityLabel="Try again"
+          >
+            <Ionicons name="refresh" size={16} color={colors.onSurface} />
+            <Text style={styles.emptyCtaText}>Try again</Text>
+          </Pressable>
+        </View>
+      ) : filter === 'scheduled' ? (
         scheduledLoading && !isRefreshing ? (
           <View style={styles.center}>
             <Loader size={20} color={colors.primary} />

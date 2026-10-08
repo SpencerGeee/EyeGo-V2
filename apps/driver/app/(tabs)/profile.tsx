@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { formatGhs } from '@eyego/utils';
+import { formatGhs, monthYear } from '@eyego/utils';
 import { View, StyleSheet, Pressable, Alert, RefreshControl } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
@@ -146,7 +146,7 @@ export default function ProfileScreen() {
         <View style={styles.statRule} />
         <Stat
           label="Driving since"
-          value={since ? new Date(since).toLocaleDateString('en-GH', { month: 'short', year: 'numeric' }) : '—'}
+          value={since ? monthYear(since) : '—'}
           styles={styles}
         />
       </View>

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { formatGhs, pesewasFromCedis, describeError } from '@eyego/utils';
+import { formatGhs, pesewasFromCedis, describeError, dayMonth, clockTime } from '@eyego/utils';
 import { View, StyleSheet, Pressable, TextInput, Keyboard, Alert, RefreshControl } from 'react-native';
 import { KeyboardStickyView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -445,7 +445,7 @@ export default function EarningsScreen() {
                     </View>
                   }
                   title={tx.description || (credit ? 'Wallet credit' : 'Wallet debit')}
-                  subtitle={`${when.toLocaleDateString('en-GH', { day: 'numeric', month: 'short' })} · ${when.toLocaleTimeString('en-GH', { hour: 'numeric', minute: '2-digit' })}`}
+                  subtitle={`${dayMonth(when)} · ${clockTime(when)}`}
                   subtitleLines={1}
                   value={`${credit ? '+' : '−'}${formatGhs(Math.abs(amount))}`}
                   valueColor={credit ? colors.online : colors.error}

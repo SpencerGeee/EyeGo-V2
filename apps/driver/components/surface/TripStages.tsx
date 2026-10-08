@@ -2,7 +2,7 @@ import React, { useCallback, useMemo, useRef } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { formatGhs } from '@eyego/utils';
+import { formatGhs, clockTime } from '@eyego/utils';
 import {
   Text,
   Pressable,
@@ -99,7 +99,7 @@ export function TripStages({ stage, trip, eta, onManage }: TripStagesProps) {
     const raw = trip.departureTime ?? trip.scheduledAt ?? null;
     if (!raw) return null;
     const d = new Date(raw);
-    return Number.isNaN(d.getTime()) ? null : d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    return Number.isNaN(d.getTime()) ? null : clockTime(d);
   })();
 
   const headline =

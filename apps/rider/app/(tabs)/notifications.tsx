@@ -1,7 +1,7 @@
 ﻿import React, { useMemo, useCallback, useState } from 'react';
 import { View, StyleSheet, Pressable, RefreshControl } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing, cancelAnimation } from 'react-native-reanimated';
-import { AnimatedList, goDeeper, useLoopsActive } from '@eyego/ui';
+import { AnimatedList, goDeeper, goBack, useLoopsActive } from '@eyego/ui';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, type Href } from 'expo-router';
 import { Entrance } from '@eyego/ui';
@@ -100,7 +100,6 @@ function NotificationCard({
           <GlassSurface
             borderRadius={radii.xl}
             intensity={item.read ? 'low' : 'high'}
-            dark
             style={StyleSheet.absoluteFill}
           />
           {!item.read && <View style={styles.unreadStripe} />}
@@ -141,6 +140,7 @@ export default function NotificationsScreen() {
   const {
     notifications: allNotifications,
     isLoading,
+    isError,
     isRefetching,
     refetch,
     hasUnread,
@@ -176,7 +176,18 @@ export default function NotificationsScreen() {
     <SafeAreaView style={styles.safe} edges={['top']}>
       {/* Header */}
       <Entrance animation="slideDown" duration={300} style={styles.header}>
-        <Text variant="headlineMedium">Notifications</Text>
+        {/* A hidden tab opened from the Home bell: without this there was no
+            way back except guessing at the tab bar. */}
+        <Pressable
+          onPress={() => goBack('/(tabs)/home')}
+          hitSlop={10}
+          style={styles.backBtn}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
+          <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
+        </Pressable>
+        <Text variant="headlineMedium" style={{ flex: 1 }}>Notifications</Text>
         {hasUnread && (
           <Pressable
             onPress={markAllRead}
@@ -216,6 +227,22 @@ export default function NotificationsScreen() {
       {isLoading ? (
         <View style={styles.list}>
           {[...Array(5)].map((_, i) => <SkeletonCard key={i} />)}
+        </View>
+      ) : isError ? (
+        // A failed load is not "All caught up!".
+        <View style={styles.empty}>
+          <View style={styles.emptyIconWrapper}>
+            <Ionicons name="cloud-offline-outline" size={44} color={colors.onSurfaceVariant} style={{ opacity: 0.5 }} />
+          </View>
+          <Text variant="titleMedium" style={{ marginTop: spacing.base }}>Couldn’t load notifications</Text>
+          <Pressable
+            onPress={() => void refetch()}
+            style={styles.retry}
+            accessibilityRole="button"
+            accessibilityLabel="Try again"
+          >
+            <Text variant="label" color={colors.primary}>Try again</Text>
+          </Pressable>
         </View>
       ) : (
         <AnimatedList
@@ -260,11 +287,27 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   safe: { flex: 1, backgroundColor: 'transparent' },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    gap: spacing.md,
     paddingHorizontal: spacing['2xl'],
     paddingTop: spacing.xl,
     paddingBottom: spacing.sm,
+  },
+  backBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surfaceContainer,
+  },
+  retry: {
+    marginTop: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    borderRadius: radii.full,
+    borderWidth: 1,
+    borderColor: withOpacity(colors.primary, 0.4),
   },
   categoryRow: {
     flexDirection: 'row',

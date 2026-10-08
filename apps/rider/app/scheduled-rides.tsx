@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { formatGhs } from '@eyego/utils';
+import { formatGhs, relativeDayTime, shortDateTime } from '@eyego/utils';
 import { View, StyleSheet, FlatList, Alert, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -106,9 +106,7 @@ export default function ScheduledRidesScreen() {
                     </Text>
                   </View>
                   <Text style={styles.liveTime}>
-                    {new Date(liveIntent.scheduledAt).toLocaleString('en-GH', {
-                      weekday: 'short', hour: '2-digit', minute: '2-digit',
-                    })}
+                    {relativeDayTime(liveIntent.scheduledAt)}
                   </Text>
                 </View>
                 <View style={styles.liveDestRow}>
@@ -166,9 +164,7 @@ export default function ScheduledRidesScreen() {
                 </Text>
               </View>
               <Text style={styles.meta}>
-                {new Date(item.scheduledAt).toLocaleString('en-GH', {
-                  weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-                })}
+                {shortDateTime(item.scheduledAt)}
                 {'  ·  '}{item.seatCount} seat{item.seatCount > 1 ? 's' : ''}
                 {item.route?.distanceKm != null ? `  ·  ${item.route.distanceKm.toFixed(1)} km` : ''}
               </Text>

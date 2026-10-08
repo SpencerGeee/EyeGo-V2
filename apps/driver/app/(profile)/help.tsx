@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi, type DriverSupportTicket } from '@eyego/api';
-import { formatGhs, describeError } from '@eyego/utils';
+import { formatGhs, describeError, dayMonth, dayMonthTime } from '@eyego/utils';
 import { fonts, radii } from '@eyego/config';
 import { Text, Button, Screen, ListSection, ListRow, SkeletonRows, notify } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
@@ -29,7 +29,7 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 const shortDate = (iso?: string) =>
-  iso ? new Date(iso).toLocaleDateString('en-GH', { day: 'numeric', month: 'short' }) : '';
+  iso ? dayMonth(iso) : '';
 
 /**
  * HELP — get help first, then your open requests, then answers (rival spec
@@ -253,7 +253,7 @@ export default function HelpScreen() {
                   <View key={m.id} style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleTheirs]}>
                     <Text variant="bodySmall" color={colors.onSurface}>{m.text}</Text>
                     <Text variant="caption" color={colors.onSurfaceVariant}>
-                      {fromSupport ? 'EyeGo Support' : mine ? 'You' : 'Rider'} · {m.createdAt ? new Date(m.createdAt).toLocaleString('en-GH', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : ''}
+                      {fromSupport ? 'EyeGo Support' : mine ? 'You' : 'Rider'} · {m.createdAt ? dayMonthTime(m.createdAt) : ''}
                     </Text>
                   </View>
                 );

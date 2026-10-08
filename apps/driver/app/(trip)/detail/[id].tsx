@@ -1,5 +1,5 @@
 import React, { useMemo, useEffect } from 'react';
-import { formatGhs, originLabel, destinationLabel } from '@eyego/utils';
+import { formatGhs, originLabel, destinationLabel, shortDateTime, seatsOf } from '@eyego/utils';
 import { View, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -79,20 +79,42 @@ export default function TripDetailScreen() {
   const isSettled = (b: TripBooking) =>
     b.paymentStatus === 'PAID' || ['CONFIRMED', 'BOARDED', 'COMPLETED'].includes(b.status);
   const activeBookings = (trip?.bookings ?? []).filter((b: TripBooking) => !RELEASED.includes(b.status) && isSettled(b));
-  const boardedCount = activeBookings.length;
+  // Seats, not rows: one booking can carry a whole party (Booking.seats).
+  const boardedCount = activeBookings.reduce((n: number, b: any) => n + seatsOf(b), 0);
+  // History lists cancelled and expired trips too; this chip said "Completed"
+  // on every one of them.
+  const tripStatus = String(trip?.status ?? '');
+  const statusChip =
+    tripStatus === 'COMPLETED'
+      ? { label: 'Completed', tint: '#22C55E' }
+      : tripStatus === 'CANCELLED'
+        ? { label: 'Cancelled', tint: colors.error }
+        : tripStatus === 'EXPIRED'
+          ? { label: 'Expired', tint: colors.onSurfaceVariant }
+          : tripStatus === 'NO_SHOW'
+            ? { label: 'No-show', tint: colors.error }
+            : { label: 'In progress', tint: colors.primary };
   // D24: guard against trip being undefined before reduce
   // "Total Earned" is the driver's net cut, not the raw fare — subtract each
   // booking's actual commissionAmountPesewas (falling back to trip.commissionRate
   // for legacy bookings that predate the column).
-  const earnedTotal = trip
-    ? activeBookings.reduce((s: number, b: any) => {
-        const gross = parseFloat(b.fareAmountPesewas) || trip.farePerSeatPesewas || 0;
-        const commission = b.commissionAmountPesewas != null
-          ? parseFloat(b.commissionAmountPesewas)
-          : gross * (trip.commissionRate ?? 0.15);
-        return s + (gross - commission);
-      }, 0)
-    : 0;
+  // Fares, commission and net, so the breakdown adds up on screen. A booking
+  // with no stored fare falls back to the per-seat fare × ITS seats (the old
+  // fallback priced a three-seat party as one seat).
+  const totals = trip
+    ? activeBookings.reduce(
+        (acc: { gross: number; commission: number }, b: any) => {
+          const gross = Number(b.fareAmountPesewas) || (trip.farePerSeatPesewas || 0) * seatsOf(b);
+          const commission =
+            b.commissionAmountPesewas != null
+              ? Number(b.commissionAmountPesewas) || 0
+              : Math.round(gross * (trip.commissionRate ?? 0.15));
+          return { gross: acc.gross + gross, commission: acc.commission + commission };
+        },
+        { gross: 0, commission: 0 },
+      )
+    : { gross: 0, commission: 0 };
+  const earnedTotal = totals.gross - totals.commission;
 
   // D22: safe date construction
   const departureDate = trip?.departureTime ? new Date(trip.departureTime) : null;
@@ -101,8 +123,6 @@ export default function TripDetailScreen() {
     departureDate && !isNaN(departureDate.getTime()) && arrivedDate && !isNaN(arrivedDate.getTime())
       ? Math.round((arrivedDate.getTime() - departureDate.getTime()) / 60000)
       : null;
-
-  const ratingReceived = (trip as any)?.ratingReceived ?? null;
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -147,11 +167,11 @@ export default function TripDetailScreen() {
                 <Ionicons name="calendar-outline" size={13} color={colors.onSurfaceVariant} />
                 <Text variant="caption" color={colors.onSurfaceVariant}>
                   {departureDate && !isNaN(departureDate.getTime())
-                    ? departureDate.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+                    ? shortDateTime(departureDate)
                     : '—'}
                 </Text>
-                <View style={[styles.statusChip, { backgroundColor: '#22C55E20', borderColor: '#22C55E55' }]}>
-                  <Text style={{ fontFamily: fonts.semiBold, fontSize: 10, color: '#22C55E' }}>Completed</Text>
+                <View style={[styles.statusChip, { backgroundColor: `${statusChip.tint}20`, borderColor: `${statusChip.tint}55` }]}>
+                  <Text style={{ fontFamily: fonts.semiBold, fontSize: 10, color: statusChip.tint }}>{statusChip.label}</Text>
                 </View>
               </View>
             </>
@@ -194,31 +214,10 @@ export default function TripDetailScreen() {
           </View>
         </Entrance>
 
-        {/* Rating received */}
-        <Entrance animation="slideDown" delay={160} style={styles.card}>
-          <Text style={styles.cardTitle}>Your Rating</Text>
-          {ratingReceived != null ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.sm }}>
-              <View style={{ flexDirection: 'row', gap: 4 }}>
-                {[1, 2, 3, 4, 5].map((s) => (
-                  <Ionicons
-                    key={s}
-                    name={s <= ratingReceived ? 'star' : 'star-outline'}
-                    size={20}
-                    color="#F59E0B"
-                  />
-                ))}
-              </View>
-              <Text style={{ fontFamily: fonts.displayBold, fontSize: fontSizes.titleSmall, color: colors.onSurface }}>
-                {ratingReceived.toFixed(1)}
-              </Text>
-            </View>
-          ) : (
-            <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={{ paddingVertical: spacing.sm }}>
-              No rating received for this trip yet.
-            </Text>
-          )}
-        </Entrance>
+        {/* No per-trip rating card: ratings are anonymous by design (a
+            rating tied to a two-seat trip names the rider), and the server
+            never sent one — the card could only ever say "No rating yet".
+            The driver's average lives under Ratings & performance. */}
 
         {/* Passenger breakdown */}
         {activeBookings.length > 0 && (
@@ -240,14 +239,19 @@ export default function TripDetailScreen() {
                 >
                   <View style={styles.passengerAvatar}>
                     <Text style={{ fontFamily: fonts.displayBold, fontSize: 14, color: colors.primary }}>
-                      {(booking.user?.name ?? 'P')[0]?.toUpperCase()}
+                      {(((booking as any).guestName ?? booking.user?.name ?? 'P') as string)[0]?.toUpperCase()}
                     </Text>
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontFamily: fonts.semiBold, fontSize: fontSizes.bodyMedium, color: colors.onSurface }}>
-                      {booking.user?.name ?? `Seat ${booking.seatNumber ?? '—'}`}
+                      {/* The guest first: they are who was in the seat. */}
+                      {(booking as any).guestName ?? booking.user?.name ?? `Seat ${booking.seatNumber ?? '—'}`}
                     </Text>
-                    <Text variant="caption" color={colors.onSurfaceVariant}>Seat {booking.seatNumber ?? '—'} · {booking.paymentStatus === 'PAID' ? 'Paid' : booking.paymentStatus === 'PENDING' ? 'Cash' : bookingStatusLabel(booking.status)}</Text>
+                    <Text variant="caption" color={colors.onSurfaceVariant}>
+                      {seatsOf(booking as any) > 1 ? `${seatsOf(booking as any)} seats` : `Seat ${booking.seatNumber ?? '—'}`}
+                      {' · '}
+                      {booking.paymentStatus === 'PAID' ? 'Paid' : booking.paymentStatus === 'PENDING' ? 'Cash' : bookingStatusLabel(booking.status)}
+                    </Text>
                   </View>
                   {/* D16: fallback for unknown booking status values */}
                   {/* COMPLETED is the status every boarded booking ends on, and
@@ -275,9 +279,17 @@ export default function TripDetailScreen() {
         <Entrance animation="slideDown" delay={240} style={[styles.card, { gap: spacing.sm }]}>
           <Text style={styles.cardTitle}>Earnings Breakdown</Text>
           <View style={styles.earningsRow}>
-            <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Fare × passengers</Text>
+            <Text variant="bodyMedium" color={colors.onSurfaceVariant}>
+              Fares · {boardedCount} seat{boardedCount === 1 ? '' : 's'}
+            </Text>
             <Text style={{ fontFamily: fonts.semiBold, fontSize: fontSizes.bodyMedium, color: colors.onSurface }}>
-              {formatGhs((trip?.farePerSeatPesewas ?? 0))} × {boardedCount}
+              {formatGhs(totals.gross)}
+            </Text>
+          </View>
+          <View style={styles.earningsRow}>
+            <Text variant="bodyMedium" color={colors.onSurfaceVariant}>EyeGo commission</Text>
+            <Text style={{ fontFamily: fonts.semiBold, fontSize: fontSizes.bodyMedium, color: colors.onSurfaceVariant }}>
+              {formatGhs(-totals.commission)}
             </Text>
           </View>
           <View style={[styles.earningsRow, { paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.outlineVariant }]}>

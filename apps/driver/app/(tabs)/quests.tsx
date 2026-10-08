@@ -6,91 +6,13 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { questsApi } from '@eyego/api';
 import type { DriverQuest } from '@eyego/api';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { spacing, radii } from '@eyego/config';
 import { Text, Skeleton, EmptyState, Entrance, notify } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../utils/useColors';
-import { useDriverStore } from '../../stores/driver.store';
 import QuestCard from '../../components/QuestCard';
-
-// Production-ready fallback quests shown when the API is unavailable
-const FALLBACK_QUESTS: DriverQuest[] = [
-  {
-    id: 'fq-1',
-    title: 'Morning Rush',
-    description: 'Complete 3 trips between 6am and 9am to earn a peak-hour bonus.',
-    type: 'RIDES_COUNT',
-    target: 3,
-    rewardAmountPesewas: 1200,
-    periodStart: new Date().toISOString(),
-    periodEnd: new Date(Date.now() + 86400000).toISOString(),
-    isActive: true,
-    progress: { current: 0, completed: false, rewardedAt: null },
-  },
-  {
-    id: 'fq-2',
-    title: 'Weekend Warrior',
-    description: 'Complete 10 trips over the weekend to unlock a bonus reward.',
-    type: 'RIDES_COUNT',
-    target: 10,
-    rewardAmountPesewas: 2500,
-    periodStart: new Date().toISOString(),
-    periodEnd: new Date(Date.now() + 2 * 86400000).toISOString(),
-    isActive: true,
-    progress: { current: 0, completed: false, rewardedAt: null },
-  },
-  {
-    id: 'fq-3',
-    title: 'Earnings Sprint',
-    description: 'Earn GHS 100 in a single day to receive a performance bonus.',
-    type: 'EARNINGS',
-    target: 100,
-    rewardAmountPesewas: 1500,
-    periodStart: new Date().toISOString(),
-    periodEnd: new Date(Date.now() + 86400000).toISOString(),
-    isActive: true,
-    progress: { current: 0, completed: false, rewardedAt: null },
-  },
-  {
-    id: 'fq-4',
-    title: 'Full House',
-    description: 'Complete 2 trips with all seats filled to earn a full-capacity bonus.',
-    type: 'RIDES_COUNT',
-    target: 2,
-    rewardAmountPesewas: 1000,
-    periodStart: new Date().toISOString(),
-    periodEnd: new Date(Date.now() + 3 * 86400000).toISOString(),
-    isActive: true,
-    progress: { current: 0, completed: false, rewardedAt: null },
-  },
-  {
-    id: 'fq-5',
-    title: 'Weekly Champion',
-    description: 'Earn GHS 500 this week to claim the weekly top-driver reward.',
-    type: 'EARNINGS',
-    target: 500,
-    rewardAmountPesewas: 5000,
-    periodStart: new Date().toISOString(),
-    periodEnd: new Date(Date.now() + 7 * 86400000).toISOString(),
-    isActive: true,
-    progress: { current: 0, completed: false, rewardedAt: null },
-  },
-  {
-    id: 'fq-6',
-    title: 'Night Owl',
-    description: 'Complete 5 trips between 8pm and midnight this week.',
-    type: 'RIDES_COUNT',
-    target: 5,
-    rewardAmountPesewas: 1800,
-    periodStart: new Date().toISOString(),
-    periodEnd: new Date(Date.now() + 7 * 86400000).toISOString(),
-    isActive: true,
-    progress: { current: 0, completed: false, rewardedAt: null },
-  },
-];
 
 export default function QuestsScreen() {
   const colors = useColors();
-  const theme = useDriverStore(s => s.theme);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const queryClient = useQueryClient();
   const [claimingId, setClaimingId] = useState<string | null>(null);
@@ -111,7 +33,11 @@ export default function QuestsScreen() {
       queryClient.invalidateQueries({ queryKey: ['driver', 'me'] });
       queryClient.invalidateQueries({ queryKey: ['driver', 'wallet'] });
       const amount = res?.data?.data?.rewardAmountPesewas;
-      notify('Bonus Claimed!', typeof amount === 'number' ? `${formatGhs(amount)} added to your wallet.` : 'Your bonus has been added to your wallet.');
+      notify(
+        'Bonus claimed',
+        typeof amount === 'number' ? `${formatGhs(amount)} added to your wallet.` : 'Your bonus has been added to your wallet.',
+        { tone: 'success' },
+      );
     },
     onError: (err: any) => {
       const code = err?.response?.data?.errors?.[0]?.code ?? err?.response?.data?.code;
@@ -131,15 +57,10 @@ export default function QuestsScreen() {
     retry: 1,
   });
 
-  // Fall back to static quests ONLY when the API is unreachable (offline).
-  // Previously an empty *successful* response also triggered the fallback, which
-  // masked the real "no quests seeded" state and showed frozen 0-progress cards
-  // that never updated after a completed ride. Now an empty response renders a
-  // genuine empty state and real quests render live progress.
-  const displayQuests: DriverQuest[] = useMemo(() => {
-    if (isError) return FALLBACK_QUESTS;
-    return questsData ?? [];
-  }, [questsData, isError]);
+  // No invented quests when the request fails. The old offline fallback showed
+  // six made-up bonuses ("Weekly Champion, GH₵50") a driver could never earn —
+  // a failure is a failure, with a retry.
+  const displayQuests: DriverQuest[] = questsData ?? [];
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -164,9 +85,18 @@ export default function QuestsScreen() {
             </View>
           )}
 
-          {!isLoading && displayQuests.length === 0 && (
+          {!isLoading && isError && !questsData && (
             <EmptyState
-              icon="🏆"
+              icon="cloud-offline-outline"
+              title="Couldn’t load quests"
+              subtitle="Check your connection and try again."
+              action={{ label: 'Try again', onPress: () => void refetch() }}
+            />
+          )}
+
+          {!isLoading && !isError && displayQuests.length === 0 && (
+            <EmptyState
+              icon="trophy-outline"
               title="No active quests"
               subtitle="New quests appear here. Complete trips to earn bonus rewards."
             />
@@ -185,9 +115,7 @@ export default function QuestsScreen() {
                   current={quest.progress?.current ?? 0}
                   completed={quest.progress?.completed ?? false}
                   rewardedAt={quest.progress?.rewardedAt ?? null}
-                  // Fallback quests (shown offline) aren't real backend rows —
-                  // no claim action for those, only for live server data.
-                  onClaim={isError ? undefined : () => claimMutation.mutate(quest.id)}
+                  onClaim={() => claimMutation.mutate(quest.id)}
                   claiming={claimingId === quest.id}
                 />
               ))}
@@ -200,8 +128,9 @@ export default function QuestsScreen() {
           <Entrance animation="slideDown" delay={140}>
             <Text variant="titleSmall" style={styles.sectionLabel}>Completed</Text>
             <View style={{ gap: spacing.sm }}>
-              {(historyData as any[]).map((item: any) => (
-                <View key={item.questId} style={[styles.historyItem, { backgroundColor: colors.surfaceContainer, borderColor: colors.outline }]}>
+              {(historyData as any[]).map((item: any, i: number) => (
+                // Quests repeat per period, so the quest id alone collides.
+                <View key={`${item.questId}-${item.periodStart ?? item.rewardedAt ?? i}`} style={[styles.historyItem, { backgroundColor: colors.surfaceContainer, borderColor: colors.outline }]}>
                   <View style={{ flex: 1 }}>
                     <Text variant="bodyMedium">{item.title}</Text>
                     <Text variant="caption" color={colors.onSurfaceVariant}>

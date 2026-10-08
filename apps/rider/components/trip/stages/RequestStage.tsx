@@ -12,7 +12,7 @@ import {
   goDeeper, goBack, notify, goOut, goFresh, Pressable as HapticPressable, getTierTheme,
 } from '@eyego/ui';
 import * as Haptics from 'expo-haptics';
-import { formatGhs } from '@eyego/utils';
+import { formatGhs, shortDateTime } from '@eyego/utils';
 import { useThemeStore } from '../../../stores/theme.store';
 import { SearchingPanel } from '../SearchingPanel';
 import { FareBoostRow, type BoostStep } from '../FareBoostRow';
@@ -1017,13 +1017,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
   };
 
   const formattedTime = scheduledAt
-    ? new Date(scheduledAt).toLocaleString('en-GH', {
-        weekday: 'short',
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      })
+    ? shortDateTime(scheduledAt)
     : null;
 
   const body = (variant: 'route' | 'stage') => (

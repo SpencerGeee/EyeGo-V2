@@ -30,7 +30,7 @@ import { useThemeStore } from '../../../stores/theme.store';
 // drops the `({ pressed }) => style` function form on RN's Pressable, which
 // silently deletes the whole style. See the note in SearchStage.tsx.
 import { Text, Button, Pressable, EmptyState, Avatar, AppBackground, MorphSource, MorphCTA, useMorph, Entrance, getTierTheme, normalizeTier, goDeeper, goBack } from '@eyego/ui';
-import { formatGhs } from '@eyego/utils';
+import { formatGhs, clockTime } from '@eyego/utils';
 import type { TripTier, Trip } from '@eyego/types';
 import { captureException } from '../../../lib/sentry';
 import { expectTripSurfaceReturn } from '../../../utils/tripSurfaceReturn';
@@ -592,7 +592,7 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                 const activeStops = trip.route?.virtualStops?.filter(s => s.isActive) ?? [];
                 const hasEnRoute = activeStops.length > 0;
                 const timeStr = trip.departureTime
-                  ? new Date(trip.departureTime).toLocaleTimeString('en-GH', { hour: '2-digit', minute: '2-digit' })
+                  ? clockTime(trip.departureTime)
                   : 'Departing soon';
                 return (
                   <Animated.View

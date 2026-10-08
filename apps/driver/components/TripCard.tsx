@@ -1,5 +1,5 @@
 import React from 'react';
-import { formatGhs, originLabel, destinationLabel } from '@eyego/utils';
+import { formatGhs, originLabel, destinationLabel, clockTime } from '@eyego/utils';
 import { View, StyleSheet, Pressable } from 'react-native';
 import { fonts, fontSizes, spacing, radii, driverStatusLabel } from '@eyego/config';
 import { Text } from '@eyego/ui';
@@ -64,7 +64,7 @@ export function TripCard({ trip, onPress }: Props) {
           <View style={styles.metaRow}>
             <MetaItem
               icon="time-outline"
-              value={new Date(trip.departureTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              value={clockTime(trip.departureTime)}
               color={colors.onSurfaceVariant}
             />
             <MetaItem

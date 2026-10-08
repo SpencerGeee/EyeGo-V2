@@ -22,7 +22,7 @@ import {
   useBiometricGate,
   BiometricLock,
 } from '@eyego/ui';
-import { formatGhs, pesewasFromCedis, pesewasToDecimalString, ghanaLocalDigits, describeError } from '@eyego/utils';
+import { formatGhs, pesewasFromCedis, pesewasToDecimalString, ghanaLocalDigits, describeError, dayMonth, clockTime } from '@eyego/utils';
 import { useColors, Colors } from '../../utils/useColors';
 import { useWalletBalance } from '../../hooks/useWalletBalance';
 import { useAuthStore } from '../../stores/auth.store';
@@ -222,7 +222,7 @@ export default function WalletScreen() {
                       </View>
                     }
                     title={tx.description}
-                    subtitle={`${when.toLocaleDateString('en-GH', { day: 'numeric', month: 'short' })} · ${when.toLocaleTimeString('en-GH', { hour: 'numeric', minute: '2-digit' })}${kind === 'PENDING' ? ' · Pending' : kind === 'FAILED' ? ' · Failed' : ''}`}
+                    subtitle={`${dayMonth(when)} · ${clockTime(when)}${kind === 'PENDING' ? ' · Pending' : kind === 'FAILED' ? ' · Failed' : ''}`}
                     subtitleLines={1}
                     value={`${credit ? '+' : debit ? '−' : ''}${formatGhs(Math.abs(tx.amountPesewas ?? 0))}`}
                     valueColor={credit ? colors.statusSuccess : muted ? colors.onSurfaceVariant : colors.onSurface}

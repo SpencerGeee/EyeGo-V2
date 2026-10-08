@@ -4,7 +4,7 @@ import { useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { Text, GlassSurface, DriverInfoCard, RollingDigits, GradientGlowBorder, goDeeper, notify } from '@eyego/ui';
-import { formatGhs } from '@eyego/utils';
+import { formatGhs, clockTime } from '@eyego/utils';
 import { SheetContent } from '../sheetSlot';
 import { useColors, Colors } from '../../../utils/useColors';
 import { useTripStore } from '../../../stores/trip.store';
@@ -52,7 +52,7 @@ function phaseCopy(
     if (!departsAt) return null;
     const d = new Date(departsAt);
     if (Number.isNaN(d.getTime())) return null;
-    return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    return clockTime(d);
   })();
 
   switch (status) {

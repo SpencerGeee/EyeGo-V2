@@ -41,8 +41,10 @@ export default function AddCardScreen() {
         // Invalidate cached payment methods so the list refreshes
         queryClient.invalidateQueries({ queryKey: ['payment-methods'] });
         notify(
-          'Card Saved',
-          `${(card.brand as string).toUpperCase()} ending in ${card.last4} has been saved.`);
+          'Card saved',
+          `${String(card?.brand ?? 'Card').toUpperCase()} ending in ${card?.last4 ?? '••••'} has been saved.`,
+          { tone: 'success' },
+        );
       } catch (err: any) {
         const msg = err?.response?.data?.message ?? 'Card could not be verified. Please try again.';
         notify('Verification Failed', msg);

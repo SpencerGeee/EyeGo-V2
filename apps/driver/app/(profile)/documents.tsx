@@ -8,6 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Screen, ListSection, ListRow, SkeletonRows, QueryBoundary, notify } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
+import { dayMonthYear } from '@eyego/utils';
 
 const DAY_MS = 86_400_000;
 const EXPIRY_WARN_DAYS = 30;
@@ -29,7 +30,7 @@ type Tone = 'ok' | 'warn' | 'bad' | 'muted';
 function stateOf(doc: DriverDocument | undefined): { label: string; tone: Tone; actionable: boolean; detail?: string } {
   const status = doc?.status ?? 'MISSING';
   const daysLeft = doc?.expiresAt ? Math.ceil((new Date(doc.expiresAt).getTime() - Date.now()) / DAY_MS) : null;
-  const expiry = doc?.expiresAt ? new Date(doc.expiresAt).toLocaleDateString('en-GH', { day: 'numeric', month: 'short', year: 'numeric' }) : null;
+  const expiry = doc?.expiresAt ? dayMonthYear(doc.expiresAt) : null;
   switch (status) {
     case 'MISSING':
       return { label: 'Upload', tone: 'bad', actionable: true };

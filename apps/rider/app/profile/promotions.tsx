@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useShallow } from 'zustand/react/shallow';
 import { Ionicons } from '@expo/vector-icons';
 import { bookingsApi, apiClient, userApi, type RiderPromotion, type RiderPromotions } from '@eyego/api';
-import { formatGhs, describeError } from '@eyego/utils';
+import { formatGhs, describeError, dayMonth, dayMonthYear } from '@eyego/utils';
 import { fonts, radii } from '@eyego/config';
 import { Text, Button, Screen, ListSection, ListRow, SkeletonRows } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
@@ -20,7 +20,7 @@ function expiryLabel(iso: string | null | undefined): string {
   if (days === 0) return 'Ends today';
   if (days === 1) return 'Ends tomorrow';
   if (days <= 14) return `Ends in ${days} days`;
-  return `Ends ${new Date(end).toLocaleDateString('en-GH', { day: 'numeric', month: 'short' })}`;
+  return `Ends ${dayMonth(end)}`;
 }
 
 /**
@@ -190,7 +190,7 @@ export default function PromotionsScreen() {
               icon="checkmark-circle-outline"
               iconColor={colors.onSurfaceVariant}
               title={p.code}
-              subtitle={p.usedAt ? `Used ${new Date(p.usedAt).toLocaleDateString('en-GH', { day: 'numeric', month: 'short', year: 'numeric' })}` : 'Used'}
+              subtitle={p.usedAt ? `Used ${dayMonthYear(p.usedAt)}` : 'Used'}
             />
           ))}
         </ListSection>

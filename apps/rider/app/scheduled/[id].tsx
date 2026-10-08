@@ -8,7 +8,7 @@ import * as Haptics from 'expo-haptics';
 import { tripsApi } from '@eyego/api';
 import { Text, Button, AppBackground, GradientGlowBorder, GlassSurface, Loader, goDeeper, goBack, notify } from '@eyego/ui';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
-import { formatGhs } from '@eyego/utils';
+import { formatGhs, longDate, clockTime } from '@eyego/utils';
 import { useColors, Colors } from '../../utils/useColors';
 import { useThemeStore } from '../../stores/theme.store';
 
@@ -55,8 +55,8 @@ const STATUS_COPY: Record<string, { label: string; detail: string; tone: 'live' 
 
 function formatWhen(iso: string): { day: string; time: string; relative: string } {
   const d = new Date(iso);
-  const day = d.toLocaleDateString('en-GH', { weekday: 'long', month: 'long', day: 'numeric' });
-  const time = d.toLocaleTimeString('en-GH', { hour: '2-digit', minute: '2-digit' });
+  const day = longDate(d);
+  const time = clockTime(d);
 
   const diffMs = d.getTime() - Date.now();
   const mins = Math.round(diffMs / 60000);

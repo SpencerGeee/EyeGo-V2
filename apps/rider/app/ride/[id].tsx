@@ -16,7 +16,7 @@ import { eyegoDarkStyle, eyegoLightStyle } from '@eyego/map-styles';
 import { useThemeStore } from '../../stores/theme.store';
 import { Text, Button, Card, DriverInfoCard, SeatBar, AnimatedFareText, Skeleton, Loader, MorphTarget, MorphBackSwipeDetector, useMorph, InlayPanel, getTierTheme, normalizeTier, RIDER_TIERS, SmoothScreen, SmoothDefer, type TierId } from '@eyego/ui';
 
-import { formatGhs, formatTripDate, formatDuration, formatDistance, bookedSeats } from '@eyego/utils';
+import { formatGhs, formatTripDate, formatDuration, formatDistance, bookedSeats, clockTime } from '@eyego/utils';
 import { FareBreakdownSheet } from '../../components/FareBreakdownSheet';
 import { fetchRoute, type RouteResult } from '../../utils/routing';
 import type { TripBooking } from '@eyego/types';
@@ -561,7 +561,7 @@ export default function RideDetailScreen() {
                   </View>
                 </View>
                 <View style={styles.metaRow}>
-                  <MetaPill icon="time-outline" label={trip?.departureTime ? new Date(trip.departureTime).toLocaleTimeString('en-GH', { hour: '2-digit', minute: '2-digit' }) : '—'} />
+                  <MetaPill icon="time-outline" label={trip?.departureTime ? clockTime(trip.departureTime) : '—'} />
                   <MetaPill icon="map-outline" label={trip?.distanceKm ? formatDistance(trip.distanceKm) : '—'} />
                   <MetaPill icon="speedometer-outline" label={durationMinutes ? formatDuration(durationMinutes) : '—'} />
                 </View>

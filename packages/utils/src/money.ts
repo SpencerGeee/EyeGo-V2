@@ -84,6 +84,7 @@ export function pesewasToCedis(pesewas: Pesewas | number | null | undefined): nu
   return Math.round(Number(pesewas) || 0) / 100;
 }
 
+/** "12,345" — by hand: `toLocaleString` grouping depends on the platform's ICU. */
 function withThousands(n: number): string {
-  return n.toLocaleString('en-GH', { maximumFractionDigits: 0 });
+  return String(Math.trunc(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }

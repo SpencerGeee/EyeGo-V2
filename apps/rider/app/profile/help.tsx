@@ -5,7 +5,7 @@ import Animated, { FadeIn } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { bookingsApi, supportTicketsApi, queryKeys } from '@eyego/api';
-import { describeError } from '@eyego/utils';
+import { describeError, dayMonth, dayMonthTime } from '@eyego/utils';
 import { fonts, radii } from '@eyego/config';
 import { Text, Button, Screen, ListSection, ListRow, SkeletonRows, notify } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
@@ -51,7 +51,7 @@ const CATEGORIES = [
 const STATUS_LABEL: Record<string, string> = { OPEN: 'Open', IN_PROGRESS: 'In progress', RESOLVED: 'Resolved', CLOSED: 'Closed' };
 
 const shortDate = (iso?: string | null) =>
-  iso ? new Date(iso).toLocaleDateString('en-GH', { day: 'numeric', month: 'short' }) : '';
+  iso ? dayMonth(iso) : '';
 
 /**
  * HELP (rival spec §10) — your recent trips first (most help is about one),
@@ -273,7 +273,7 @@ export default function HelpScreen() {
                     <View key={m.id} style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleTheirs]}>
                       <Text variant="bodySmall" color={colors.onSurface}>{m.text}</Text>
                       <Text variant="caption" color={colors.onSurfaceVariant}>
-                        {fromSupport ? 'EyeGo Support' : fromDriver ? 'Driver' : 'You'} · {m.createdAt ? new Date(m.createdAt).toLocaleString('en-GH', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : ''}
+                        {fromSupport ? 'EyeGo Support' : fromDriver ? 'Driver' : 'You'} · {m.createdAt ? dayMonthTime(m.createdAt) : ''}
                       </Text>
                     </View>
                   );

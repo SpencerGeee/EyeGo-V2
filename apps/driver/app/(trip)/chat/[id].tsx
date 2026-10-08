@@ -27,6 +27,7 @@ import { useDriverStore } from '../../../stores/driver.store';
 import { useChatUnread } from '../../../stores/chatUnread.store';
 import { scheduleLocalNotification } from '../../../utils/notifications';
 import type { TripBooking } from '@eyego/types';
+import { clockTime } from '@eyego/utils';
 
 interface Message {
   id: string;
@@ -408,7 +409,7 @@ export default function TripChatScreen() {
         </Text>
         <View style={styles.timestampRow}>
           <Text style={[styles.timestamp, item.isDriver && { color: 'rgba(255,255,255,0.6)' }]}>
-            {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            {clockTime(item.timestamp)}
           </Text>
           {item.pending && (
             <Ionicons name="time-outline" size={10} color="rgba(255,255,255,0.5)" style={{ marginLeft: 4 }} />

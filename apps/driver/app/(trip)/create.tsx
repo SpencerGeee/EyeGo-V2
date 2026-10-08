@@ -11,7 +11,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { driverApi } from '@eyego/api';
-import { placeLabel } from '@eyego/utils';
+import { placeLabel, relativeDayTime } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 // One formatter. This screen used to declare a local `₵${amount.toFixed(2)}`
 // that shadowed the shared one — harmless while money was cedis, a 100x
@@ -62,6 +62,16 @@ export default function CreateTripScreen() {
     return d;
   });
   const [showTimePicker, setShowTimePicker] = useState(false);
+  // The picker is time-only, so a time already gone today means TOMORROW (a
+  // 6 AM run published at 11 PM). Android's dialog has no minimum and iOS's
+  // `minimumDate` simply refused the early-morning hours, so neither could
+  // publish tomorrow's first trip.
+  const applyPickedTime = (picked: Date) => {
+    const next = new Date();
+    next.setHours(picked.getHours(), picked.getMinutes(), 0, 0);
+    if (next.getTime() <= Date.now() + 60_000) next.setDate(next.getDate() + 1);
+    setDepartureTime(next);
+  };
   const [seats, setSeats] = useState(14);
   const [tier, setTier] = useState<'ECONOMY' | 'COMFORT' | 'PREMIUM'>('ECONOMY');
 
@@ -436,17 +446,24 @@ export default function CreateTripScreen() {
               onPress={() => {
                 if (Platform.OS === 'android') setShowTimePicker(true);
               }}
-             accessibilityRole="button">
+              accessibilityRole="button"
+              accessibilityLabel={`Departure ${relativeDayTime(departureTime)}. Change the time`}
+            >
               <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii.xl} intensity="low" />
               <Ionicons name="time-outline" size={24} color={colors.primary} />
               <View style={{ flex: 1 }}>
                 <Text variant="caption" color={colors.onSurfaceVariant}>Departure time</Text>
                 <Text style={styles.timeDisplay}>
-                  {departureTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  {relativeDayTime(departureTime)}
                 </Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceVariant} />
             </Pressable>
+            {departureTime.getTime() <= Date.now() && (
+              <Text variant="caption" color={colors.error} style={{ marginTop: spacing.sm }}>
+                That time has passed — pick a later one.
+              </Text>
+            )}
 
             {/* Android: time-only spinner (inline — no modal dismiss race condition) */}
             {Platform.OS === 'android' && showTimePicker && (
@@ -458,11 +475,7 @@ export default function CreateTripScreen() {
                   if (event.type === 'dismissed' || event.type === 'set') {
                     setShowTimePicker(false);
                   }
-                  if (date) {
-                    const updated = new Date(departureTime);
-                    updated.setHours(date.getHours(), date.getMinutes(), 0, 0);
-                    setDepartureTime(updated);
-                  }
+                  if (event.type !== 'dismissed' && date) applyPickedTime(date);
                 }}
                 // BUGFIX (item 2 — "the time step looks clipped and isn't full
                 // width"): a spinner DateTimePicker has an intrinsic content
@@ -479,14 +492,9 @@ export default function CreateTripScreen() {
               <DateTimePicker
                 value={departureTime}
                 mode="time"
-                minimumDate={new Date()}
                 display="spinner"
                 onChange={(_, date) => {
-                  if (date) {
-                    const updated = new Date(departureTime);
-                    updated.setHours(date.getHours(), date.getMinutes(), 0, 0);
-                    setDepartureTime(updated);
-                  }
+                  if (date) applyPickedTime(date);
                 }}
                 // BUGFIX (item 2 — "the time step looks clipped and isn't full
                 // width"): a spinner DateTimePicker has an intrinsic content
@@ -563,7 +571,7 @@ export default function CreateTripScreen() {
               <View style={styles.summaryGlow} />
               <SummaryRow icon="navigate" label="Route" value={`${origin.name} → ${destination.name}`} colors={colors} />
               <View style={styles.summaryDivider} />
-              <SummaryRow icon="time" label="Departure" value={`${departureTime.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} at ${departureTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`} colors={colors} />
+              <SummaryRow icon="time" label="Departure" value={relativeDayTime(departureTime)} colors={colors} />
               <View style={styles.summaryDivider} />
               <SummaryRow icon="people" label="Seats" value={`${seats} available`} colors={colors} />
               <View style={styles.summaryDivider} />

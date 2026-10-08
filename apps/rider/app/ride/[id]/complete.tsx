@@ -16,7 +16,7 @@ import { useAuthStore } from '../../../stores/auth.store';
 import { SaveDestinationCard } from '../../../components/trip/SaveDestinationCard';
 import { fonts, fontSizes, spacing, radii, withOpacity, springs } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
-import { formatGhs, formatDistance, formatDuration, originLabel, destinationLabel } from '@eyego/utils';
+import { formatGhs, formatDistance, formatDuration, originLabel, destinationLabel, dayMonthTime, dayMonthYear, clockTime } from '@eyego/utils';
 import { useQuery } from '@tanstack/react-query';
 import { bookingsApi, ridesApi } from '@eyego/api';
 import { Text, GlassSurface, GradientGlowBorder, AnimatedCheckmark, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS } from '@eyego/ui';
@@ -277,9 +277,7 @@ export default function TripCompleteScreen() {
     if (!when) return null;
     const d = new Date(when);
     if (Number.isNaN(d.getTime())) return null;
-    return d.toLocaleString('en-GH', {
-      day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
-    });
+    return dayMonthTime(d);
   }, [selectedTrip?.completedAt, receiptData?.issuedAt]);
 
   // Auto-navigate to rating after 4 s — but not when this screen was opened
@@ -409,10 +407,7 @@ export default function TripCompleteScreen() {
 
     const when = receiptData?.issuedAt ?? (selectedTrip as any)?.completedAt ?? null;
     const whenText = when
-      ? new Date(when).toLocaleString('en-GH', {
-          weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
-          hour: '2-digit', minute: '2-digit',
-        })
+      ? `${dayMonthYear(when)} · ${clockTime(when)}`
       : null;
 
     const journey =

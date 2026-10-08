@@ -1,5 +1,5 @@
 import React, { useMemo, useEffect } from 'react';
-import { formatGhs, originLabel, destinationLabel, seatsOf } from '@eyego/utils';
+import { formatGhs, formatDistance, originLabel, destinationLabel, seatsOf } from '@eyego/utils';
 import type { Trip, Booking, TripBooking } from '@eyego/types';
 import type { DriverTrip } from '@eyego/api';
 import { View, StyleSheet, ScrollView, Pressable, ActivityIndicator } from 'react-native';
@@ -437,7 +437,7 @@ export default function TripCompleteScreen() {
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
-            <Text style={styles.statValue}>{completedTrip?.route?.distanceKm ?? '—'} km</Text>
+            <Text style={styles.statValue}>{formatDistance(completedTrip?.route?.distanceKm)}</Text>
             <Text variant="caption" color={colors.onSurfaceVariant}>Distance</Text>
           </View>
           <View style={styles.statDivider} />
@@ -485,11 +485,11 @@ export default function TripCompleteScreen() {
               <View key={b.id ?? i} style={styles.passengerRow}>
                 <View style={styles.passengerAvatar}>
                   <Text style={styles.passengerInitial}>
-                    {(b.user?.name?.[0] ?? '?').toUpperCase()}
+                    {((b.guestName ?? b.user?.name ?? '?') as string)[0]?.toUpperCase()}
                   </Text>
                 </View>
                 <Text variant="caption" color={colors.onSurfaceVariant} style={{ flex: 1 }}>
-                  {b.user?.name ?? `Seat ${b.seatNumber}`}
+                  {b.guestName ?? b.user?.name ?? `Seat ${b.seatNumber ?? "—"}`}{seatsOf(b) > 1 ? ` · ${seatsOf(b)} seats` : ""}
                 </Text>
                 <View style={[styles.payBadge, { backgroundColor: b.paymentStatus === 'PAID' ? `${colors.online}22` : `${colors.warning}22` }]}>
                   <Text style={[styles.payBadgeText, { color: b.paymentStatus === 'PAID' ? colors.online : colors.warning }]}>

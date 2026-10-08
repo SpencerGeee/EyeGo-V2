@@ -26,16 +26,18 @@ import {
 } from '@eyego/ui';
 import * as Haptics from 'expo-haptics';
 import { goDeeper } from '@eyego/ui';
+import { formatGhs } from '@eyego/utils';
 import { TRIP_SEARCH_LANDING } from '../../utils/morphKeys';
+import { usePlatformConfig } from '../../hooks/usePlatformConfig';
 
 type TierKey = 'economy' | 'comfort' | 'premium';
 
 interface TierCard {
   id: string;
   name: 'ECONOMY' | 'COMFORT' | 'PREMIUM';
+  /** The key into the operator's live fare table (`/config/public`). */
+  wire: 'ECO' | 'COMFORT' | 'PREMIUM';
   description: string;
-  priceRange: string;
-  eta: string;
   icon: keyof typeof Ionicons.glyphMap;
   tier: TierKey;
 }
@@ -52,34 +54,17 @@ interface SpecialService {
   glow?: boolean;
 }
 
+/**
+ * No price ranges or ETAs typed into the app any more. "GH₵ 15 – 30, 3–5 min
+ * away" was the same text whether the ride was 2 km or 40, and whether one
+ * driver was online or none — the operator's fares live in `/config/public`,
+ * so the card says what the tier really starts at, and the ETA comes from the
+ * quote, where it is true.
+ */
 const TIERS: TierCard[] = [
-  {
-    id: 'economy',
-    name: 'ECONOMY',
-    description: 'Affordable everyday rides',
-    priceRange: 'GH₵ 15 – 30',
-    eta: '3–5 min',
-    icon: 'car-outline',
-    tier: 'economy',
-  },
-  {
-    id: 'comfort',
-    name: 'COMFORT',
-    description: 'More space and a smoother ride',
-    priceRange: 'GH₵ 30 – 55',
-    eta: '5–8 min',
-    icon: 'car-sport-outline',
-    tier: 'comfort',
-  },
-  {
-    id: 'premium',
-    name: 'PREMIUM',
-    description: 'Top-rated drivers, luxury vehicles',
-    priceRange: 'GH₵ 55 – 100',
-    eta: '8–12 min',
-    icon: 'diamond-outline',
-    tier: 'premium',
-  },
+  { id: 'economy', name: 'ECONOMY', wire: 'ECO', description: 'Affordable everyday rides', icon: 'car-outline', tier: 'economy' },
+  { id: 'comfort', name: 'COMFORT', wire: 'COMFORT', description: 'More space and a smoother ride', icon: 'car-sport-outline', tier: 'comfort' },
+  { id: 'premium', name: 'PREMIUM', wire: 'PREMIUM', description: 'Top-rated drivers, luxury vehicles', icon: 'diamond-outline', tier: 'premium' },
 ];
 
 function getTierAccent(colors: Colors, tier: TierKey): string {
@@ -92,7 +77,8 @@ const SPECIAL_SERVICES: SpecialService[] = [
   {
     id: 'schedule',
     name: 'Schedule a Ride',
-    description: 'Book up to 7 days in advance',
+    // The server's limit (scheduleTrip, SCHEDULE_TOO_FAR_OUT). This said 7.
+    description: 'Book up to 30 days in advance',
     icon: 'calendar-outline',
     route: '/ride/schedule',
   },
@@ -111,6 +97,8 @@ function TierCard({ tier, colors, styles }: { tier: TierCard; colors: Colors; st
   const accent = getTierAccent(colors, tier.tier);
   const isPremium = tier.tier === 'premium';
   const morphId = `service-tier-${tier.tier}`;
+  const tierFares = usePlatformConfig().tiers?.[tier.wire];
+  const fromFare = formatGhs(tierFares?.minFarePesewas ?? tierFares?.startFarePesewas ?? null);
 
   const handlePress = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -177,8 +165,8 @@ function TierCard({ tier, colors, styles }: { tier: TierCard; colors: Colors; st
               <Text style={styles.tierDesc}>{tier.description}</Text>
             </View>
             <View style={styles.tierRight}>
-              <Text style={[styles.tierPrice, { color: accent }]}>{tier.priceRange}</Text>
-              <Text style={styles.tierEta}>{tier.eta} away</Text>
+              <Text style={styles.tierEta}>from</Text>
+              <Text style={[styles.tierPrice, { color: accent }]}>{fromFare}</Text>
             </View>
           </View>
           <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} style={styles.chevron} />

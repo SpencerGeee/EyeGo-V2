@@ -21,6 +21,7 @@ import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/d
 import { consumePickedPlace } from '../../utils/placePickerResult';
 import { useRideStore } from '../../stores/ride.store';
 import { useTripFlow } from '../../stores/tripFlow.store';
+import { shortDateTime } from '@eyego/utils';
 
 interface PickedLocation {
   lat: number;
@@ -34,14 +35,15 @@ function getMinDate() {
   return d;
 }
 
+/** The server refuses anything further out (scheduleTrip: SCHEDULE_TOO_FAR_OUT). */
+function getMaxDate() {
+  const d = new Date();
+  d.setDate(d.getDate() + 30);
+  return d;
+}
+
 function formatDate(date: Date) {
-  return date.toLocaleString(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return shortDateTime(date);
 }
 
 export default function ScheduleRideScreen() {
@@ -208,6 +210,7 @@ export default function ScheduleRideScreen() {
       value: base,
       mode: 'date',
       minimumDate: getMinDate(),
+      maximumDate: getMaxDate(),
       onChange: (e, day) => {
         if (e.type !== 'set' || !day) return;
         DateTimePickerAndroid.open({
@@ -383,6 +386,7 @@ export default function ScheduleRideScreen() {
                 mode="datetime"
                 display="spinner"
                 minimumDate={getMinDate()}
+                maximumDate={getMaxDate()}
                 onChange={handleDateChange}
                 textColor={colors.onSurface}
               />

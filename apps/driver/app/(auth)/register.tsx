@@ -21,6 +21,7 @@ import { Text, Button, notify } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useDriverStore } from '../../stores/driver.store';
 import { useColors, type DriverColors } from '../../utils/useColors';
+import { dayMonthYear } from '@eyego/utils';
 
 export default function DriverRegisterScreen() {
   const router = useRouter();
@@ -220,7 +221,7 @@ export default function DriverRegisterScreen() {
              accessibilityRole="button">
               <Text style={[styles.input, { color: dob ? colors.onSurface : colors.onSurfaceVariant }]}>
                 {dob
-                  ? dob.toLocaleDateString(undefined, { day: '2-digit', month: 'long', year: 'numeric' })
+                  ? dayMonthYear(dob)
                   : 'Select your date of birth'}
               </Text>
               <Ionicons name="calendar-outline" size={18} color={colors.onSurfaceVariant} />

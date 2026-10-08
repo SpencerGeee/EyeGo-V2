@@ -28,7 +28,7 @@ export function useUnreadNotifications() {
     AsyncStorage.setItem(NOTIFICATIONS_READ_KEY, JSON.stringify([...next])).catch(() => {});
   }, []);
 
-  const { data, isLoading, isRefetching, refetch } = useQuery({
+  const { data, isLoading, isError, isRefetching, refetch } = useQuery({
     queryKey: ['notifications'],
     queryFn: () => notificationsApi.getAll({ limit: 50 }),
     refetchInterval: 30_000,
@@ -58,5 +58,5 @@ export function useUnreadNotifications() {
     notificationsApi.markAllRead().catch(() => {});
   }, [readIds, notifications, persistReadIds]);
 
-  return { notifications, readIds, isLoading, isRefetching, refetch, hasUnread, unreadCount, markRead, markAllRead };
+  return { notifications, readIds, isLoading, isError: isError && !data, isRefetching, refetch, hasUnread, unreadCount, markRead, markAllRead };
 }

@@ -47,6 +47,21 @@ async function createTrip(driverId, data) {
    */
   const tier = normalizeTier(data.tier || 'ECO');
 
+  // A trip needs a real departure. Missing became `new Date(undefined)` and a
+  // 500 from Prisma; one in the past was published SCHEDULED and was never
+  // listed (search wants a future departure) — a trip nobody could find.
+  // Five minutes of grace covers a phone clock that runs a little fast.
+  const departure = new Date(departureTime);
+  if (!departureTime || Number.isNaN(departure.getTime())) {
+    throw new AppError('Choose when this trip leaves.', 400, 'INVALID_DEPARTURE');
+  }
+  if (departure.getTime() < Date.now() - 5 * 60 * 1000) {
+    throw new AppError('That departure time has already passed. Pick a later time.', 400, 'DEPARTURE_IN_PAST');
+  }
+  if (departure.getTime() - Date.now() > 30 * 24 * 60 * 60 * 1000) {
+    throw new AppError('Trips can be published up to 30 days ahead.', 400, 'DEPARTURE_TOO_FAR_OUT');
+  }
+
   // Auto-select vehicle: use provided vehicleId or fall back to driver's first active vehicle
   let vehicle;
   if (requestedVehicleId) {

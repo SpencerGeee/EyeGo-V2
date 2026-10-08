@@ -14,7 +14,7 @@ import { useRideStore } from '../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii, withOpacity, springs } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { Text } from '@eyego/ui';
-import { formatGhs } from '@eyego/utils';
+import { formatGhs, weekdayShort } from '@eyego/utils';
 import { captureException } from '../../lib/sentry';
 
 // Parse a "6:30 PM" slot into 24h {hours, minutes}.
@@ -141,7 +141,7 @@ export default function ReserveScreen() {
 
   const renderDateItem = ({ item }: { item: Date }) => {
     const isSelected = item.toDateString() === selectedDate.toDateString();
-    const dayName = item.toLocaleDateString('en-US', { weekday: 'short' });
+    const dayName = weekdayShort(item);
     const dayNumber = item.getDate();
 
     return (

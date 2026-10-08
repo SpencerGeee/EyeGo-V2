@@ -6,6 +6,10 @@
 // needs `formatGhs`.
 export * from './money';
 
+// Every user-facing date and time — hand-built so iPhone and Android match.
+export * from './dates';
+import { dayMonth, shortDateTime } from './dates';
+
 // Every user-facing failure string in both apps comes from here. See errors.ts
 // for why `err.message` must never reach a screen unfiltered.
 export * from './errors';
@@ -58,17 +62,9 @@ export function isTerminalTripStatus(status: string | null | undefined): boolean
  * e.g. '2024-06-15T08:30:00Z' → 'Sat, 15 Jun · 8:30 AM'
  */
 export function formatTripDate(date: string | Date | null | undefined): string {
-  if (!date) return '—';
-  const d = new Date(date);
-  if (isNaN(d.getTime())) return '—';
-  return d.toLocaleDateString('en-GH', {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  });
+  // Hand-built (see ./dates) — the toLocale version printed differently on
+  // iOS and Android.
+  return shortDateTime(date);
 }
 
 /**
@@ -149,17 +145,14 @@ export function relativeTime(isoString: string | null | undefined): string {
     const absDiff = Math.abs(diff);
     if (absDiff < 3600) return `In ${Math.floor(absDiff / 60)} min`;
     if (absDiff < 86400) return `In ${Math.floor(absDiff / 3600)}h`;
-    return new Date(isoString).toLocaleDateString('en-GH', { day: 'numeric', month: 'short' });
+    return dayMonth(isoString);
   }
 
   if (diff < 60) return 'Just now';
   if (diff < 3600) return `${Math.floor(diff / 60)} min ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
   if (diff < 172800) return 'Yesterday';
-  return new Date(isoString).toLocaleDateString('en-GH', {
-    day: 'numeric',
-    month: 'short',
-  });
+  return dayMonth(isoString);
 }
 
 /**

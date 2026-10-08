@@ -29,6 +29,7 @@ import { useColors, Colors } from '../../../utils/useColors';
 import { scheduleLocalNotification } from '../../../utils/notifications';
 import { Text, GlassSurface } from '@eyego/ui';
 import { useQuery } from '@tanstack/react-query';
+import { clockTime } from '@eyego/utils';
 
 interface ChatMessage {
   id: string;
@@ -530,13 +531,7 @@ export default function ChatScreen() {
     flatListRef.current?.scrollToEnd({ animated: true });
   }, []);
 
-  const formatTime = (iso: string) => {
-    try {
-      return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    } catch {
-      return '';
-    }
-  };
+  const formatTime = (iso: string) => (iso ? clockTime(iso) : '');
 
   const renderMessage = ({ item, index }: { item: ChatMessage; index: number }) => (
     <MotiView

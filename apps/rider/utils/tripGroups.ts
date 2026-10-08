@@ -8,6 +8,8 @@
  * second implementation that drifts.
  */
 
+import { clockTime, dayMonth, weekdayShort } from '@eyego/utils';
+
 export type TripGroup = 'boarding' | 'scheduled' | 'suggested';
 
 /** Every group a browse page can show, plus the catch-all. */
@@ -73,19 +75,9 @@ export function groupTrips(trips: any[]): GroupedTrips {
   };
 }
 
-const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-/**
- * "6:40 PM", built by hand: `toLocaleTimeString` answers from each platform's
- * own ICU data, so the same trip read "18:40" on one phone and "6:40 pm" on
- * another.
- */
-export function clockTime(d: Date): string {
-  const h = d.getHours();
-  const m = String(d.getMinutes()).padStart(2, '0');
-  return `${h % 12 === 0 ? 12 : h % 12}:${m} ${h < 12 ? 'AM' : 'PM'}`;
-}
+// Hand-built clock: `toLocaleTimeString` printed "18:40" on one phone and
+// "6:40 pm" on another. See packages/utils/src/dates.ts.
+export { clockTime };
 
 /** Whole calendar days from today to `d` (0 = today, 1 = tomorrow). */
 function calendarDaysFromToday(d: Date): number {
@@ -117,8 +109,8 @@ export function departureLabel(trip: any): string {
     return m === 0 ? `Leaves in ${h} h` : `Leaves in ${h} h ${m}`;
   }
   if (days === 1) return `Tomorrow, ${time}`;
-  if (days < 7) return `${WEEKDAYS[at.getDay()]}, ${time}`;
-  return `${at.getDate()} ${MONTHS[at.getMonth()]}, ${time}`;
+  if (days < 7) return `${weekdayShort(at)}, ${time}`;
+  return `${dayMonth(at)}, ${time}`;
 }
 
 /** Great-circle km — good enough to rank pickups and estimate a walk. */

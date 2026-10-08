@@ -1,14 +1,14 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { View, StyleSheet, ScrollView, Pressable, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import React, { useMemo, useState, useEffect } from 'react';
+import { View, StyleSheet, TextInput } from 'react-native';
+import { useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button, Entrance, AppBackground, goBack, notify } from '@eyego/ui';
+import { Text, Button, Screen, ListSection, ListRow, goBack, goOut, notify } from '@eyego/ui';
+import { describeError } from '@eyego/utils';
+import { driverApi } from '@eyego/api';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { useDriverStore } from '../../../stores/driver.store';
-import { driverApi } from '@eyego/api';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 const CANCEL_REASONS = [
   'Schedule conflict',
@@ -21,198 +21,134 @@ const CANCEL_REASONS = [
 
 export default function CancelTripScreen() {
   const colors = useColors();
-  const theme = useDriverStore(s => s.theme);
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const queryClient = useQueryClient();
+  const setActiveTripId = useDriverStore((s) => s.setActiveTripId);
 
   const [selectedReason, setSelectedReason] = useState('');
   const [note, setNote] = useState('');
 
-  // D8: guard invalid id — navigate back after all hooks have run
+  // No trip id, nothing to cancel — leave after the hooks have run.
   useEffect(() => {
-    if (!id || typeof id !== 'string') {
-      goBack();
-    }
-  }, [id, router]);
-
-  const queryClient = useQueryClient();
-  const { setActiveTripId } = useDriverStore();
+    if (!id || typeof id !== 'string') goBack();
+  }, [id]);
 
   const { mutate: cancelTrip, isPending } = useMutation({
-    mutationFn: () => driverApi.cancelTrip(id as string, selectedReason, note || undefined),
+    mutationFn: () => driverApi.cancelTrip(id as string, selectedReason, note.trim() || undefined),
     onSuccess: () => {
-      // D13: clear active trip in store before navigating away
       setActiveTripId(null);
       queryClient.invalidateQueries({ queryKey: ['driver', 'trips', 'all'] });
       queryClient.invalidateQueries({ queryKey: ['driver', 'activeTrip'] });
-      router.replace('/(tabs)/home' as any);
+      goOut('/(tabs)/home');
     },
-    onError: (err: any) => {
-      notify('Could not cancel that trip', err?.message ?? 'Failed to cancel trip. Please try again.');
+    // describeError, never err.message: that is axios's "Request failed with
+    // status code 409", not something a driver can act on.
+    onError: (err: unknown) => {
+      const e = describeError(err, 'Failed to cancel the trip. Please try again.');
+      notify('Could not cancel that trip', e.message);
     },
   });
 
-  const handleSubmit = () => {
-    if (!selectedReason) {
-      notify('Select a reason', 'Please select a reason for cancellation.');
-      return;
-    }
-    cancelTrip();
-  };
+  const needsNote = selectedReason === 'Other';
+  const canSubmit = !!selectedReason && (!needsNote || note.trim().length >= 3) && !isPending;
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <AppBackground isDark={theme !== 'light'} />
-      <Entrance animation="slideLeft" style={styles.backRow}>
-        <Pressable onPress={() => goBack()} hitSlop={12} accessibilityRole="button">
-          <Text variant="bodyMedium" color={colors.onSurfaceVariant}>← Back</Text>
-        </Pressable>
-      </Entrance>
+    <Screen
+      title="Cancel trip"
+      subtitle="Tell us why. It helps us keep riders informed."
+      keyboard
+      footer={
+        <Button
+          label={isPending ? 'Cancelling…' : 'Cancel trip'}
+          variant="destructive"
+          size="lg"
+          fullWidth
+          loading={isPending}
+          disabled={!canSubmit}
+          onPress={() => cancelTrip()}
+        />
+      }
+    >
+      <View style={styles.warning}>
+        <Ionicons name="warning-outline" size={18} color={colors.error} />
+        <Text variant="bodySmall" style={styles.warningText}>
+          If riders have already booked, we hand the trip to another driver so they keep their seats. Otherwise it is
+          cancelled and anyone who paid is refunded. Cancellations count against your cancellation rate.
+        </Text>
+      </View>
 
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 0}
-      >
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <Entrance animation="slideUp" delay={40}>
-          <Text variant="headlineLarge" style={styles.headline}>Cancel Trip</Text>
-        </Entrance>
+      <ListSection title="Reason">
+        {CANCEL_REASONS.map((reason, idx) => {
+          const on = selectedReason === reason;
+          return (
+            <ListRow
+              key={reason}
+              title={reason}
+              onPress={() => setSelectedReason(reason)}
+              chevron={false}
+              divider={idx < CANCEL_REASONS.length - 1}
+              accessibilityLabel={`${reason}${on ? ', selected' : ''}`}
+              right={
+                <Ionicons
+                  name={on ? 'radio-button-on' : 'radio-button-off'}
+                  size={20}
+                  color={on ? colors.primary : colors.onSurfaceVariant}
+                />
+              }
+            />
+          );
+        })}
+      </ListSection>
 
-        <Entrance animation="slideDown" delay={80}>
-          {/* Warning Banner */}
-          <View style={styles.warningBanner}>
-            <Ionicons name="warning-outline" size={20} color={colors.error} style={{ marginRight: spacing.sm }} />
-            <Text variant="bodySmall" style={{ flex: 1, color: colors.error }}>
-              Cancelling will affect your cancellation rate in performance stats, and passengers who already paid will be refunded. Frequent cancellations may result in account restrictions.
-            </Text>
-          </View>
-
-          {/* Reason List */}
-          <Text variant="labelLarge" color={colors.onSurfaceVariant} style={styles.sectionLabel}>
-            Reason for cancellation
-          </Text>
-          <View style={styles.card}>
-            {CANCEL_REASONS.map((reason, idx) => {
-              const isSelected = selectedReason === reason;
-              const isLast = idx === CANCEL_REASONS.length - 1;
-              return (
-                <Pressable
-                  key={reason}
-                  style={[styles.reasonRow, isLast && { borderBottomWidth: 0 }]}
-                  onPress={() => setSelectedReason(reason)}
-                 accessibilityRole="button">
-                  <View style={[styles.dot, isSelected && styles.dotActive]} />
-                  <Text
-                    variant="bodyMedium"
-                    style={{ flex: 1, fontFamily: isSelected ? fonts.bold : fonts.regular, color: isSelected ? colors.onSurface : colors.onSurfaceVariant }}
-                  >
-                    {reason}
-                  </Text>
-                  {isSelected && (
-                    <Ionicons name="checkmark-circle" size={20} color={colors.primary} />
-                  )}
-                </Pressable>
-              );
-            })}
-          </View>
-
-          {/* Note input for Other */}
-          {selectedReason === 'Other' && (
-            <Entrance animation="slideUp">
-              <Text variant="labelLarge" color={colors.onSurfaceVariant} style={styles.sectionLabel}>
-                Additional note
-              </Text>
-              <TextInput maxFontSizeMultiplier={1.4}
-                style={styles.noteInput}
-                value={note}
-                onChangeText={setNote}
-                placeholder="Describe your reason..."
-                placeholderTextColor={colors.onSurfaceVariant}
-                multiline
-                numberOfLines={4}
-                textAlignVertical="top"
-              />
-            </Entrance>
-          )}
-
-          <Button
-            label={isPending ? 'Cancelling…' : 'Cancel Trip'}
-            onPress={handleSubmit}
-            disabled={isPending || !selectedReason}
-            style={styles.cancelBtn}
+      {needsNote && (
+        <ListSection title="What happened?">
+          <TextInput
+            maxFontSizeMultiplier={1.4}
+            style={styles.noteInput}
+            value={note}
+            onChangeText={setNote}
+            placeholder="A few words for the riders and our team"
+            placeholderTextColor={colors.onSurfaceVariant}
+            multiline
+            numberOfLines={4}
+            textAlignVertical="top"
+            accessibilityLabel="Reason for cancelling"
           />
-        </Entrance>
-      </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+        </ListSection>
+      )}
+    </Screen>
   );
 }
 
-const makeStyles = (colors: DriverColors) => StyleSheet.create({
-  safe: { flex: 1, backgroundColor: 'transparent' },
-  backRow: { paddingHorizontal: spacing['2xl'], paddingTop: spacing.base },
-  scroll: { paddingHorizontal: spacing['2xl'], paddingTop: spacing.xl, paddingBottom: spacing['3xl'] },
-  headline: { letterSpacing: -1, marginBottom: spacing['2xl'] },
-  warningBanner: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    backgroundColor: `${colors.error}14`,
-    borderRadius: radii.xl,
-    borderWidth: 1,
-    borderColor: `${colors.error}40`,
-    padding: spacing.lg,
-    marginBottom: spacing.xl,
-  },
-  sectionLabel: { marginBottom: spacing.sm, marginLeft: spacing.xs },
-  card: {
-    backgroundColor: colors.surfaceContainer,
-    borderRadius: radii['2xl'],
-    borderWidth: 1,
-    borderColor: colors.outline,
-    paddingHorizontal: spacing.xl,
-    marginBottom: spacing.xl,
-  },
-  reasonRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: spacing.base,
-    gap: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.outlineVariant,
-  },
-  dot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    borderWidth: 2,
-    borderColor: colors.outlineVariant,
-    backgroundColor: 'transparent',
-  },
-  dotActive: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primary,
-  },
-  noteInput: {
-    fontFamily: fonts.medium,
-    fontSize: fontSizes.bodyMedium,
-    lineHeight: Math.round(fontSizes.bodyMedium * 1.4),
-    color: colors.onSurface,
-    borderWidth: 1,
-    borderColor: colors.outline,
-    borderRadius: radii.xl,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    marginBottom: spacing.xl,
-    backgroundColor: colors.surfaceContainer,
-    minHeight: 100,
-  },
-  cancelBtn: {
-    backgroundColor: colors.error,
-    borderRadius: radii['2xl'],
-  },
-  row: { flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.base, gap: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.outlineVariant },
-  iconBg: { width: 36, height: 36, borderRadius: 12, backgroundColor: `${colors.primary}18`, alignItems: 'center', justifyContent: 'center' },
-  rowLabel: { flex: 1, fontFamily: fonts.medium, fontSize: fontSizes.bodyMedium, lineHeight: Math.round(fontSizes.bodyMedium * 1.3), color: colors.onSurface },
-});
+const makeStyles = (colors: DriverColors) =>
+  StyleSheet.create({
+    warning: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: spacing.sm,
+      marginHorizontal: spacing.lg,
+      marginBottom: spacing.lg,
+      padding: spacing.base,
+      borderRadius: radii.xl,
+      backgroundColor: `${colors.error}14`,
+      borderWidth: 1,
+      borderColor: `${colors.error}40`,
+    },
+    warningText: { flex: 1, color: colors.error, lineHeight: 19 },
+    noteInput: {
+      fontFamily: fonts.medium,
+      fontSize: fontSizes.bodyMedium,
+      lineHeight: Math.round(fontSizes.bodyMedium * 1.4),
+      color: colors.onSurface,
+      marginHorizontal: spacing.lg,
+      marginTop: spacing.xs,
+      paddingHorizontal: spacing.base,
+      paddingVertical: spacing.md,
+      minHeight: 110,
+      borderRadius: radii.xl,
+      borderWidth: 1,
+      borderColor: colors.outline,
+      backgroundColor: colors.surfaceContainer,
+    },
+  });

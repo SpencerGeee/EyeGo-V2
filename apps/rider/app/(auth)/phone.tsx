@@ -3,9 +3,8 @@ import {
   View,
   TextInput,
   StyleSheet,
-  Platform,
   Pressable,
-  } from 'react-native';
+} from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -119,33 +118,10 @@ export default function PhoneScreen() {
             />
           </Entrance>
 
-          {/* Divider */}
-          <Entrance animation="fadeIn" delay={200} duration={400} style={styles.orDivider}>
-            <View style={styles.dividerLine} />
-            <Text variant="caption" color={colors.onSurfaceVariant} style={{ marginHorizontal: spacing.md }}>
-              OR
-            </Text>
-            <View style={styles.dividerLine} />
-          </Entrance>
-
-          {/* Social buttons */}
-          <Entrance animation="slideUp" delay={200} style={styles.socialContainer}>
-            <Button
-              label="Continue with Google"
-              variant="secondary"
-              onPress={() => goDeeper('/(auth)/social' as any)}
-              accessibilityLabel="Continue with Google"
-            />
-            {Platform.OS === 'ios' && (
-              <Button
-                label="Continue with Apple"
-                variant="secondary"
-                onPress={() => goDeeper('/(auth)/social' as any)}
-                style={styles.appleBtn}
-                accessibilityLabel="Continue with Apple"
-              />
-            )}
-          </Entrance>
+          {/* No "Continue with Google/Apple": the server verifies FIREBASE
+              tokens, the app never had a Firebase credential exchange, and the
+              Google SDK was never installed — both buttons ended in an error
+              toast. Phone + OTP is the sign-in. */}
       </KeyboardAwareScrollView>
     </SafeAreaView>
   );
@@ -249,21 +225,5 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   ctaContainer: {
     marginBottom: spacing.xl,
-  },
-  orDivider: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: spacing.xl,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: colors.outlineVariant,
-  },
-  socialContainer: {
-    gap: spacing.md,
-  },
-  appleBtn: {
-    marginTop: 0,
   },
 });

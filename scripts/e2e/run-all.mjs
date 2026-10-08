@@ -44,6 +44,7 @@ const SUITES = [
   ['maestro-selectors.mjs', 'every E2E selector is rendered by the app it targets'],
   ['button-wiring.mjs', 'every control leads to a real screen, a real endpoint and real code'],
   ['h3-index.mjs', 'the hex grid dispatch searches — pure, exact, no stack needed'],
+  ['formatters.mjs', 'money and times print the same on iPhone and Android'],
   ['scheduled-rides.mjs', 'the ride booked for later — the lifecycle nobody can sit through'],
   ['geo-routing.mjs', 'the polyline, the geocoder and the ETA every map depends on'],
   ['rider-happy-path.mjs', 'request → dispatch → accept → drive → complete → pay'],
