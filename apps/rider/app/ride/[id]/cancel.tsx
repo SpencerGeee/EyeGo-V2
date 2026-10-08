@@ -161,11 +161,13 @@ export default function CancelRideScreen() {
        * that no longer existed, with a "Cancel Ride" button on it. The notice
        * is the news; leaving is not optional either way.
        */
-      if (fee > 0) {
-        notify(
-          'Ride Cancelled',
-          `Your ride has been cancelled. A cancellation fee of ${formatGhs(fee)} has been applied.`);
-      }
+      // Always confirmed, never in the error tone (notify's default): the
+      // rider did what they meant to do.
+      notify(
+        'Ride cancelled',
+        fee > 0 ? `A cancellation fee of ${formatGhs(fee)} has been applied.` : 'You weren’t charged.',
+        { tone: 'info' },
+      );
       router.replace('/(tabs)/home');
     },
     onError: (err: any) => {

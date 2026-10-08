@@ -221,6 +221,21 @@ const groupOf = (trip: any): TripGroup =>
 /** One label for home, browse and the request stage — see utils/tripGroups. */
 const departureLabel = sharedDepartureLabel;
 
+/**
+ * "6:40" large with a small "PM" — the 76 pt ticket stub held "18:40" and
+ * cannot hold "6:40 PM" at 24 pt, so the meridiem rides as a suffix and the
+ * whole line shrinks rather than wrapping if a font scale pushes it.
+ */
+function StubTime({ time, styles }: { time: string; styles: ReturnType<typeof makeStyles> }) {
+  const [hm, meridiem] = time.split(' ');
+  return (
+    <Text style={styles.schedTime} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+      {hm}
+      {meridiem ? <Text style={styles.schedMeridiem}>{` ${meridiem}`}</Text> : null}
+    </Text>
+  );
+}
+
 /** "Thu" / "Tomorrow" / "Today" plus "6:40 PM" — a departure, split for a stub. */
 function departureParts(trip: any): { day: string; time: string; away: string | null } {
   const at = departureOf(trip);
@@ -330,7 +345,7 @@ function ScheduledTripCard({
             <Text style={[styles.schedDay, { color: accent }]} numberOfLines={1}>
               {day.toUpperCase()}
             </Text>
-            <Text style={styles.schedTime}>{time}</Text>
+            <StubTime time={time} styles={styles} />
             {away ? (
               <Text style={styles.schedAway} numberOfLines={1}>{away}</Text>
             ) : null}
@@ -527,9 +542,11 @@ function SuggestedTripCard({
     tier === 'COMFORT' ? 'bus-outline' as const :
     tier === 'PREMIUM' ? 'car-sport' as const :
     'ribbon-outline' as const;
+  // Only what the tier itself promises. COMFORT said "AC · WIFI", which no
+  // vehicle record carries — a claim the rider would hold the driver to.
   const tierBadgeLabel =
     tier === 'ECONOMY' ? 'SHARED' :
-    tier === 'COMFORT' ? 'AC · WIFI' :
+    tier === 'COMFORT' ? 'MORE ROOM' :
     tier === 'PREMIUM' ? 'PREMIUM' : 'ROYAL';
 
   /**
@@ -568,10 +585,12 @@ function SuggestedTripCard({
         style={styles.tripCard}
       >
         <GlassSurface borderRadius={17} intensity="low" dark style={styles.tripGlassInset} />
+        {/* "NEXT OUT", not "TOP PICK": the featured card is simply the one
+            leaving first — nothing ranked it. */}
         {featured && (
           <View style={styles.tripTopPickChip}>
-            <Ionicons name="sparkles" size={10} color="#0A0A0C" />
-            <Text style={styles.tripTopPickText}>TOP PICK</Text>
+            <Ionicons name="flash" size={10} color="#0A0A0C" />
+            <Text style={styles.tripTopPickText}>NEXT OUT</Text>
           </View>
         )}
       <View style={styles.tripCardRow}>
@@ -620,6 +639,7 @@ function SuggestedTripCard({
                 color={group === 'boarding' ? BOARDING_ACCENT : colors.onSurfaceVariant}
               />
               <Text
+                numberOfLines={1}
                 style={[
                   styles.tripWhenText,
                   { color: group === 'boarding' ? BOARDING_ACCENT : colors.onSurfaceVariant },
@@ -1352,9 +1372,7 @@ export default function HomeScreen() {
                     <Text style={[styles.schedDay, { color: colors.tierComfort }]} numberOfLines={1}>
                       {departureParts({ departureTime: nextScheduledIntent.scheduledAt }).day.toUpperCase()}
                     </Text>
-                    <Text style={styles.schedTime}>
-                      {departureParts({ departureTime: nextScheduledIntent.scheduledAt }).time}
-                    </Text>
+                    <StubTime time={departureParts({ departureTime: nextScheduledIntent.scheduledAt }).time} styles={styles} />
                     <Text style={styles.schedAway} numberOfLines={1}>
                       {departureParts({ departureTime: nextScheduledIntent.scheduledAt }).away ?? ''}
                     </Text>
@@ -2024,11 +2042,15 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingVertical: 3,
     borderRadius: 8,
     borderWidth: 1,
+    // "Tomorrow, 6:40 PM" is longer than the old "18:40" — truncate, never
+    // push the seat count off the card.
+    flexShrink: 1,
   },
   tripWhenText: {
     fontFamily: fonts.medium,
     fontSize: 11,
     lineHeight: 14,
+    flexShrink: 1,
   },
   sectionTitle: {
     fontFamily: fonts.semiBold,
@@ -2069,6 +2091,12 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     color: colors.onSurface,
     // A departure board's whole job is that the times line up.
     fontVariant: ['tabular-nums'],
+  },
+  schedMeridiem: {
+    fontFamily: fonts.semiBold,
+    fontSize: 11,
+    letterSpacing: 0.4,
+    color: colors.onSurfaceVariant,
   },
   schedAway: {
     fontFamily: fonts.monoRegular,

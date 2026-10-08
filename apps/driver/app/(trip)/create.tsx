@@ -11,7 +11,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { driverApi } from '@eyego/api';
-import { placeLabel, relativeDayTime } from '@eyego/utils';
+import { placeLabel, relativeDayTime, relativeDay, clockTime } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 // One formatter. This screen used to declare a local `₵${amount.toFixed(2)}`
 // that shadowed the shared one — harmless while money was cedis, a 100x
@@ -452,9 +452,11 @@ export default function CreateTripScreen() {
               <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii.xl} intensity="low" />
               <Ionicons name="time-outline" size={24} color={colors.primary} />
               <View style={{ flex: 1 }}>
-                <Text variant="caption" color={colors.onSurfaceVariant}>Departure time</Text>
-                <Text style={styles.timeDisplay}>
-                  {relativeDayTime(departureTime)}
+                {/* The day in the caption, the clock large: "Tomorrow, 6:00 AM"
+                    at display size does not fit one line. */}
+                <Text variant="caption" color={colors.onSurfaceVariant}>Departure · {relativeDay(departureTime)}</Text>
+                <Text style={styles.timeDisplay} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
+                  {clockTime(departureTime)}
                 </Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceVariant} />
