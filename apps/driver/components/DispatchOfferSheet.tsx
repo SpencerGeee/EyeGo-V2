@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, StyleSheet, Pressable } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
+import { View, StyleSheet, Pressable, useWindowDimensions, type LayoutChangeEvent } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import Animated, {
   Easing,
@@ -21,7 +21,8 @@ import { useDriverSurface } from './surface/driverStage';
 import { lastKnownReportedFix } from '../hooks/useDriverLocation';
 import { startDispatchAlert, stopDispatchAlert } from '../utils/dispatchAlert';
 import { fetchRoute } from '../utils/routing';
-import { DispatchOfferCard, type DispatchOfferView } from './dispatch/DispatchOfferCard';
+import { DispatchOfferCard, offerAccent, type DispatchOfferView } from './dispatch/DispatchOfferCard';
+import { DispatchMiniMap } from './dispatch/DispatchMiniMap';
 import { goDeeper, notify } from '@eyego/ui';
 
 /**
@@ -230,6 +231,19 @@ export default function DispatchOfferSheet() {
   }, [tripId, scrim]);
   const scrimStyle = useAnimatedStyle(() => ({ opacity: scrim.value }));
 
+  /**
+   * The map frames the ride in the part of the screen the card leaves: the
+   * card's measured height (it grows with a wallet notice or an armed pass)
+   * plus the home indicator below it, the status bar above.
+   */
+  const insets = useSafeAreaInsets();
+  const { height: screenH } = useWindowDimensions();
+  const [cardH, setCardH] = useState(0);
+  const onCardLayout = (e: LayoutChangeEvent) => {
+    const h = Math.round(e.nativeEvent.layout.height);
+    if (Math.abs(h - cardH) > 8) setCardH(h);
+  };
+
   const dismiss = () => {
     if (held) clearOffer();
     if (focusedTripId) closeFocused();
@@ -344,6 +358,21 @@ export default function DispatchOfferSheet() {
         kind: row!.status === 'REASSIGNING' ? 'REASSIGNMENT' : 'REQUEST',
       };
 
+  const accent = offerAccent(colors, view.tier, secondsLeft);
+  const pickupKm = driverAt && view.pickup ? haversineKm(driverAt, view.pickup) : null;
+  const etaMin = view.etaSeconds != null ? Math.max(1, Math.round(view.etaSeconds / 60)) : null;
+  const approachLabel = [etaMin != null ? `${etaMin} min` : null, pickupKm != null ? `${pickupKm.toFixed(1)} km` : null]
+    .filter(Boolean)
+    .join(' · ') || null;
+  const framePadding = {
+    top: insets.top + spacing.xl,
+    // Never more than ~60% of the screen between the two — the camera adapter
+    // clamps there anyway, and a frame squeezed to a sliver helps nobody.
+    bottom: Math.min(cardH + insets.bottom + spacing.lg + 24, screenH * 0.6 - insets.top - spacing.xl),
+    left: 48,
+    right: 48,
+  };
+
   /**
    * ── NO `<Modal>`: THIS IS ALREADY THE TOP LAYER ─────────────────────────
    * Mounted at the root inside `OverlayPortal` (a `FullWindowOverlay` on iOS).
@@ -352,26 +381,39 @@ export default function DispatchOfferSheet() {
    * running, with no card on screen. The portal already provides the takeover;
    * `styles.root` fills it and accepts touches, so nothing behind can be reached.
    */
+  /**
+   * ── THE MAP IS THE PAGE ──────────────────────────────────────────────────
+   * FEATURE ("the dispatch offer needs full immersion — ETA, distance to the
+   * pickup, think about everything"). It was a card in the middle of a nearly
+   * black scrim with a 196 pt map inside it. Now the map is the whole screen —
+   * this bus, its road to the pickup drawing itself in, the pickup pulsing, the
+   * minutes and kilometres sitting on the road — and the offer floats over it
+   * as one card. The map pans and pinches (a driver may want to see what is
+   * around the pickup) and still accepts every touch, so nothing behind the
+   * takeover can be reached.
+   */
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-      <View style={styles.root}>
-        <Animated.View style={[StyleSheet.absoluteFill, scrimStyle]}>
-          <LinearGradient
-            colors={['rgba(3,12,24,0.92)', 'rgba(3,12,24,0.97)']}
-            style={StyleSheet.absoluteFill}
-          />
-        </Animated.View>
-
-        {/* Inert. Passing on a ride is a decision, not a miss — see the header. */}
-        <Pressable
-          style={StyleSheet.absoluteFill}
-          accessible={false}
-          onPress={() => {
-            void Haptics.selectionAsync().catch(() => {});
-          }}
+      <Animated.View style={[StyleSheet.absoluteFill, scrimStyle]}>
+        <DispatchMiniMap
+          fill
+          pickup={view.pickup}
+          // The approach only: the destination stays withheld until the ride
+          // starts (see the card) — it is told in numbers, never drawn.
+          dropoff={null}
+          driver={driverAt}
+          approachGeometry={view.geometry ?? null}
+          accent={accent}
+          framePadding={framePadding}
+          approachLabel={approachLabel}
         />
+      </Animated.View>
 
-        <Animated.View style={[styles.sheet, riseStyle]} pointerEvents="box-none">
+      <View
+        style={[styles.root, { paddingTop: insets.top + spacing.sm, paddingBottom: insets.bottom + spacing.sm }]}
+        pointerEvents="box-none"
+      >
+        <Animated.View style={[styles.sheet, riseStyle]} pointerEvents="box-none" onLayout={onCardLayout}>
           {/* A row the driver opened may be put away without passing on it. A
               held offer may not: the only ways out of a hold are the two the
               card offers, because closing it is indistinguishable from missing it. */}
@@ -389,22 +431,34 @@ export default function DispatchOfferSheet() {
               <Animated.Text style={[styles.closeText, { color: colors.onSurfaceVariant }]}>Back to board</Animated.Text>
             </Pressable>
           ) : null}
-          <DispatchOfferCard
-            offer={view}
-            driverAt={driverAt}
-            nowMs={serverNow()}
-            windowMs={windowMs}
-            secondsLeft={secondsLeft}
-            onAccept={handleAccept}
-            onDecline={handleDecline}
-            busy={busy}
-            accepted={accepted}
-            mapHeight={196}
-          />
+          <View style={[styles.cardShadow, { backgroundColor: colors.surfaceCard }]}>
+            <DispatchOfferCard
+              offer={view}
+              driverAt={driverAt}
+              nowMs={serverNow()}
+              windowMs={windowMs}
+              secondsLeft={secondsLeft}
+              onAccept={handleAccept}
+              onDecline={handleDecline}
+              busy={busy}
+              accepted={accepted}
+              variant="sheet"
+            />
+          </View>
         </Animated.View>
       </View>
     </View>
   );
+}
+
+/** Straight-line km between two `[lng, lat]` points — for "1.2 km" beside an ETA. */
+function haversineKm(a: Coord, b: Coord): number {
+  const dLat = ((b[1] - a[1]) * Math.PI) / 180;
+  const dLng = ((b[0] - a[0]) * Math.PI) / 180;
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((a[1] * Math.PI) / 180) * Math.cos((b[1] * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.sqrt(h));
 }
 
 /** `[lng, lat]`, or null unless BOTH are real finite numbers. */
@@ -416,8 +470,16 @@ function coordOf(lng: unknown, lat: unknown): Coord | null {
 
 const makeStyles = (_colors: DriverColors) =>
   StyleSheet.create({
-    root: { flex: 1, justifyContent: 'center', padding: spacing.lg },
+    root: { flex: 1, justifyContent: 'flex-end', paddingHorizontal: spacing.md },
     sheet: { width: '100%', gap: spacing.md },
+    cardShadow: {
+      borderRadius: 28,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 12 },
+      shadowOpacity: 0.4,
+      shadowRadius: 26,
+      elevation: 18,
+    },
     closeChip: {
       alignSelf: 'center',
       minHeight: 40,

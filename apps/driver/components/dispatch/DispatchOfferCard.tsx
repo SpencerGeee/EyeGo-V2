@@ -143,8 +143,8 @@ export interface DispatchOfferCardProps {
    * floats over whatever the driver was doing and has to read as one thing that
    * arrived.
    *
-   * `'sheet'` is for the dispatch SCREEN, where the map is the whole background
-   * and this docks over it. There the ring was actively harmful: a glowing
+   * `'sheet'` is for when the map is the whole background and this floats over
+   * it — the full-screen offer (DispatchOfferSheet). There the ring was actively harmful: a glowing
    * rounded rectangle around a panel that itself contains a map with its own
    * vignette, sitting on a screen that is already a map, is three competing
    * edges stacked within about twenty points of each other — which is what "the
@@ -154,6 +154,17 @@ export interface DispatchOfferCardProps {
    * edge of the screen rather than a floating card that has been cropped.
    */
   variant?: 'card' | 'sheet';
+}
+
+/**
+ * The offer's colour: the ride type's own, overridden by the clock — amber under
+ * ten seconds, red under five. One function, because the card and the
+ * full-screen map behind it must shift together.
+ */
+export function offerAccent(colors: DriverColors, tier: string | null | undefined, secondsLeft: number | null): string {
+  if (secondsLeft != null && secondsLeft <= 5) return colors.error;
+  if (secondsLeft != null && secondsLeft <= 10) return colors.statusWarning;
+  return getTierTheme(colors as any, tier).accent;
 }
 
 /** Approximate straight-line km, only to say "2.1 km away" beside an ETA. */
@@ -331,7 +342,7 @@ export function DispatchOfferCard({
    * THIS offer that outranks what kind of car it is.
    */
   const tier = getTierTheme(colors as any, offer.tier);
-  const accent = urgent ? colors.error : warning ? colors.statusWarning : tier.accent;
+  const accent = offerAccent(colors, offer.tier, secondsLeft);
   const ringPalette = urgent || warning ? 'gold' : tier.ringPalette;
 
   /**
@@ -486,14 +497,6 @@ export function DispatchOfferCard({
       {offer.expiresAtServerMs && isSheet ? (
         <View style={styles.railTrack} pointerEvents="none">
           <Animated.View style={[styles.rail, { backgroundColor: accent }, railStyle]} />
-        </View>
-      ) : null}
-
-      {/* A grabber, so the panel reads as an edge of the screen the driver can
-          push against rather than a card that has been cropped by it. */}
-      {isSheet ? (
-        <View style={styles.grabberWrap} pointerEvents="none">
-          <View style={[styles.grabber, { backgroundColor: colors.outline }]} />
         </View>
       ) : null}
 
@@ -939,21 +942,18 @@ const makeStyles = (colors: DriverColors) =>
     /**
      * ── THE SHEET VARIANT ────────────────────────────────────────────────────
      *
-     * Top corners only, flat bottom, no ring — it is docked to the bottom of a
-     * full-bleed map and reads as an edge of the screen. A hairline top rim
-     * rather than a glow: over a moving map a glow smears, and the map behind
-     * already provides all the separation this needs.
+     * A card floating over a full-screen map: rounded all round, no glow ring —
+     * a hairline rim instead, because over a moving map a glow smears and the
+     * map behind already gives all the separation this needs. The shadow is the
+     * caller's (this clips its own corners, which would clip a shadow too).
      */
     sheetCard: {
-      borderTopLeftRadius: radii['3xl'],
-      borderTopRightRadius: radii['3xl'],
+      borderRadius: radii['3xl'],
       overflow: 'hidden',
       backgroundColor: colors.surfaceCard,
-      borderTopWidth: StyleSheet.hairlineWidth,
+      borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.rimLight,
     },
-    grabberWrap: { alignItems: 'center', paddingTop: spacing.sm, paddingBottom: 2 },
-    grabber: { width: 38, height: 4, borderRadius: 2, opacity: 0.7 },
     /** In the sheet the badges are content, not an overlay on a map. */
     sheetBadges: {
       flexDirection: 'row',
