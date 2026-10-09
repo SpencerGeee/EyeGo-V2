@@ -307,7 +307,7 @@ export default function ServicesScreen() {
         showsVerticalScrollIndicator={false}
         {...backgroundScrollPauseProps}
       >
-        <Text style={styles.sectionHeader}>Ride Options</Text>
+        <Text style={styles.sectionHeader}>Ride options</Text>
         <View style={styles.tiersContainer}>
           {TIERS.map((tier) => (
             <TierCard key={tier.id} tier={tier} colors={colors} styles={styles} />
@@ -317,7 +317,7 @@ export default function ServicesScreen() {
         {/* 24, not 32. A section break should be bigger than the gap between
            rows inside a section (12) and no bigger than it needs to be to say
            "new group" — 32 read as the end of the screen. */}
-        <Text style={[styles.sectionHeader, { marginTop: spacing.xl }]}>Special Services</Text>
+        <Text style={[styles.sectionHeader, { marginTop: spacing.xl }]}>More ways to ride</Text>
         <View style={styles.specialContainer}>
           {SPECIAL_SERVICES.map((service) => (
             <SpecialServiceCard

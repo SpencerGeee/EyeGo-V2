@@ -26,7 +26,7 @@ flaws, audit the admin side for completeness.
 ## Next (in order)
 1. Restart API, re-run run-all; grep api.log for Unknown field / unknown key / swallowed warns
 2. Premium pass: driver add-passenger, location-picker, chat; rider Services
-3. Admin next build (prod) when memory allows
+3. DONE: admin next build — compiled, 34/34 pages incl. /payouts
 4. Update session-log + memory
 
 ## Classes checked clean
