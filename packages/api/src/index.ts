@@ -38,7 +38,7 @@ export type {
   TripLeg,
   TripEtaPush,
 } from './tripChannel';
-export { bookingsApi } from './bookings.api';
+export { bookingsApi, type AwayOutcome } from './bookings.api';
 export { paymentsApi } from './payments.api';
 export { getSocket, connectSocket, disconnectSocket, forceDisconnectSocket, socketEvents, configureSocket, refreshSocketAuth, refreshDriverSocketAuth } from './socket';
 export { notificationsApi } from './notifications.api';

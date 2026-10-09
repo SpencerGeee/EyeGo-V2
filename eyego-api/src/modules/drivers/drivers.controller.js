@@ -74,6 +74,12 @@ const getActiveTrip = async (req, res) => {
   ok(res, { trip });
 };
 
+/** Trips ended, seats moved and money that happened while the app was closed. See away-outcomes.service. */
+const getOutcomes = async (req, res) => {
+  const outcomes = await require('../../services/away-outcomes.service').forDriver(req.user.userId, req.query.since);
+  ok(res, { outcomes });
+};
+
 const startTrip = async (req, res) => {
   const trip = await driversService.startTrip(req.user.userId, req.params.id);
   try {
@@ -639,7 +645,7 @@ const clearDestinationMode = async (req, res) => {
 
 module.exports = {
   getMe, updateMe, updateFcmToken, completeVerification, addVehicle,
-  goOnline, goOffline, getTripHistory, getActiveTrip, getAllTrips, devActivate,
+  goOnline, goOffline, getTripHistory, getActiveTrip, getOutcomes, getAllTrips, devActivate,
   startTrip, departTrip, arriveAtPickup, arriveTrip, cancelTrip, presence,
   getTripById, acceptDispatch, declineDispatch, claimReassignedTrip,
   acceptTripRequest, declineTripRequest, uploadDocument,

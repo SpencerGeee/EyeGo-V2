@@ -250,6 +250,12 @@ const getActiveBooking = async (req, res) => {
   ok(res, { booking });
 };
 
+/** What ended, refunded or changed while the app was closed. See away-outcomes.service. */
+const getOutcomes = async (req, res) => {
+  const outcomes = await require('../../services/away-outcomes.service').forRider(req.user.userId, req.query.since);
+  ok(res, { outcomes });
+};
+
 const tipDriver = async (req, res) => {
   /**
    * THREE NAMES FOR ONE NUMBER, AND NO TIP EVER WENT THROUGH.
@@ -337,4 +343,4 @@ const joinGroup = async (req, res) => {
 
 module.exports = {
   previewSeatFare, bookSeat, createGroup, cancelBooking, getUserBookings, getBooking, rateBooking,
-  getMyRating, applyPromoCode, validatePromoCode, getActiveBooking, tipDriver, submitDispute, generateInvite, regenerateInvite, getGroup, joinGroup, updatePickup, updateHeavyCargo };
+  getMyRating, applyPromoCode, validatePromoCode, getActiveBooking, getOutcomes, tipDriver, submitDispute, generateInvite, regenerateInvite, getGroup, joinGroup, updatePickup, updateHeavyCargo };

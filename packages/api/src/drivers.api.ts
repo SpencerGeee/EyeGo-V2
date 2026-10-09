@@ -2,6 +2,7 @@ import { apiClient } from './client';
 import { EarningsBreakdownSchema, DriverWalletBalanceSchema, assertShape } from './schemas';
 import type { ApiResponse } from '@eyego/types';
 import type { TripDriver } from '@eyego/types';
+import type { AwayOutcome } from './bookings.api';
 
 /**
  * Destination mode — the driver's "I'm heading home" filter.
@@ -371,6 +372,12 @@ export const driverApi = {
 
   getActiveTrip: () =>
     apiClient.get<ApiResponse<{ trip: DriverTrip } | null>>('/driver/trips/active'),
+
+  /** Trips ended, seats moved, money — while the app was closed. See away-outcomes.service. */
+  outcomes: (sinceMs?: number) =>
+    apiClient.get<ApiResponse<{ outcomes: AwayOutcome[] }>>('/driver/outcomes', {
+      params: sinceMs ? { since: sinceMs } : undefined,
+    }),
 
   startTrip: (tripId: string) =>
     apiClient.post<ApiResponse<DriverTrip>>(`/driver/trips/${tripId}/start`),

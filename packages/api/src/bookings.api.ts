@@ -9,6 +9,29 @@ import type {
 } from '@eyego/types';
 
 /**
+ * One thing that happened while the app was closed — server-derived, keyed so
+ * the app shows it once. Rider and driver kinds share the shape.
+ */
+export interface AwayOutcome {
+  key: string;
+  kind: string;
+  at: string;
+  tripId?: string | null;
+  bookingId?: string | null;
+  intentId?: string;
+  /** Rider ride endings: what happened to the money. */
+  money?: 'REFUNDED' | 'KEPT' | 'NOT_CHARGED';
+  destination?: string | null;
+  amountPesewas?: number;
+  scheduledAt?: string;
+  departureTime?: string;
+  booked?: number;
+  cancelled?: number;
+  documentType?: string;
+  reason?: string | null;
+}
+
+/**
  * Guard against an empty id being interpolated into a path.
  *
  * BUGFIX (group hub: "Couldn't create link — tap to retry", and "Couldn't
@@ -101,6 +124,12 @@ export const bookingsApi = {
 
   getActive: () =>
     apiClient.get<ApiResponse<Booking | null>>('/bookings/active'),
+
+  /** What ended or changed while the app was closed (48 h). See away-outcomes.service. */
+  outcomes: (sinceMs?: number) =>
+    apiClient.get<ApiResponse<{ outcomes: AwayOutcome[] }>>('/bookings/outcomes', {
+      params: sinceMs ? { since: sinceMs } : undefined,
+    }),
 
   getHistory: (params?: { page?: number; limit?: number; status?: string }) =>
     apiClient.get<ApiResponse<{ bookings: Booking[]; total: number; page: number; totalPages: number }>>('/bookings', { params }),

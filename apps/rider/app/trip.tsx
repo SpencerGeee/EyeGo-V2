@@ -599,6 +599,7 @@ export default function TripScreen() {
           (snapshot as any)?.dropoffAddress ??
           useRideStore.getState().destination?.address ??
           null,
+        tripId: snapshot.tripId,
       });
       router.replace('/(tabs)/home' as Href);
     }

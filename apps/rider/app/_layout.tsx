@@ -45,6 +45,7 @@ import { ReleaseGateHost } from '../components/ReleaseGateHost';
 import { initSentry, captureException, setUser as setSentryUser } from '../lib/sentry';
 import { offlineQueue } from '../utils/offlineQueue';
 import { useOtaUpdates } from '../hooks/useOtaUpdates';
+import { useAwayOutcomes } from '../hooks/useAwayOutcomes';
 
 // Initialize crash/error tracking as early as possible (no-op without DSN)
 initSentry();
@@ -246,6 +247,8 @@ export default function RootLayout() {
   useOtaUpdates();
   // isExpoGo is derived above — used for conditional logic throughout
   const { loadFromStorage, accessToken, refreshToken, logout, login, isLoggedIn, isLoading } = useAuthStore();
+  // What ended or changed while the app was closed — queued onto RideEndedSheet.
+  useAwayOutcomes(isLoggedIn && !isLoading);
   const segments = useSegments();
   const { load: loadTheme, isDark } = useThemeStore();
   const colors = useColors();

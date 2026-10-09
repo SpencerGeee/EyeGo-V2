@@ -61,6 +61,7 @@ router.post('/trips', requireActiveDriver, idempotency, controller.createTrip);
 router.get('/trips', controller.getTripHistory);
 router.get('/trips/all', controller.getAllTrips);
 router.get('/trips/active', controller.getActiveTrip);
+router.get('/outcomes', controller.getOutcomes);
 router.get('/trips/:id', controller.getTripById);
 router.post('/trips/:id/start', requireActiveDriver, controller.startTrip);
 router.post('/trips/:id/arrive-at-pickup', requireActiveDriver, controller.arriveAtPickup);

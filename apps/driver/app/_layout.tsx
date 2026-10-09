@@ -36,6 +36,7 @@ import { driverColors, driverLightColors } from '../utils/useColors';
 import { initSentry, captureException } from '../lib/sentry';
 import { DriverTripStatusListener } from '../components/DriverTripStatusListener';
 import DispatchOfferSheet from '../components/DispatchOfferSheet';
+import { AwayOutcomesSheet } from '../components/AwayOutcomesSheet';
 import { useDriverSurface } from '../components/surface/driverStage';
 import { isLiveTripStatus } from '@eyego/utils';
 import { offlineQueue } from '../utils/offlineQueue';
@@ -858,6 +859,8 @@ export default function RootLayout() {
               whatever screen the driver is on — the store has been collecting
               offers since the rewire with nothing on the other end. */}
           {isLoggedIn && <DispatchOfferSheet />}
+          {/* What happened while the app was closed — one sheet per fact. */}
+          {isLoggedIn && <AwayOutcomesSheet />}
           {/* What the UI thread is ACTUALLY doing. Dev-only. This is the app
               that was reported laggy on an iPhone 12 — read p95, not p50. */}
           {__DEV__ && <FrameHealthBadge />}

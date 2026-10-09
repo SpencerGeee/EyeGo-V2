@@ -31,6 +31,7 @@ router.post(
 router.post('/', requireBookingEnabled, bookingCreateLimiter, controller.bookSeat);
 // Fixed-segment routes MUST come before /:bookingId to avoid param capture
 router.get('/active', controller.getActiveBooking);
+router.get('/outcomes', controller.getOutcomes);
 // POST /bookings/join/:shareToken — must be before /:bookingId/* routes
 router.post('/join/:shareToken', requireBookingEnabled, controller.joinGroup);
 

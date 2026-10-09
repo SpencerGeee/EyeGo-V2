@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 /**
  * THE RIDE ENDED AND SOMEBODY ELSE ENDED IT.
@@ -23,6 +24,12 @@ import { create } from 'zustand';
  * telling. `RideEndedSheet`, mounted on Home, presents it whenever the rider
  * gets there — immediately if they are already on Home, or after the surface
  * has finished retiring if they are not.
+ *
+ * ── AND WHAT HAPPENED WHILE THE APP WAS CLOSED ──────────────────────────────
+ * A killed app hears no socket frame and may never see the push. On reopen,
+ * `useAwayOutcomes` reads the server's last 48 h and QUEUES each unseen fact
+ * here; the sheet shows them one at a time. `seen` (persisted) is what stops a
+ * fact being told twice — including one the live path already told.
  */
 
 export type RideEndedReason =
@@ -30,7 +37,15 @@ export type RideEndedReason =
   | 'DRIVER_NO_SHOW'
   | 'RIDER_CANCELLED'
   | 'NO_DRIVERS'
-  | 'EXPIRED';
+  | 'EXPIRED'
+  // Reached through the away feed (and RIDER_NO_SHOW live too).
+  | 'RIDER_NO_SHOW'
+  | 'CANCELLED_BY_EYEGO'
+  | 'SEAT_RELEASED'
+  | 'COMPLETED'
+  | 'SCHEDULED_MATCHED'
+  | 'SCHEDULED_EXPIRED'
+  | 'REFUND_ISSUED';
 
 /** Enough of a journey to re-request it without asking anything again. */
 export interface RideEndedJourney {
@@ -43,6 +58,8 @@ export interface RideEndedNotice {
   reason: RideEndedReason;
   /** Whether money is coming back. Drives the copy — never guess this. */
   refunded: boolean;
+  /** The server's exact answer about the money, when it gave one (away feed). */
+  money?: 'REFUNDED' | 'KEPT' | 'NOT_CHARGED';
   /** Where they were going, so "try again" can go straight there. */
   destinationLabel: string | null;
   /**
@@ -64,13 +81,24 @@ export interface RideEndedNotice {
    * store, one statement earlier.
    */
   journey: RideEndedJourney | null;
+  tripId?: string | null;
+  bookingId?: string | null;
+  amountPesewas?: number;
+  /** ISO time of a scheduled ride, for its copy. */
+  scheduledAt?: string | null;
   /** Set when raised, so a notice cannot outlive the session that made it. */
   atMs: number;
 }
 
+type RaiseInput = Omit<RideEndedNotice, 'atMs' | 'journey'> & { journey?: RideEndedJourney | null };
+
 interface RideEndedState {
   notice: RideEndedNotice | null;
-  raise: (n: Omit<RideEndedNotice, 'atMs' | 'journey'> & { journey?: RideEndedJourney | null }) => void;
+  queue: RideEndedNotice[];
+  /** Live path: shown now, last one wins. Marks its trip as told. */
+  raise: (n: RaiseInput) => void;
+  /** Away feed: shown after whatever is on screen. */
+  enqueue: (list: RaiseInput[]) => void;
   clear: () => void;
 }
 
@@ -100,20 +128,28 @@ function captureJourney(): RideEndedJourney | null {
 
 export const useRideEnded = create<RideEndedState>((set) => ({
   notice: null,
+  queue: [],
   /**
    * Last one wins, deliberately. Two terminal events for one ride (a NO_SHOW
    * followed by the REFUNDED that settles it) are one piece of news, and the
    * later frame carries the better answer about the money.
    */
-  raise: (n) =>
+  raise: (n) => {
+    if (n.tripId) void markTripTold(n.tripId);
     set({
       notice: {
         ...n,
         journey: n.journey !== undefined ? n.journey : captureJourney(),
         atMs: Date.now(),
       },
+    });
+  },
+  enqueue: (list) =>
+    set((s) => {
+      const queued = [...s.queue, ...list.map((n) => ({ ...n, journey: n.journey ?? null, atMs: Date.now() }))];
+      return s.notice ? { queue: queued } : { notice: queued[0] ?? null, queue: queued.slice(1) };
     }),
-  clear: () => set({ notice: null }),
+  clear: () => set((s) => ({ notice: s.queue[0] ?? null, queue: s.queue.slice(1) })),
 }));
 
 /**
@@ -123,4 +159,39 @@ export const useRideEnded = create<RideEndedState>((set) => ({
  */
 export function shouldAnnounce(reason: RideEndedReason): boolean {
   return reason !== 'RIDER_CANCELLED';
+}
+
+// ── What this device has already told the rider ─────────────────────────────
+
+const SEEN_KEY = 'eyego.awaySeen.v1';
+const SEEN_CAP = 300;
+type Seen = { keys: string[]; trips: string[]; lastAtMs: number };
+let seenCache: Seen | null = null;
+
+export async function loadSeen(): Promise<Seen> {
+  if (seenCache) return seenCache;
+  try {
+    const raw = await AsyncStorage.getItem(SEEN_KEY);
+    seenCache = raw ? { keys: [], trips: [], lastAtMs: 0, ...JSON.parse(raw) } : { keys: [], trips: [], lastAtMs: 0 };
+  } catch {
+    seenCache = { keys: [], trips: [], lastAtMs: 0 };
+  }
+  return seenCache!;
+}
+
+export async function saveSeen(patch: Partial<Seen>): Promise<void> {
+  const cur = await loadSeen();
+  seenCache = {
+    keys: (patch.keys ?? cur.keys).slice(-SEEN_CAP),
+    trips: (patch.trips ?? cur.trips).slice(-SEEN_CAP),
+    lastAtMs: patch.lastAtMs ?? cur.lastAtMs,
+  };
+  await AsyncStorage.setItem(SEEN_KEY, JSON.stringify(seenCache)).catch(() => {});
+}
+
+/** The live path (or the receipt screen) told the rider how this trip ended. */
+export async function markTripTold(tripId: string): Promise<void> {
+  const cur = await loadSeen();
+  if (cur.trips.includes(tripId)) return;
+  await saveSeen({ trips: [...cur.trips, tripId] });
 }

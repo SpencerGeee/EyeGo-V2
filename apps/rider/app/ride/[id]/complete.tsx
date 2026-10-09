@@ -7,6 +7,7 @@ import {
   Share,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { markTripTold } from '../../../stores/rideEnded.store';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { MotiView, goDeeper, goBack, goOut } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
@@ -27,6 +28,10 @@ export default function TripCompleteScreen() {
   const { id, bookingId: paramBookingId, viewOnly } = useLocalSearchParams<{ id: string; bookingId?: string; viewOnly?: string }>();
   const isViewOnly = viewOnly === '1';
   const router = useRouter();
+  // This IS the ending, told — the away feed must not tell it again on reopen.
+  useEffect(() => {
+    if (id) void markTripTold(id);
+  }, [id]);
   const { activeBooking, selectedTrip: storeTrip } = useRideStore(useShallow((s) => ({ activeBooking: s.activeBooking, selectedTrip: s.selectedTrip })));
   const navigated = useRef(false);
 

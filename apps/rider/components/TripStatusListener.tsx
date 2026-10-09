@@ -281,11 +281,15 @@ export function TripStatusListener() {
       if (iWasNoShowed) {
         showBanner('Your driver marked you as a no-show', 'close-circle');
         useRideEnded.getState().raise({
-          reason: 'DRIVER_NO_SHOW',
+          // THE RIDER was marked absent — "your driver cancelled" said the
+          // opposite of what happened.
+          reason: 'RIDER_NO_SHOW',
           // A rider no-show is explicitly NOT refunded — see the transaction in
           // riderNoShow. Promising money back here would be a lie.
           refunded: false,
           destinationLabel: useRideStore.getState().destination?.address ?? null,
+          tripId: (data as any)?.tripId ?? (data as any)?.snapshot?.tripId ?? null,
+          bookingId: myBookingId ?? null,
         });
         endTripLiveNotification();
         endTripLiveActivity('CANCELLED');
@@ -438,6 +442,8 @@ export function TripStatusListener() {
             useRideStore.getState().destination?.address ??
             (data as any)?.snapshot?.dropoffAddress ??
             null,
+          // Told live — so the away feed will not tell it again on next open.
+          tripId: (data as any)?.tripId ?? (data as any)?.snapshot?.tripId ?? null,
           /**
            * Read BEFORE `clearRideState()` below wipes it — see `journey` in
            * rideEnded.store.ts. This is what lets "Find another driver" put a

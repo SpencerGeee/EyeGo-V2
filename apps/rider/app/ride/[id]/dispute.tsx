@@ -33,6 +33,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
  */
 const ISSUE_TYPES: { label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { label: 'Left something in the car', icon: 'bag-handle-outline' },
+  // Reached pre-selected from "You were marked as a no-show → I was there".
+  { label: 'Wrongly marked as a no-show', icon: 'person-remove-outline' },
   { label: 'Incorrect fare', icon: 'card-outline' },
   { label: 'Wrong route', icon: 'git-branch-outline' },
   { label: 'Unsafe driving', icon: 'warning-outline' },
