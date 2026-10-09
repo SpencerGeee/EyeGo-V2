@@ -280,6 +280,9 @@ const envSchema = z.object({
   MIN_FARE_PER_SEAT: z.coerce.number().default(4.0),
   MIN_OCCUPANCY_TO_DEPART: z.coerce.number().default(5),
   SEAT_HOLD_DURATION_MINUTES: z.coerce.number().default(10),
+  // A seat on a bus that leaves later is "upcoming", not "on a ride", until
+  // this long before departure — see services/rider-occupancy.js.
+  SCHEDULED_RIDE_BLOCK_MINUTES: z.coerce.number().default(60),
   DRIVER_MIN_WALLET_BALANCE: z.coerce.number().default(5.0),
   DRIVER_REQUIRED_WALLET_TO_GO_ONLINE: z.coerce.number().default(20.0),
   DRIVER_MIN_WITHDRAWAL: z.coerce.number().default(20.0),

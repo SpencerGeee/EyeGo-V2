@@ -417,14 +417,16 @@ async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, payment
        *
        * Uber and Bolt both draw the line in exactly this place.
        */
-      if (!guestName) {
+      // Both sides use the rider-live window: a seat on tomorrow's bus neither
+      // blocks a ride now nor is blocked by one (tripState.isLiveForRider).
+      if (!guestName && tripState.isLiveForRider(trip)) {
         let liveElsewhere = await tx.booking.findFirst({
           where: {
             userId,
             tripId: { not: tripId },
             guestName: null,
             status: { in: LIVE_BOOKING_STATUSES },
-            trip: { status: { notIn: TERMINAL_TRIP_STATUSES } },
+            trip: tripState.liveForRiderWhere(),
           },
           select: { id: true, tripId: true },
         });
@@ -1418,18 +1420,11 @@ async function applyPromoCode(userId, bookingId, code) {
  * fall out of it again: everything that is not terminal is live.
  */
 /*
- * Deriving "live" by exclusion only works if the exclusion list is complete,
- * and it was not: NO_DRIVERS_FOUND and NO_SHOW are both absorbing terminal
- * states in TripStatus and neither was here. So the ride nobody accepted — the
- * most common way an on-demand request ends — came back from this endpoint as
- * the rider's ACTIVE booking, forever. That is the trip-less live card on the
- * home screen and the tracking screen that immediately bounces to the map.
- *
- * Keep in step with the terminal block of `enum TripStatus` in schema.prisma.
+ * The trip half of "live" is no longer an exclusion list kept here: it is
+ * `tripState.liveForRiderWhere()`, built from the state machine's own status
+ * sets, so it cannot drift from TripStatus — and it adds the departure window
+ * (an upcoming seat is not the active ride).
  */
-const TERMINAL_TRIP_STATUSES = [
-  'COMPLETED', 'CANCELLED', 'EXPIRED', 'NO_DRIVERS_FOUND', 'NO_SHOW',
-];
 
 /**
  * A HELD SEAT IS NOT A RIDE.
@@ -1457,7 +1452,8 @@ async function getActiveBooking(userId) {
     where: {
       userId,
       status: { in: LIVE_BOOKING_STATUSES },
-      trip: { status: { notIn: TERMINAL_TRIP_STATUSES } },
+      // Same window as rides/active — an upcoming seat is not the active one.
+      trip: tripState.liveForRiderWhere(),
     },
     include: {        trip: {
           include: {

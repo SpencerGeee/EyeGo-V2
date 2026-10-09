@@ -240,6 +240,12 @@ const REGISTRY = [
     min: 1, max: 120,
   },
   {
+    key: 'SCHEDULED_RIDE_BLOCK_MINUTES', group: 'booking', type: TYPES.INT,
+    label: 'Scheduled seat counts as a live ride', envKey: 'SCHEDULED_RIDE_BLOCK_MINUTES', unit: 'minutes',
+    help: 'How long before departure a booked seat stops the rider booking another ride for themselves.',
+    min: 0, max: 720,
+  },
+  {
     key: 'MIN_OCCUPANCY_TO_DEPART', group: 'booking', type: TYPES.INT,
     label: 'Minimum seats to depart', envKey: 'MIN_OCCUPANCY_TO_DEPART', unit: 'seats',
     min: 1, max: 20,

@@ -148,6 +148,8 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
    * car, usually for somebody else, while your own ride is still going.
    */
   const [conflict, setConflict] = useState(false);
+  /** The ride the refusal was about, so "Open my ride" opens THAT one. */
+  const [conflictTripId, setConflictTripId] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
   /**
    * "Cancel request?" asked INLINE, not with `Alert.alert`.
@@ -632,6 +634,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
         const code = err?.response?.data?.code ?? err?.response?.data?.error?.code;
         // Not a failure — a question. See `conflict`.
         if (code === 'RIDE_ALREADY_ACTIVE') {
+          setConflictTripId(err?.response?.data?.details?.activeTripId ?? null);
           setConflict(true);
           setLocalStatus('error');
           return;
@@ -904,6 +907,23 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
       return;
     }
 
+    /*
+     * MOUNTED BY THE PROJECTION, NOT BY A NEW INTENT.
+     *
+     * BUGFIX ("I chose to open my ride and it took me to 'you already have a
+     * ride — book for myself / for someone else'"). The surface derives this
+     * stage from a live search's status too (opening an existing request from
+     * anywhere); with a destination still in the ride store this effect then
+     * POSTed a SECOND request, the server refused it, and the rider was asked
+     * about a conflict with the very ride they had asked to see. A search the
+     * store is already following IS the request — follow it.
+     */
+    const following = useTripStore.getState().snapshot;
+    if (following && ['REQUESTED', 'MATCHING', 'REASSIGNING'].includes(String(following.status))) {
+      tripIdRef.current = following.tripId;
+      return;
+    }
+
     if (!destination) return;
 
     // A request with no pickup coordinate cannot be dispatched: driver matching
@@ -1120,14 +1140,23 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
             which is why Uber and Bolt both surface it at exactly this moment. */}
         {conflict && (
           <View style={styles.conflictActions}>
+            {/* The obvious answer first: go and look at the ride you are on. */}
+            {conflictTripId ? (
+              <Button
+                label="Open my ride"
+                onPress={() => goFresh(`/trip?stage=assigned&tripId=${conflictTripId}`)}
+                style={{ width: '100%' }}
+              />
+            ) : null}
             <Button
               label="Book a trip for myself"
+              variant={conflictTripId ? 'secondary' : 'primary'}
               onPress={bookConcurrentForSelf}
               style={{ width: '100%' }}
             />
             <Button
               label="Book for someone else"
-              variant="secondary"
+              variant={conflictTripId ? 'ghost' : 'secondary'}
               onPress={bookConcurrentForGuest}
               style={{ width: '100%' }}
             />

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, AppState, View, Text as RNText, BackHandler, useWindowDimensions } from 'react-native';
-import { useIsFocused } from '@react-navigation/native';
+import { CommonActions, useIsFocused, useNavigation, useRoute } from '@react-navigation/native';
 import Animated, {
   FadeIn,
   interpolate,
@@ -23,6 +23,7 @@ import { useTripFlow, CLIENT_OWNED_STAGES, type TripStage } from '../stores/trip
 import { useTripStore, stageForStatus, isTerminal } from '../stores/trip.store';
 import { useRideStore } from '../stores/ride.store';
 import { consumeTripSurfaceReturn, noteTripSurfaceBlur } from '../utils/tripSurfaceReturn';
+import { seedDestination } from '../utils/journey';
 import { TripMap } from '../components/trip/TripMap';
 import { SearchStage } from '../components/trip/stages/SearchStage';
 import { ConfigureStage } from '../components/trip/stages/ConfigureStage';
@@ -251,6 +252,14 @@ export default function TripScreen() {
      * the where to page". Same class of bug as `bookingId`, same fix.
      */
     resumeRequestId?: string;
+    /**
+     * One specific trip to show — an upcoming seat (not yet "active", see
+     * SCHEDULED_RIDE_BLOCK_MINUTES) or the ride a "you already have one"
+     * refusal pointed at. Watched before hydrating, so it wins.
+     */
+    tripId?: string;
+    /** A destination chosen elsewhere (Browse) — applied after the re-seed. */
+    destName?: string; destAddress?: string; destLat?: string; destLng?: string;
   }>();
   const stage = useTripFlow((s) => s.stage);
   const seed = useTripFlow((s) => s.seed);
@@ -343,6 +352,18 @@ export default function TripScreen() {
       morphId: params.morphId,
       bookingId: params.bookingId,
     });
+    // After `seed`, which clears the search place: a destination picked on
+    // another screen arrives as if typed into Where-To.
+    const destLat = Number(params.destLat);
+    const destLng = Number(params.destLng);
+    if (params.destName && Number.isFinite(destLat) && Number.isFinite(destLng)) {
+      seedDestination({
+        name: params.destName,
+        fullAddress: params.destAddress || params.destName,
+        latitude: destLat,
+        longitude: destLng,
+      });
+    }
     // ONE-CALL REHYDRATION. If a ride is already live — cold start, app killed
     // mid-trip, deep link — this is what makes the surface open on the right
     // stage instead of dropping the rider back on 'search' as though nothing
@@ -354,6 +375,7 @@ export default function TripScreen() {
     // If that ride has since ended, there is no snapshot for the stage to
     // render and `stageForStatus` returns null for terminal statuses — so
     // without this the rider would sit on an empty tracking panel forever.
+    if (params.tripId) useTripStore.getState().watch(params.tripId);
     void hydrate().then(({ trip, ok }) => {
       // BUGFIX (three reports, one line): "after paying I land on Where To",
       // "the live tracking card takes me to Where To", "book + send invite
@@ -370,7 +392,7 @@ export default function TripScreen() {
       // seeded for a specific booking — that booking is the thing being shown.
       if (!ok) return;
       if (trip) return;
-      if (params.bookingId) return;
+      if (params.bookingId || params.tripId) return;
       // Same reasoning as `bookingId`: the surface was opened to show ONE
       // specific pending request, and `rides/active` legitimately returns null
       // for it, so a null lookup is not evidence that there is nothing to show.
@@ -422,7 +444,7 @@ export default function TripScreen() {
      * is idempotent for a given set of them.
      */
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params.stage, params.tier, params.type, params.morphId, params.bookingId, params.resumeRequestId]);
+  }, [params.stage, params.tier, params.type, params.morphId, params.bookingId, params.resumeRequestId, params.tripId, params.destLat, params.destLng]);
 
   /**
    * THE PROJECTION. Once a trip exists its status decides the stage, full
@@ -434,6 +456,39 @@ export default function TripScreen() {
     const derived = stageForStatus(tripStatus);
     if (derived) syncFromServer(derived);
   }, [tripStatus, syncFromServer]);
+
+  /**
+   * ── A LIVE RIDE IS A NEW CHAPTER: NOTHING BEHIND IT BUT HOME ───────────────
+   *
+   * BUGFIX ("I searched a new destination from the Where-To I was linked to,
+   * tapped request, and it took me back to the 'no rides yet — notify me'
+   * page… pages you get to through other pages show you the page you came
+   * from, when they should take you home").
+   *
+   * This surface is a transparentModal, so whatever opened it — Browse, a trip
+   * card, a seat page — stays mounted underneath: every exit unwinds onto it,
+   * and any moment this surface paints nothing, it shows through. Once the
+   * stage belongs to the server (a request is out, a driver is coming, the
+   * ride is on), that history is finished business. So the stack is cut to
+   * [root, this surface, …whatever sits above it] by RESET with the same route
+   * keys — nothing that stays is remounted — and every way out lands on Home.
+   */
+  const navigation = useNavigation();
+  const routeKey = useRoute().key;
+  useEffect(() => {
+    if (CLIENT_OWNED_STAGES.includes(stage)) return;
+    const state = navigation.getState();
+    if (!state) return;
+    const mine = state.routes.findIndex((r) => r.key === routeKey);
+    if (mine <= 1) return;
+    navigation.dispatch(
+      CommonActions.reset({
+        ...state,
+        routes: [state.routes[0], ...state.routes.slice(mine)],
+        index: state.index - (mine - 1),
+      } as any),
+    );
+  }, [stage, navigation, routeKey]);
 
   /**
    * THE TERMINAL HAND-OFF. `stageForStatus` deliberately returns null for

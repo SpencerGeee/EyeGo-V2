@@ -1077,8 +1077,20 @@ export interface ShapeSourceProps {
   ref?: React.Ref<{ getClusterExpansionZoom: (clusterId: number) => Promise<number> }>;
 }
 
+/**
+ * KEYED ON THE ID — every source and layer below.
+ *
+ * BUGFIX ("tapping the new requested trip crashed the driver app: `id` cannot be
+ * changed"). v11 freezes a source's/layer's `id` on mount and THROWS if a later
+ * render brings a different one (hooks/useFrozenId). Its child cloner filters
+ * null children out BEFORE `Children.map`, so a conditional layer turning on
+ * (`{isRoad ? <LineLayer id="casing"/> : null}`) shifts every later sibling's
+ * key: the mounted "line" layer is handed the casing's id and the map throws.
+ * Keying the native element on its id turns any id change into a clean remount,
+ * for every caller, however it composes its children.
+ */
 export const ShapeSource = ({ id, shape, children, ...rest }: ShapeSourceProps) => (
-  <NativeGeoJSONSource id={id ?? 'shape-source'} data={shape} {...rest}>
+  <NativeGeoJSONSource key={id ?? 'shape-source'} id={id ?? 'shape-source'} data={shape} {...rest}>
     {children}
   </NativeGeoJSONSource>
 );
@@ -1103,6 +1115,7 @@ export interface LineLayerProps {
 
 export const LineLayer = ({ id, style, aboveLayerID, belowLayerID, source }: LineLayerProps) => (
   <NativeLayer
+    key={id ?? 'line-layer'}
     id={id ?? 'line-layer'}
     type="line"
     source={source}
@@ -1144,6 +1157,7 @@ export interface FillLayerProps {
 
 export const FillLayer = ({ id, style, aboveLayerID, belowLayerID, source }: FillLayerProps) => (
   <NativeLayer
+    key={id ?? 'fill-layer'}
     id={id ?? 'fill-layer'}
     type="fill"
     source={source}
@@ -1181,6 +1195,7 @@ export interface CircleLayerProps {
 
 export const CircleLayer = ({ id, style, filter, source }: CircleLayerProps) => (
   <NativeLayer
+    key={id ?? 'circle-layer'}
     id={id ?? 'circle-layer'}
     type="circle"
     source={source}
@@ -1212,6 +1227,7 @@ export interface SymbolLayerProps {
 
 export const SymbolLayer = ({ id, filter, textField, textSize = 12, textColor = '#FFFFFF', textFont = ['Noto Sans Bold'], source }: SymbolLayerProps) => (
   <NativeLayer
+    key={id ?? 'symbol-layer'}
     id={id ?? 'symbol-layer'}
     type="symbol"
     source={source}

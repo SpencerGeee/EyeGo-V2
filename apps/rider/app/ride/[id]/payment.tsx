@@ -81,7 +81,6 @@ export default function PaymentScreen() {
   const isSubmittingRef = useRef(false);
   // Mounted guard: prevents state updates and navigation on unmounted component
   const isMountedRef = useRef(true);
-  const pendingTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   // The back handler is registered once per checkout; it calls the latest close.
   const closeCheckoutRef = useRef<() => void>(() => {});
   const [status, setStatus] = useState<'idle' | 'processing' | 'success' | 'failed'>('idle');
@@ -89,14 +88,12 @@ export default function PaymentScreen() {
   const [promoInput, setPromoInput] = useState('');
   const [promoStatus, setPromoStatus] = useState<'idle' | 'applied'>('idle');
 
-  // Cleanup on unmount: mark unmounted, reset submit lock, cancel all pending navigation timeouts
+  // Cleanup on unmount: mark unmounted, reset submit lock
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
       isSubmittingRef.current = false;
-      pendingTimeoutsRef.current.forEach(clearTimeout);
-      pendingTimeoutsRef.current = [];
     };
   }, []);
 
@@ -254,6 +251,31 @@ export default function PaymentScreen() {
       // Non-blocking — the seat-hold sweep is the backstop if this fails.
       console.warn('[Payment] Failed to release held seat:', (e as any)?.message ?? e);
     }
+  };
+
+  /**
+   * PAID → THE RIDE, AT ONCE. The one success path for every method.
+   *
+   * BUGFIX ("I paid for everyone from the group hub and the Payment Confirmed
+   * screen stayed up for a long while"). Four copies of this waited a fixed
+   * 1.5 s and only THEN started dismissing a native modal and mounting the trip
+   * map — so the confirmation sat there for 1.5 s plus the whole mount. The tick
+   * is now what shows WHILE the sheet slides away; the toast says it on arrival.
+   *
+   * `tripId` so the surface opens on THIS trip even when the seat is hours away
+   * and therefore not yet the rider's "active" ride. `goFresh` empties the
+   * booking flow beneath it, so every exit from the ride lands on Home.
+   */
+  const onPaid = (bookingId: string) => {
+    setStatus('success');
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    setGuestInfo(null);
+    queryClient.invalidateQueries({ queryKey: queryKeys.wallet.balance() });
+    queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });
+    queryClient.invalidateQueries({ queryKey: queryKeys.bookings.active() });
+    socketEvents.emitPaymentConfirmed(bookingId, id ?? '');
+    notify('Payment confirmed', 'Your seat is booked.', { tone: 'success' });
+    goFresh(id ? `/trip?stage=assigned&tripId=${id}` : '/trip?stage=assigned');
   };
 
   const initPayment = useMutation({
@@ -422,16 +444,7 @@ export default function PaymentScreen() {
 
       // Wallet & Cash are confirmed synchronously by the server — no polling.
       if (data.requiresVerification === false) {
-        setStatus('success');
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        // The wallet paid: every screen showing the balance re-reads it.
-        queryClient.invalidateQueries({ queryKey: queryKeys.wallet.balance() });
-        setGuestInfo(null); // clear guest info after successful booking
-        queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });
-        queryClient.invalidateQueries({ queryKey: queryKeys.bookings.active() });
-        socketEvents.emitPaymentConfirmed(data.bookingId ?? activeBooking?.id ?? '', id ?? '');
-        const t = setTimeout(() => { if (isMountedRef.current) goFresh('/trip?stage=assigned'); }, 1500);
-        pendingTimeoutsRef.current.push(t);
+        onPaid(data.bookingId ?? activeBooking?.id ?? '');
         return;
       }
 
@@ -449,13 +462,7 @@ export default function PaymentScreen() {
         await paymentsApi.pollStatus(data.reference, 2000, MAX_POLL_ATTEMPTS);
         if (!isMountedRef.current) return;
         setIsPolling(false);
-        setStatus('success');
-        setGuestInfo(null); // clear guest info after successful booking
-        queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });
-        queryClient.invalidateQueries({ queryKey: queryKeys.bookings.active() });
-        socketEvents.emitPaymentConfirmed(data.bookingId ?? activeBooking?.id ?? '', id ?? '');
-        const t = setTimeout(() => { if (isMountedRef.current) goFresh('/trip?stage=assigned'); }, 1500);
-        pendingTimeoutsRef.current.push(t);
+        onPaid(data.bookingId ?? activeBooking?.id ?? '');
       } catch (err) {
         if (!isMountedRef.current) return;
         setIsPolling(false);
@@ -493,7 +500,15 @@ export default function PaymentScreen() {
           "You're already on a ride",
           'You can only be on one ride at a time. Book this seat for someone else, or open the ride you are on.',
           [
-            { text: 'Open my ride', onPress: () => goFresh('/trip?stage=assigned') },
+            {
+              // THE ride the server refused over — not "whatever is active",
+              // which for a seat hours away is nothing at all.
+              text: 'Open my ride',
+              onPress: () => {
+                const tripId = err?.response?.data?.details?.activeTripId;
+                goFresh(tripId ? `/trip?stage=assigned&tripId=${tripId}` : '/trip?stage=assigned');
+              },
+            },
             {
               text: 'Book for someone else',
               onPress: () => goDeeper('/ride/guest-selection' as any),
@@ -535,14 +550,7 @@ export default function PaymentScreen() {
           if (settled) {
             // It went through. Treat it as the success it is.
             setActiveBooking(fresh);
-            setStatus('success');
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            setGuestInfo(null);
-            queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });
-            queryClient.invalidateQueries({ queryKey: queryKeys.bookings.active() });
-            socketEvents.emitPaymentConfirmed(bookingId, id ?? '');
-            const t = setTimeout(() => { if (isMountedRef.current) goFresh('/trip?stage=assigned'); }, 1500);
-            pendingTimeoutsRef.current.push(t);
+            onPaid(bookingId);
             return;
           }
         } catch {
@@ -578,13 +586,7 @@ export default function PaymentScreen() {
       await paymentsApi.pollStatus(reference, 2000, MAX_POLL_ATTEMPTS);
       if (!isMountedRef.current) return;
       setIsPolling(false);
-      setStatus('success');
-      setGuestInfo(null); // clear guest info after successful booking
-      queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });
-      queryClient.invalidateQueries({ queryKey: queryKeys.bookings.active() });
-      socketEvents.emitPaymentConfirmed(activeBooking?.id ?? '', id ?? '');
-      const t = setTimeout(() => { if (isMountedRef.current) goFresh('/trip?stage=assigned'); }, 1500);
-      pendingTimeoutsRef.current.push(t);
+      onPaid(activeBooking?.id ?? '');
     } catch {
       if (!isMountedRef.current) return;
       setIsPolling(false);

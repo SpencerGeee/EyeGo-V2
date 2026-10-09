@@ -35,6 +35,7 @@ import { useAuthStore } from '../../stores/auth.store';
 import { useTripFlow } from '../../stores/tripFlow.store';
 import { searchPlaces, type GeocodeResult } from '../../utils/geocoding';
 import { registerForPushNotifications } from '../../utils/notifications';
+import { seedPickupAt } from '../../utils/journey';
 import {
   BOARDING_ACCENT,
   BROWSE_GROUPS,
@@ -747,10 +748,34 @@ export default function BrowseScreen() {
     }
   }, [place, alertState, userLoc]);
 
+  /**
+   * AS IF THE RIDER HAD SEARCHED IT ON WHERE-TO.
+   *
+   * BUGFIX ("I tapped Notify me, then Request a ride now, and it just took me
+   * to the Where-To page"). The place they had just looked up was dropped and
+   * they typed it again. It travels as route params because opening the
+   * surface re-seeds the flow store (which would wipe a searchPlace set here);
+   * with a known position the pickup is seeded too and the rider lands
+   * straight on the ride options.
+   */
   const requestNow = useCallback(() => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-    goDeeper('/trip?stage=search' as any);
-  }, []);
+    if (!place) {
+      goDeeper('/trip?stage=search' as any);
+      return;
+    }
+    if (userLoc) void seedPickupAt(userLoc.lat, userLoc.lng);
+    goDeeper({
+      pathname: '/trip',
+      params: {
+        stage: userLoc ? 'configure' : 'search',
+        destName: place.name,
+        destAddress: place.fullAddress,
+        destLat: String(place.latitude),
+        destLng: String(place.longitude),
+      },
+    } as any);
+  }, [place, userLoc]);
 
   const scheduleLater = useCallback(() => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});

@@ -1,7 +1,7 @@
 'use strict';
 
 const prisma = require('../config/database');
-const { LIVE_STATUSES } = require('./trip-state.service');
+const { LIVE_STATUSES, liveForRiderWhere } = require('./trip-state.service');
 const { ensureRouteForTrip } = require('./route-geometry.service');
 const { SEAT_OCCUPYING_STATUSES } = require('../utils/booking-status');
 const supply = require('./supply-index.service');
@@ -665,7 +665,8 @@ async function findActiveTripForUser(userId) {
 
   const trip = await prisma.trip.findFirst({
     where: {
-      status: { in: LIVE_STATUSES },
+      // Live FOR THE RIDER — a seat on a bus hours away is upcoming, not active.
+      AND: [liveForRiderWhere()],
       OR: [
         {
           bookings: {

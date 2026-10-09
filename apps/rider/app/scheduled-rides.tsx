@@ -111,7 +111,7 @@ export default function ScheduledRidesScreen() {
                 onPress={() =>
                   goDeeper(
                     (liveIntent.matchedTripId
-                      ? '/trip?stage=assigned'
+                      ? `/trip?stage=assigned&tripId=${liveIntent.matchedTripId}`
                       : `/scheduled/${liveIntent.id}`) as any,
                   )
                 }

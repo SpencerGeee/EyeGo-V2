@@ -290,7 +290,7 @@ function LiveRequestCard({ colors, styles }: { colors: Colors; styles: ReturnTyp
       // (this push + RequestStage's dismissTo) and crash the app.
       if (useRideStore.getState().pendingTripRequestId !== pendingTripRequestId) return;
       setPendingTripRequest(null);
-      goDeeper('/trip?stage=assigned' as any);
+      goDeeper(`/trip?stage=assigned&tripId=${req.matchedTripId}` as any);
     } else if (req.status === 'CANCELLED') {
       setPendingTripRequest(null);
     }
@@ -431,7 +431,7 @@ function LiveScheduledCard({
         onPress={() => {
           Haptics.selectionAsync();
           if (intent.matchedTripId) {
-            goDeeper('/trip?stage=assigned' as any);
+            goDeeper(`/trip?stage=assigned&tripId=${intent.matchedTripId}` as any);
           } else {
             goDeeper(`/scheduled/${intent.id}` as any);
           }

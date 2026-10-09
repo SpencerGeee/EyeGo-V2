@@ -692,7 +692,7 @@ export function TripStatusListener() {
       bannerDestinationRef.current = null;
       goDeeper(`/ride/${tId}/chat` as Href);
     } else {
-      goDeeper('/trip?stage=assigned' as Href);
+      goDeeper(`/trip?stage=assigned&tripId=${tId}` as Href);
     }
   };
 

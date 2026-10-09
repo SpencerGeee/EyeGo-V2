@@ -1,51 +1,28 @@
-# State — 2026-10-09 (premium pass + bug-class hunt + admin audit)
+# State — 2026-10-09b (13-item device sweep)
 
 ## Current Goal
-User: make everything premium, hunt every bug class (like the money audit), find all system
-flaws, audit the admin side for completeness.
+Fix user's 13-item device list (rider + driver) with root-cause fixes; 3D models; immersive search/offer.
 
-## Done (pushed to main)
-- d158369 light mode: shader light composite, white grounds, crest balance (+ shader-compile.mjs)
-- b299f71 single-line button labels everywhere (+ ux-invariants rule 4)
-- 740fa61 ride options: per-tier ETA (nearest car of class) + drop-off time, trip summary, Cash row
-- 5350277 schedule a ride, Uber Reserve style; scheduled list polish; forced-dark glass removed
-- 183c00a bug-class sweep:
-  * publishSeatUpdate selected non-existent Booking.seatHeldUntil → every seat push threw and
-    was swallowed (since 5ea52c5). Fixed; new static check prisma-fields.mjs (brace-matched).
-  * seats-not-rows in 9 server/admin sites (availability, group page, pulse, GraphQL, offers,
-    upcoming, rider fare summary, admin user/driver pages)
-  * GH₵0.00 shown for unknown money at 6 display sites
-  * admin Payouts page + GET /admin/payouts (paid / processing / failed→refunded, >24h stale)
+## Decisions (grilled with user)
+- Scheduled booking blocks other bookings only from 60 min before departure (or once the trip moves).
+- Live chapter rebase: once a request is sent / seat paid, the stack behind is erased; exits land on Home.
+  Browse "Request a ride now" seeds pickup+place and opens ride options directly.
+- 3D: live Skia-projected low-poly models (no new native deps). Minibus everywhere (tier livery),
+  pickup/drop-off pins, bus-stop posts, rider puck, + hero turntable uses.
+- "While you were away": both apps, rider endings + scheduled/seat + driver endings + money, 48 h, once each.
+- Immersion: full-bleed map + floating card for rider search AND driver offer.
+- Item 6: drop the 1.5 s success page; go straight to the ride with a success toast (my call).
 
-## Done this continuation (pushed, f7a818f)
-- 0ac39b2 light-mode ink on colors.primary (home chip, browse pin, banner icon), create-trip near-white fare row + copy, booking tx 10s->20s
-- f7a818f mid-ride offers dead (Route.destinationLat) + decline cooldown NaN (unregistered setting) fixed; prisma-fields.mjs now MODEL-AWARE
-- run-all 526/526 · 28/28 suites green AFTER f7a818f; api.log: 0 unknown fields, 0 unknown setting keys
-- add-passenger copy sentence-cased
+## Root causes (verified)
+- 1/12: Fabric iOS adjustsFontSizeToFit ignores minimumFontScale (min 4pt) + fixed lineHeight never shrinks → collapse.
+- 8: MorphSheet overlay zIndex 100 (opaque) covers the pinned swipe bar (zIndex 20) in active/[id].tsx.
+- 11 crash: MLRN cloneReactChildrenWithProps filters nulls before Children.map → DispatchMiniMap casing
+  insert shifts keys → Layer id changes → useFrozenId throws.
+- 13: SCHEDULED-trip bookings count as live in bookSeat / requestRide / rides/active; "Open my ride" ignores details.activeTripId;
+  RequestStage re-POSTs when the surface projects 'request' for an existing trip.
+- 9: home ended-check reads TRIP status (booking NO_SHOW invisible); non-COMPLETED endings dropped silently.
 
-## Next (in order)
-1. Restart API, re-run run-all; grep api.log for Unknown field / unknown key / swallowed warns
-2. Premium pass: driver add-passenger, location-picker, chat; rider Services
-3. DONE: admin next build — compiled, 34/34 pages incl. /payouts
-4. Update session-log + memory
-
-## Classes checked clean
-IDOR (all param handlers are admin-gated or token-public by design; tracking is cuid + lifecycle
-gated), direct trip status writes (all CAS-guarded), unknown status literals, uncleared
-intervals, money amount validation (services assert pesewas), admin route guards (auth +
-read-only blanket + roles on money/settings + audit on writes), swallowed money writes.
-
-## Evidence
-- tsc rider/driver/admin clean; conditional-hooks, ui/ux/motion/button/formatters/maestro,
-  prisma-fields, shader-compile green.
-- run-all before the sweep fixes: 518/522 (3 suites red from a crawling local DB: 250 ms
-  SELECT 1, 10 s Prisma tx timeouts). Docker Desktop then stopped responding; the post-fix
-  rerun could not complete. RE-RUN run-all once Docker is healthy.
-
-## Open / tell the user
-- Redeploy production API (seat push fix, seats sums, nearby-driver tier/distance, payouts).
-- bookSeat runs a 10 s interactive transaction; with the DB 280 ms away (Frankfurt) a slow
-  moment 500s a booking — colocate API + DB (see Latency Is Topology memory).
-- Premium pass NOT yet done on: rider Activity/Services layout, driver create-trip,
-  add-passenger, location picker, chat; seats & extras steps beyond shared fixes.
-- Device-verify: light wave, ride option rows, schedule strips, trip sheet heights, puck.
+## Plan status
+[ ] 1/12 Text guard  [ ] 11 adapter keys  [ ] 8 zIndex  [ ] 13 server window + client open-my-ride
+[ ] 3/4 browse seed + rebase  [ ] 6 payment  [ ] 9 away outcomes  [ ] 7 3D engine+models
+[ ] 10 rider immersion  [ ] 11b driver offer immersion  [ ] verify (tsc, e2e static)  [ ] docs/memory

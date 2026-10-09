@@ -2316,7 +2316,11 @@ const makeStyles = (colors: DriverColors) =>
       backgroundColor: colors.background,
       borderTopWidth: StyleSheet.hairlineWidth,
       borderTopColor: colors.outlineVariant,
-      zIndex: 20,
+      // ABOVE THE SHEET. BUGFIX ("I can't see the swipe to start — I can't start
+      // the trip"): the trip sheet (MorphSheet) is a screen-tall overlay at
+      // zIndex 100 with an opaque body and tail, and this bar sat at 20 — so the
+      // one control the driver needs was painted underneath it.
+      zIndex: 110,
     },
     mapOverlayRow: { flexDirection: 'row', alignItems: 'flex-end' },
     /** The secondary verbs, under the timeline, evenly weighted. */

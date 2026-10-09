@@ -8,7 +8,8 @@ import { spacing, radii, fonts, fontSizes, MAX_SEATS_PER_BOOKING, clampSeats } f
 // `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
 // drops the `({ pressed }) => style` function form on RN's Pressable, which
 // silently deletes the whole style. See components/trip/stages/SearchStage.tsx.
-import { Text, Button, Pressable, GradientGlowBorder, GlassSurface, goDeeper, goBack, notify } from '@eyego/ui';
+import { Text, Button, Pressable, GradientGlowBorder, GlassSurface, goDeeper, goBack, goFresh, notify } from '@eyego/ui';
+import { clearTripSurfaceReturn } from '../../utils/tripSurfaceReturn';
 import { useColors, Colors } from '../../utils/useColors';
 import { tripsApi, ridesApi } from '@eyego/api';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -234,7 +235,10 @@ export default function ScheduleRideScreen() {
       if (!mountedRef.current) return;
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       queryClient.invalidateQueries({ queryKey: ['trips', 'scheduled'] });
-      router.replace('/scheduled-rides' as any);
+      // A booked ride is a new chapter: the Where-To / ride-options pages that
+      // led here are done, so Back from the list goes Home, not into them.
+      clearTripSurfaceReturn();
+      goFresh('/scheduled-rides');
     },
     onError: (err: any) => {
       // The server's own reason (a duplicate, too far out) — a bare status code

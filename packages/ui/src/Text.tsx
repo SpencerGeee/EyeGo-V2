@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Text as RNText, TextProps, TextStyle } from 'react-native';
+import { Platform, StyleSheet, Text as RNText, TextProps, TextStyle } from 'react-native';
 import { fonts, fontSizes, letterSpacings, type ColorTokens } from '@eyego/config';
 import { useThemedColors } from './ColorsContext';
 
@@ -215,6 +215,21 @@ interface EyeGoTextProps extends TextProps {
  */
 export const MAX_FONT_SCALE = 1.4;
 
+/**
+ * ── SHRINK-TO-FIT ON iOS NEEDS A LINE HEIGHT THAT SHRINKS TOO ──────────────
+ *
+ * BUGFIX ("the time on publish-a-trip is super small"; "the button on pick
+ * your seat has text so small I can't read it"). On the new architecture iOS
+ * scales the FONT to fit (NSTextStorage+FontScaling) but never the paragraph's
+ * fixed `lineHeight`, and it ignores `minimumFontScale` — the floor is
+ * `minimumFontSize`, default 4pt. So a label whose box is a hair shorter than
+ * its line height can never fit, and the binary search bottoms out at 4pt.
+ * Every variant here sets a lineHeight, so every shrink-to-fit label was one
+ * rounding error away from vanishing. Dropping it lets the line follow the
+ * font and the search settle at the size that actually fits.
+ */
+const FIT_IOS = Platform.OS === 'ios';
+
 export function Text({
   variant = 'bodyMedium',
   color,
@@ -224,15 +239,11 @@ export function Text({
 }: EyeGoTextProps) {
   const colors = useThemedColors();
   const variantStyles = useMemo(() => getVariantStyles(colors), [colors]);
-  return (
-    <RNText
-      maxFontSizeMultiplier={maxFontSizeMultiplier}
-      style={[
-        variantStyles[variant],
-        color ? { color } : undefined,
-        style,
-      ]}
-      {...props}
-    />
-  );
+  const merged = [variantStyles[variant], color ? { color } : undefined, style];
+  let resolved: TextProps['style'] = merged;
+  if (FIT_IOS && props.adjustsFontSizeToFit) {
+    const { lineHeight: _drop, ...rest } = StyleSheet.flatten(merged) ?? {};
+    resolved = rest;
+  }
+  return <RNText maxFontSizeMultiplier={maxFontSizeMultiplier} style={resolved} {...props} />;
 }

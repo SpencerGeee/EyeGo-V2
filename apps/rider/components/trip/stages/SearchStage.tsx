@@ -29,7 +29,7 @@ import {
   GradientGlowBorder,
 } from '@eyego/ui';
 import { placeLabel, shortAddress } from '@eyego/utils';
-import { reverseGeocode } from '../../../utils/geocoding';
+import { seedPickupAt } from '../../../utils/journey';
 import { useColors, Colors } from '../../../utils/useColors';
 import { useShallow } from 'zustand/react/shallow';
 import { useRideStore } from '../../../stores/ride.store';
@@ -221,21 +221,9 @@ function SearchStageImpl() {
          * overwrite a deliberate choice — the same race, and the same fix, as
          * the driver's create-trip screen.
          */
-        setOrigin({ latitude, longitude, address: 'Current Location' });
-
-        const hit = await reverseGeocode(latitude, longitude).catch(() => null);
-        if (cancelled || !hit) return;
-        const label = placeLabel(hit.name, hit.fullAddress) ?? hit.fullAddress ?? hit.name;
-        useRideStore.setState((s) =>
-          // Only if nothing has taken the pickup since — "Current Location" is
-          // ours to replace, anything else is the rider's.
-          s.origin?.address === 'Current Location' &&
-          s.origin.latitude === latitude &&
-          s.origin.longitude === longitude
-            ? { origin: { latitude, longitude, address: label } }
-            : s,
-        );
-        setOriginText((cur) => (cur === 'Current Location' ? hit.name : cur));
+        const street = await seedPickupAt(latitude, longitude);
+        if (cancelled || !street) return;
+        setOriginText((cur) => (cur === 'Current Location' ? street : cur));
       } catch {
         // No GPS — SelectStage/RequestStage surface a clear error rather than
         // searching from a fabricated coordinate, so nothing to fall back to.

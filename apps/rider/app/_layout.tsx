@@ -470,7 +470,7 @@ export default function RootLayout() {
           // no id because it rehydrates from the server's active trip — which
           // is more reliable than this payload, where `bookingId` and `tripId`
           // were used interchangeably.
-          router.push('/trip?stage=assigned' as Href);
+          router.push((tripId ? `/trip?stage=assigned&tripId=${tripId}` : '/trip?stage=assigned') as Href);
         } else if ((type === 'CHAT_MESSAGE' || type === 'PRIVATE_CHAT') && tripId) {
           router.push(`/ride/${tripId}/chat` as Href);
         } else if (type === 'RIDE_COMPLETE' && (tripId || bookingId)) {
@@ -508,7 +508,7 @@ export default function RootLayout() {
           // "Notify me" fired: open the trip that matched, ready to reserve.
           router.push(`/ride/${tripId}` as Href);
         } else if (tripId) {
-          router.push('/trip?stage=assigned' as Href);
+          router.push(`/trip?stage=assigned&tripId=${tripId}` as Href);
         } else if (screen) {
           router.push(screen as Href);
         } else if (deepLink) {

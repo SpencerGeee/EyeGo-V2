@@ -207,7 +207,8 @@ export default function RideDetailScreen() {
 
   useEffect(() => {
     if (isAlreadyBooked && id) {
-      router.replace('/trip?stage=assigned' as Href);
+      // By id: a seat hours away is not the rider's "active" ride yet.
+      router.replace(`/trip?stage=assigned&tripId=${id}` as Href);
     }
   }, [isAlreadyBooked, id, router]);
 

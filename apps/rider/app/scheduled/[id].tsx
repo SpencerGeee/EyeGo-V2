@@ -238,7 +238,7 @@ export default function ScheduledRideDetailScreen() {
                 label="Open live tracking"
                 onPress={() => {
                   Haptics.selectionAsync();
-                  goDeeper('/trip?stage=assigned' as any);
+                  goDeeper(`/trip?stage=assigned&tripId=${intent.matchedTripId}` as any);
                 }}
                 style={{ marginTop: spacing.sm }}
               />

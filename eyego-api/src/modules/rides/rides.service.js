@@ -345,11 +345,14 @@ async function requestRide(userId, body) {
        * services/trip-reconcile.service.js.
        */
       if (existing && (await reconcile.stillLive(existing))) {
-        throw new AppError(
+        const err = new AppError(
           'You already have a ride in progress.',
           409,
           'RIDE_ALREADY_ACTIVE',
         );
+        // So "open my ride" opens THAT ride — see ALREADY_ON_A_RIDE in bookSeat.
+        err.details = { activeTripId: existing.id };
+        throw err;
       }
     }
 

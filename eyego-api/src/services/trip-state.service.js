@@ -82,6 +82,46 @@ const LIVE_STATUSES = Object.freeze([
   ...ACTIVE_STATUSES,
 ]);
 
+/**
+ * ── IS THIS RIDER "ON A RIDE"? ──────────────────────────────────────────────
+ *
+ * BUGFIX ("I tried booking a ride after already scheduling one and it said I
+ * had a ride"). A seat on tomorrow's 8am bus counted as a ride in progress, so
+ * it blocked every other booking for a day and hijacked "your active ride".
+ *
+ * A trip is live FOR ITS RIDER when it is moving or searching, when boarding is
+ * open (FILLING), or when a scheduled departure is within
+ * SCHEDULED_RIDE_BLOCK_MINUTES. Before that it is "upcoming": listed, not live.
+ * The one predicate behind rides/active, bookings/active and both
+ * second-ride guards — they must never disagree about it.
+ */
+const ALWAYS_LIVE_FOR_RIDER = Object.freeze([...PRE_DRIVER_STATUSES, S.FILLING, ...ACTIVE_STATUSES]);
+const WINDOWED_FOR_RIDER = Object.freeze([S.SCHEDULED, S.CONFIRMED]);
+
+function riderLiveHorizon(now = new Date()) {
+  const minutes = Number(require('../config/settings').get('SCHEDULED_RIDE_BLOCK_MINUTES'));
+  return new Date(now.getTime() + (Number.isFinite(minutes) ? minutes : 60) * 60_000);
+}
+
+/** Prisma `where` on Trip. */
+function liveForRiderWhere(now = new Date()) {
+  return {
+    OR: [
+      { status: { in: ALWAYS_LIVE_FOR_RIDER } },
+      { status: { in: WINDOWED_FOR_RIDER }, departureTime: { lte: riderLiveHorizon(now) } },
+    ],
+  };
+}
+
+/** The same rule for a trip row already in hand. */
+function isLiveForRider(trip, now = new Date()) {
+  if (!trip) return false;
+  if (ALWAYS_LIVE_FOR_RIDER.includes(trip.status)) return true;
+  if (!WINDOWED_FOR_RIDER.includes(trip.status)) return false;
+  const dep = trip.departureTime ? new Date(trip.departureTime).getTime() : 0;
+  return dep <= riderLiveHorizon(now).getTime();
+}
+
 const A_ANY = [ACTOR.RIDER, ACTOR.DRIVER, ACTOR.SYSTEM, ACTOR.ADMIN];
 const A_SYS = [ACTOR.SYSTEM, ACTOR.ADMIN];
 const A_RIDER_CANCEL = [ACTOR.RIDER, ACTOR.SYSTEM, ACTOR.ADMIN];
@@ -748,6 +788,8 @@ module.exports = {
   PRE_DRIVER_STATUSES,
   PRE_TRIP_STATUSES,
   LIVE_STATUSES,
+  liveForRiderWhere,
+  isLiveForRider,
   TransitionError,
   assertTransition,
   applyTransition,

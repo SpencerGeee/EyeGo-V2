@@ -486,10 +486,17 @@ export const useTripStore = create<TripStoreState>((set, get) => ({
        * rendered that as "Sending your request" for ever: the dead page. Ask for
        * the watched trip itself and let its final status do the talking.
        */
-      if (!trip && watchedTripId) {
+      /*
+       * …AND A TRIP WE WERE ASKED TO SHOW WINS OVER "THE ACTIVE ONE".
+       * `/trip?tripId=` opens one specific trip — an upcoming seat that is not
+       * yet "active", or the ride a refusal pointed at — so a different live
+       * answer must not replace it. A watched trip that has ended does not
+       * override a live one.
+       */
+      if (watchedTripId && (!trip || trip.tripId !== watchedTripId)) {
         try {
           const replay = await ridesApi.events(watchedTripId, 0);
-          if (replay?.snapshot) {
+          if (replay?.snapshot && (!trip || !isTerminal(replay.snapshot.status))) {
             trip = replay.snapshot;
             dispatch = null;
             serverNowMs = replay.serverNowMs ?? serverNowMs;
