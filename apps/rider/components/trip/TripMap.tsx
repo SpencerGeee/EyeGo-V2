@@ -7,6 +7,10 @@ import { VehicleMarker } from './VehicleMarker';
 import MapboxGL from '../../utils/mapbox';
 import mapStyles from '@eyego/map-styles';
 import {
+  Marker3D,
+  RiderLocation3D,
+  pickupPin,
+  dropoffPin,
   useMapCamera,
   AREA_BOUNDS_SPAN_DEG,
   useRouteReveal,
@@ -1007,7 +1011,7 @@ function TripMapImpl() {
           Same 120 m threshold as that line, so the two can never disagree about
           whether the rider is at the stop.
         */}
-        {userCoords && riderIsAwayFromPickup && <MapboxGL.UserLocation visible />}
+        {userCoords && riderIsAwayFromPickup && <RiderLocation3D coordinate={userCoords} color={colors.statusInfo} />}
 
         {/*
           ── THE SEARCH, DRAWN AS THE GROUND IT COVERS ──────────────────────
@@ -1203,26 +1207,11 @@ function TripMapImpl() {
             <VehicleMarker
               bearing={camera.puck?.bearing ?? snapshot.driver.heading ?? 0}
               size={vehicleSize}
+              tier={snapshot.tier}
             />
           </MapboxGL.MarkerView>
         )}
 
-        {/* THE PICKUP — A PIN, LIKE THE DESTINATION.
-
-            BUGFIX — "on the book a ride page where the map is shown, the pickup
-            point doesn't have a pin, only the destination has one."
-
-            It had a 16 pt dot. On a dark map, next to a 36 pt pin with a shadow
-            and a tail, that does not read as the other end of the same journey —
-            it reads as a stray marker, or as nothing at all. Uber, Bolt and
-            Yango all give both ends a pin and distinguish them by FORM, not by
-            weight: the origin is a ring (you are leaving from here) and the
-            destination is solid (you are going to here).
-
-            So: same silhouette, same tail, same anchor — `bottom`, so the tail
-            sits on the coordinate rather than the pin's middle floating over it.
-            The difference is the core, which is a hollow ring in the pickup
-            accent instead of a filled glyph. */}
         {/* THE SEARCH, PULSING FROM THE PICKUP.
 
             The geographic ring above says how far the search reaches; this says
@@ -1239,30 +1228,21 @@ function TripMapImpl() {
           </MapboxGL.MarkerView>
         )}
 
-        {pickup && (
-          <MapboxGL.MarkerView id="pickup-pin" coordinate={pickup} anchor="bottom">
-            <View style={styles.destPin}>
-              <View style={styles.pickupPinBubble}>
-                <View style={styles.pickupPinRing} />
-              </View>
-              <View style={styles.pickupPinTail} />
-            </View>
-          </MapboxGL.MarkerView>
-        )}
+        {/* Both ends stand up off the map (three/models.ts): the pickup a lit
+            gem — "here" — and the destination a cube — "there" — the Uber/Bolt
+            circle-and-square language, in 3D so a tilted map keeps them upright.
+            Anchored on their ground point, so the stem sits on the coordinate.
+            The cube inverts with the theme so it never vanishes into the map. */}
+        {pickup && <Marker3D coordinate={pickup} model={pickupPin(colors.primary)} size={88} minPitch={40} />}
 
-        {/* THE DESTINATION.
-            `anchor` was omitted, so the pin defaulted to 'center' and its tip
-            pointed at nothing in particular. 'bottom' puts the tail on the
-            coordinate, which is what a pin means. */}
         {dropoff && (
-          <MapboxGL.MarkerView id="destination-pin" coordinate={dropoff} anchor="bottom">
-            <View style={styles.destPin}>
-              <View style={styles.destPinBubble}>
-                <Ionicons name="location" size={22} color={colors.onPrimary} />
-              </View>
-              <View style={styles.destPinTail} />
-            </View>
-          </MapboxGL.MarkerView>
+          <Marker3D
+            coordinate={dropoff}
+            model={isDark ? dropoffPin('#F3F4F6', '#111318') : dropoffPin('#111318', '#FFFFFF')}
+            heading={35}
+            size={88}
+            minPitch={40}
+          />
         )}
       </MapboxGL.MapView>
 
@@ -1404,40 +1384,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderWidth: 2, borderColor: colors.onPrimary,
     shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3, shadowRadius: 5, elevation: 7,
-  },
-  /** The pickup pin. Same silhouette as `destPin`; see the render note. */
-  pickupPinBubble: {
-    width: 32, height: 32, borderRadius: 16,
-    backgroundColor: colors.surfaceCard,
-    borderWidth: 2.5, borderColor: colors.onSurface,
-    alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.28, shadowRadius: 6,
-    elevation: 6,
-  },
-  /* Hollow, not solid: "from here" reads as an origin, "to here" as a target.
-     Concentric with the 32 pt bubble minus its 2.5 pt rim and 4 pt of inset. */
-  pickupPinRing: {
-    width: 11, height: 11, borderRadius: 6,
-    borderWidth: 3, borderColor: colors.onSurface,
-  },
-  pickupPinTail: {
-    width: 0, height: 0,
-    borderLeftWidth: 5.5, borderRightWidth: 5.5, borderTopWidth: 7.5,
-    borderLeftColor: 'transparent', borderRightColor: 'transparent', borderTopColor: colors.onSurface,
-    marginTop: -1,
-  },
-  destPin: { alignItems: 'center' },
-  destPinBubble: {
-    width: 36, height: 36, borderRadius: 18,
-    backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.25, shadowRadius: 6,
-    elevation: 6,
-  },
-  destPinTail: {
-    width: 0, height: 0,
-    borderLeftWidth: 6, borderRightWidth: 6, borderTopWidth: 8,
-    borderLeftColor: 'transparent', borderRightColor: 'transparent', borderTopColor: colors.primary,
-    marginTop: -1,
   },
   /** The travelling head of the dispatch reveal — see the layer above. */
   dispatchHeadWrap: { width: 26, height: 26, alignItems: 'center', justifyContent: 'center' },

@@ -14,7 +14,10 @@
  * native (dev-client/EAS) build after this lands.
  */
 import React, { useEffect, useImperativeHandle, useRef, useState, useCallback } from 'react';
-import { View, Text, Pressable, Dimensions, Image } from 'react-native';
+import { View, Text, Pressable, Dimensions, Image, PixelRatio } from 'react-native';
+import { modelDataUri, quantPitch, quantYaw, type Model } from './three/engine';
+import { Model3D } from './three/Model3D';
+import { riderPuck } from './three/models';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const MapLibreModule = require('@maplibre/maplibre-react-native');
@@ -57,6 +60,16 @@ const MapBearingContext = React.createContext(0);
 /** Current map bearing in degrees clockwise from north. 0 when outside a MapView. */
 export function useMapBearing(): number {
   return React.useContext(MapBearingContext);
+}
+
+/**
+ * Current map tilt in degrees (0 = straight down). What lets a 3D marker show
+ * its sides as the camera leans — see three/engine.ts. Same dead-banded source
+ * as the bearing.
+ */
+const MapPitchContext = React.createContext(0);
+export function useMapPitch(): number {
+  return React.useContext(MapPitchContext);
 }
 
 // ── Map layout gate ──────────────────────────────────────────────────────
@@ -276,6 +289,10 @@ export const MapView = React.forwardRef<any, MapViewProps>(function MapView(
   // compensated for map orientation (see MapBearingContext above). Only
   // re-renders on a >1° change so a rotate gesture doesn't thrash React.
   const [mapBearing, setMapBearing] = useState(0);
+  const [mapPitch, setMapPitch] = useState(0);
+  const notePitch = useCallback((p: unknown, band: number) => {
+    if (typeof p === 'number' && Number.isFinite(p)) setMapPitch((prev) => (Math.abs(prev - p) > band ? p : prev));
+  }, []);
 
   // See the MapReadyContext note above — the camera must not be attached
   // during the native map's first layout pass, which can run at zero size.
@@ -296,6 +313,7 @@ export const MapView = React.forwardRef<any, MapViewProps>(function MapView(
     // is injected into the native map's children — v11 components walk their
     // own children to inject source/layer props.
     <MapBearingContext.Provider value={mapBearing}>
+    <MapPitchContext.Provider value={mapPitch}>
     <MapReadyContext.Provider value={hasSize}>
     <View style={style} onLayout={onMapLayout}>
       <NativeMap
@@ -369,6 +387,7 @@ export const MapView = React.forwardRef<any, MapViewProps>(function MapView(
           if (Number.isFinite(bearing)) {
             setMapBearing((prev) => (Math.abs(prev - bearing) > 1.5 ? bearing : prev));
           }
+          notePitch(s?.pitch ?? s?.properties?.pitch, 2.5);
         }}
         onRegionDidChange={(e: any) => {
           const s = e?.nativeEvent ?? e;
@@ -381,6 +400,7 @@ export const MapView = React.forwardRef<any, MapViewProps>(function MapView(
           if (Number.isFinite(bearing)) {
             setMapBearing((prev) => (Math.abs(prev - bearing) > 1 ? bearing : prev));
           }
+          notePitch(s?.pitch ?? s?.properties?.pitch, 1);
           if (!Array.isArray(coordinates) || coordinates.length !== 2) return;
           onRegionDidChange?.({
             geometry: { type: 'Point', coordinates: coordinates as LngLat },
@@ -449,6 +469,7 @@ export const MapView = React.forwardRef<any, MapViewProps>(function MapView(
       )}
     </View>
     </MapReadyContext.Provider>
+    </MapPitchContext.Provider>
     </MapBearingContext.Provider>
   );
 });
@@ -1054,6 +1075,60 @@ export function AnimatedMarkerView({ coordinate, duration = 3500, children, rota
   );
 }
 
+// ── 3D markers ───────────────────────────────────────────────────────────
+// A model from three/models.ts standing on a coordinate, turned by its world
+// heading against the live map bearing and leaned by the live tilt — so a bus
+// keeps pointing down its road when the map rotates and shows its sides when
+// the map tilts. Anchored on the model's ground point (the frame's centre).
+
+export interface Marker3DProps {
+  coordinate: LngLat;
+  model: Model;
+  /** Degrees clockwise from north. */
+  heading?: number | null;
+  /** Frame edge in points. */
+  size?: number;
+  /** Glide between coordinates (positions that arrive on a poll). */
+  animated?: boolean;
+  duration?: number;
+  /**
+   * Never draw it leaned less than this. Pins and stops are signs, not
+   * vehicles: straight down on a flat map a pin is just a dot, so they keep a
+   * slight lean that reads as "standing up". Vehicles leave it at 0.
+   */
+  minPitch?: number;
+}
+
+export function Marker3D({ coordinate, model, heading, size = 56, animated, duration, minPitch = 0 }: Marker3DProps) {
+  const bearing = useMapBearing();
+  const pitch = useMapPitch();
+  if (!MapAvailable) return null;
+  const body = (
+    <Model3D
+      model={model}
+      heading={Number.isFinite(heading) ? (heading as number) : 0}
+      bearing={bearing}
+      pitch={Math.max(pitch, minPitch)}
+      size={size}
+    />
+  );
+  return animated ? (
+    <AnimatedMarkerView coordinate={coordinate} duration={duration} anchor={'center' as any}>
+      {body}
+    </AnimatedMarkerView>
+  ) : (
+    <MarkerView coordinate={coordinate} anchor={'center' as any}>
+      {body}
+    </MarkerView>
+  );
+}
+
+/** The rider's own position: the 3D figure, its wedge turned by the compass. */
+export function RiderLocation3D({ coordinate, color, size = 46 }: { coordinate: LngLat; color: string; size?: number }) {
+  const heading = useDeviceHeading(true, 0);
+  return <Marker3D coordinate={coordinate} model={riderPuck(color)} heading={heading} size={size} />;
+}
+
 // ── ShapeSource + LineLayer ──────────────────────────────────────────────
 // Real vector rendering via native GeoJSONSource/Layer (no Polyline-emulation
 // hack needed, unlike the react-native-maps-backed adapters this replaces).
@@ -1264,7 +1339,15 @@ export interface UserLocationProps {
    * circle… it needs to be a real puck, the same one the rider uses").
    */
   vehicleImage?: number;
-  /** Degrees clockwise from north for `vehicleImage`. */
+  /**
+   * Draw a 3D MODEL instead (three/models.ts). BUGFIX ("if you tilt the map the
+   * 2D bus becomes flat"): the image above is a ground decal — pitch-aligned to
+   * the map — so a navigation tilt squashed it to a sliver. A model is
+   * rendered for the bus's heading relative to the camera and the camera's
+   * tilt, and shown upright (viewport-aligned): the tilt now reveals its sides.
+   */
+  vehicleModel?: Model;
+  /** Degrees clockwise from north for the vehicle. */
   heading?: number | null;
   /** On-screen width of `vehicleImage`, in points. */
   vehicleSize?: number;
@@ -1272,8 +1355,43 @@ export interface UserLocationProps {
 
 const NativeImages = MapLibre.Images;
 
-export const UserLocation = ({ visible = true, mode = 'default', vehicleImage, heading, vehicleSize = 40 }: UserLocationProps) => {
+export const UserLocation = ({ visible = true, mode = 'default', vehicleImage, vehicleModel, heading, vehicleSize = 40 }: UserLocationProps) => {
+  const bearing = useMapBearing();
+  const pitch = useMapPitch();
   if (!visible) return null;
+  if (vehicleModel) {
+    // The frame is the model's turning circle, so it is drawn larger than the
+    // bus's own length; px is device pixels, icon-size maps them back to points.
+    const pts = vehicleSize * 1.6;
+    const px = Math.round(pts * PixelRatio.get());
+    const yaw = quantYaw((Number.isFinite(heading) ? (heading as number) : 0) - bearing);
+    const tilt = quantPitch(pitch);
+    const uri = modelDataUri(vehicleModel, yaw, tilt, px);
+    if (uri) {
+      // One image per frame, keyed by it: MapLibre swaps the icon atomically.
+      const key = `eyego-3d-${vehicleModel.id}-${yaw}-${tilt}`;
+      return (
+        <>
+          <NativeImages images={{ [key]: { uri } }} />
+          <NativeUserLocation>
+            <NativeLayer
+              id="eyego-vehicle-puck"
+              type="symbol"
+              source="mlrn-user-location"
+              layout={{
+                'icon-image': key,
+                'icon-size': pts / px,
+                'icon-rotation-alignment': 'viewport',
+                'icon-pitch-alignment': 'viewport',
+                'icon-allow-overlap': true,
+                'icon-ignore-placement': true,
+              }}
+            />
+          </NativeUserLocation>
+        </>
+      );
+    }
+  }
   if (!vehicleImage) return <NativeUserLocation mode={mode} />;
   const px = (Image.resolveAssetSource?.(vehicleImage)?.width ?? 402) || 402;
   return (
@@ -1353,3 +1471,6 @@ const fallback = MapAvailable ? null : buildFallback('#0A0A0B', '#3B82F6');
 export default MapAvailable
   ? { MapView, Camera, NavCamera, MarkerView, AnimatedMarkerView, PointAnnotation, ShapeSource, LineLayer, FillLayer, CircleLayer, SymbolLayer, UserLocation }
   : fallback!;
+export { Model3D, type Model3DProps } from './three/Model3D';
+export { minibus, pickupPin, dropoffPin, busStop, riderPuck, type Livery } from './three/models';
+export { modelDataUri, modelPicture, projectModel, type Model } from './three/engine';

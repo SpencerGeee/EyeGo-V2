@@ -22,7 +22,7 @@ import {
   CircleLayer,
   SymbolLayer,
   MarkerView,
-  UserLocation,
+  RiderLocation3D,
   GHANA_BOUNDS,
   GHANA_MIN_ZOOM,
   type CameraRef,
@@ -218,7 +218,7 @@ function BrowseMap({
       pitchEnabled={false}
     >
       <Camera ref={cameraRef} centerCoordinate={ACCRA} zoomLevel={11} maxBounds={GHANA_BOUNDS} minZoom={GHANA_MIN_ZOOM} />
-      {userLoc && <UserLocation />}
+      {userLoc && <RiderLocation3D coordinate={[userLoc.lng, userLoc.lat]} color={colors.statusInfo} />}
       <ShapeSource
         id="browse-trips"
         ref={sourceRef}

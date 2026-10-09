@@ -4,7 +4,18 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIsFocused } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { driverSocketEvents } from '@eyego/api';
-import { useRouteReveal, useVehicleHeading, FOLLOW_ZOOM, NAV_PITCH, RESUME_AFTER_MS, type Coord } from '@eyego/maps';
+import {
+  Marker3D,
+  minibus,
+  pickupPin,
+  dropoffPin,
+  useRouteReveal,
+  useVehicleHeading,
+  FOLLOW_ZOOM,
+  NAV_PITCH,
+  RESUME_AFTER_MS,
+  type Coord,
+} from '@eyego/maps';
 import { eyegoDriverDarkStyle } from '@eyego/map-styles';
 import { GlassSurface, PulseRing } from '@eyego/ui';
 import MapboxGL from '../../utils/mapbox';
@@ -76,7 +87,6 @@ export interface DriverTripMapProps {
 }
 
 /** The rider sees this minibus coming; the driver sees the same one. */
-const VEHICLE_PUCK = require('../../assets/vehicle/minibus.png');
 
 export function DriverTripMapImpl({
   tripId,
@@ -267,12 +277,12 @@ export function DriverTripMapImpl({
           onTrackUserLocationChange={onTrackChange}
         />
 
-        {/* The platform puck — drawn and animated by the engine, in step with
-            the camera. The navigation arrow while driving, the plain dot when
-            parked. */}
+        {/* The platform puck — moved by the engine, in step with the camera —
+            drawn as the 3D minibus: from behind and above while navigating (the
+            camera follows the course), from overhead when parked. */}
         <MapboxGL.UserLocation
           mode={track === 'course' ? 'course' : 'default'}
-          vehicleImage={VEHICLE_PUCK}
+          vehicleModel={minibus({ accent: colors.primary })}
           heading={vehicleHeading}
         />
 
@@ -309,11 +319,12 @@ export function DriverTripMapImpl({
         {/* Pickup — pulsing while it is the thing the driver is heading for,
             quiet once the rider is aboard, never gone. */}
         {!carrying && pickup && (
-          <MapboxGL.MarkerView id="driver-pickup" coordinate={pickup}>
-            <PulseRing size={40} color={colors.secondary} ringCount={2} duration={1500}>
-              <View style={[styles.dot, { backgroundColor: colors.secondary }]} />
-            </PulseRing>
+          <MapboxGL.MarkerView id="driver-pickup" coordinate={pickup} anchor="center">
+            <PulseRing size={56} color={colors.secondary} ringCount={2} duration={1500} />
           </MapboxGL.MarkerView>
+        )}
+        {!carrying && pickup && (
+          <Marker3D coordinate={pickup} model={pickupPin(colors.secondary)} size={84} minPitch={40} />
         )}
         {carrying && pickup && (
           <MapboxGL.MarkerView id="driver-pickup-done" coordinate={pickup}>
@@ -322,11 +333,7 @@ export function DriverTripMapImpl({
         )}
 
         {dropoff && (
-          <MapboxGL.MarkerView id="driver-dropoff" coordinate={dropoff}>
-            <View style={[styles.pin, { backgroundColor: colors.primary }]}>
-              <Ionicons name="flag" size={14} color="#fff" />
-            </View>
-          </MapboxGL.MarkerView>
+          <Marker3D coordinate={dropoff} model={dropoffPin(colors.primary, '#FFFFFF')} heading={35} size={84} minPitch={40} />
         )}
 
         {children}
@@ -357,12 +364,6 @@ export function DriverTripMapImpl({
 export const DriverTripMap = React.memo(DriverTripMapImpl);
 
 const styles = StyleSheet.create({
-  pin: {
-    width: 28, height: 28, borderRadius: 14,
-    alignItems: 'center', justifyContent: 'center',
-    borderWidth: 2, borderColor: '#fff',
-  },
-  dot: { width: 14, height: 14, borderRadius: 7, borderWidth: 2, borderColor: '#030C18' },
   endDot: {
     width: 13, height: 13, borderRadius: 6.5,
     backgroundColor: '#030C18', borderWidth: 2.5,

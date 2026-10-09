@@ -32,6 +32,7 @@ import { useDriverLocation } from '../../../hooks/useDriverLocation';
 import * as Haptics from 'expo-haptics';
 import { SeatMap } from '../../../components/SeatMap';
 import mapStyles from '@eyego/map-styles';
+import { Marker3D, busStop } from '@eyego/maps';
 import { DriverSurfaceMap } from '../../../components/surface/DriverSurfaceMap';
 import { DriverSheetHost } from '../../../components/surface/DriverSheetHost';
 import { TripStages } from '../../../components/surface/TripStages';
@@ -1649,7 +1650,19 @@ export default function ActiveTripScreen() {
         puckColor={colors.primary}
         onEta={setLegEta}
         styleURL={mapStyle}
-      />
+      >
+        {/* The stops still ahead between the two ends — where riders get off a
+            shared bus — as 3D bus-stop signs. The ends themselves are the map's
+            own pins, so a stop on top of either is skipped. */}
+        {stops.map((st) => {
+          if (st.state === 'DONE' || st.lat == null || st.lng == null) return null;
+          const at: [number, number] = [st.lng, st.lat];
+          const onEnd = [pickupCoord, destCoord].some(
+            (c) => c && Math.abs(c[0] - at[0]) < 0.0004 && Math.abs(c[1] - at[1]) < 0.0004,
+          );
+          return onEnd ? null : <Marker3D key={st.id} coordinate={at} model={busStop(colors.secondary)} size={64} minPitch={40} />;
+        })}
+      </DriverSurfaceMap>
 
       {/* Floating chrome: back, where this trip goes, and SOS. */}
       <View style={[styles.tripTopBar, { top: insets.top + spacing.sm }]} pointerEvents="box-none">
