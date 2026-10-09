@@ -378,7 +378,7 @@ export function DispatchBlockedBanner({
               },
             ]}
           >
-            <Text style={[styles.ctaText, { color: colors.background }]}>
+            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={[styles.ctaText, { color: colors.background }]}>
               {busy ? 'Working…' : action.label}
             </Text>
             <Ionicons name="arrow-forward" size={14} color={colors.background} />

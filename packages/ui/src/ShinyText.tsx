@@ -30,6 +30,8 @@ interface ShinyTextProps {
   /** Resting text color. Defaults to the theme's onSurface. */
   baseColor?: string;
   speedMs?: number;
+  /** One line, shrunk to fit rather than wrapped — for button labels. */
+  singleLine?: boolean;
 }
 
 /**
@@ -45,6 +47,7 @@ export function ShinyText({
   shineColor = '#FFFFFF',
   baseColor,
   speedMs = 2600,
+  singleLine = false,
 }: ShinyTextProps) {
   const colors = useThemedColors();
   const base = baseColor ?? colors.onSurface;
@@ -70,6 +73,9 @@ export function ShinyText({
     return () => cancelAnimation(sweep);
   }, [sweep, speedMs, loopsActive]);
 
+  const fit = singleLine
+    ? ({ numberOfLines: 1, adjustsFontSizeToFit: true, minimumFontScale: 0.8 } as const)
+    : {};
   const bandWidth = Math.max(width * 0.6, 60);
 
   const sweepStyle = useAnimatedStyle(() => ({
@@ -83,8 +89,9 @@ export function ShinyText({
 
   return (
     <View style={style} onLayout={handleLayout}>
-      <MaskedView maskElement={<Text style={textStyle}>{children}</Text>}>
-        <Text style={[textStyle, { opacity: 0 }]}>{children}</Text>
+      {/* Mask and spacer get the SAME fitting props, so they shrink identically. */}
+      <MaskedView maskElement={<Text style={textStyle} {...fit}>{children}</Text>}>
+        <Text style={[textStyle, { opacity: 0 }]} {...fit}>{children}</Text>
         <View style={[StyleSheet.absoluteFillObject, styles.clip]}>
           <View style={[StyleSheet.absoluteFillObject, { backgroundColor: base }]} />
           {/* A gradient band sweeping forever across fixed text — static pixels

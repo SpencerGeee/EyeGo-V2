@@ -218,7 +218,7 @@ export default function ScanPayTripScreen() {
                 </View>
                 <View style={styles.seatChip}>
                   <Ionicons name="person" size={13} color={colors.primary} />
-                  <Text style={styles.seatChipText}>
+                  <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={styles.seatChipText}>
                     {seat ? `Seat ${seat.number}` : 'Full'}
                   </Text>
                 </View>

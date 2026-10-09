@@ -687,7 +687,7 @@ export default function TripCompleteScreen() {
             </View>
           ) : (
             <Pressable style={styles.primaryBtn} onPress={handleRateAndTip} accessibilityRole="button" accessibilityLabel="Rate your driver">
-              <Text style={styles.primaryBtnText}>Rate your Trip</Text>
+              <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={styles.primaryBtnText}>Rate your Trip</Text>
             </Pressable>
           )}
 
@@ -711,7 +711,7 @@ export default function TripCompleteScreen() {
             accessibilityLabel="Report an issue or something left in the car"
           >
             <Ionicons name="bag-handle-outline" size={15} color={colors.onSurfaceVariant} />
-            <Text style={styles.reportBtnText}>Left something, or something went wrong?</Text>
+            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={styles.reportBtnText}>Left something, or something went wrong?</Text>
             <Ionicons name="chevron-forward" size={14} color={colors.onSurfaceVariant} />
           </Pressable>
 
@@ -737,7 +737,7 @@ export default function TripCompleteScreen() {
             accessibilityRole="button"
             accessibilityLabel={isViewOnly ? 'Back to your trips' : 'Back to home'}
           >
-            <Text style={styles.ghostBtnText}>{isViewOnly ? 'Back to Trips' : 'Back to Home'}</Text>
+            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={styles.ghostBtnText}>{isViewOnly ? 'Back to Trips' : 'Back to Home'}</Text>
           </Pressable>
         </MotiView>
       </ScrollView>

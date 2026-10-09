@@ -377,7 +377,7 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
               style={[styles.tierPill, !selectedTier && styles.tierPillAllActive]}
               onPress={() => { setSelectedTier(null); searchTrips.mutate(); }}
              accessibilityRole="button">
-              <Text style={[styles.tierPillText, !selectedTier && styles.tierPillTextActive]}>ALL TRIPS</Text>
+              <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={[styles.tierPillText, !selectedTier && styles.tierPillTextActive]}>ALL TRIPS</Text>
             </Pressable>
             {(Object.keys(TIER_INFO) as TripTier[]).map((tier) => {
               const info = TIER_INFO[tier];
@@ -392,7 +392,7 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                   onPress={() => { setSelectedTier(tier); searchTrips.mutate(); }}
                  accessibilityRole="button">
                   <Ionicons name={info.icon} size={13} color={active ? info.color : colors.onSurfaceVariant} />
-                  <Text style={[styles.tierPillText, active && { color: info.color }]}>{info.label.toUpperCase()}</Text>
+                  <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={[styles.tierPillText, active && { color: info.color }]}>{info.label.toUpperCase()}</Text>
                 </Pressable>
               );
             })}
@@ -712,7 +712,7 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                               style={[styles.enRouteChip, selectedStop && styles.enRouteChipActive]}
                              accessibilityRole="button">
                               <Ionicons name="location" size={10} color={selectedStop ? colors.onPrimary : colors.primary} />
-                              <Text style={[styles.enRouteChipText, selectedStop && { color: colors.onPrimary }]}>
+                              <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={[styles.enRouteChipText, selectedStop && { color: colors.onPrimary }]}>
                                 {selectedStop ? selectedStop.name : 'En-route'}
                               </Text>
                             </Pressable>
@@ -722,7 +722,7 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                         {seatsLeft != null && (
                           <View style={[styles.seatsChip, { backgroundColor: seatsLow ? withOpacity(colors.statusError, 0.1) : colors.surfaceContainerHigh }]}>
                             <Ionicons name="people-outline" size={12} color={seatsLow ? colors.statusError : colors.onSurfaceVariant} />
-                            <Text style={[styles.seatsChipText, { color: seatsLow ? colors.statusError : colors.onSurfaceVariant }]}>
+                            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={[styles.seatsChipText, { color: seatsLow ? colors.statusError : colors.onSurfaceVariant }]}>
                               {seatsLeft} SEAT{seatsLeft !== 1 ? 'S' : ''} LEFT
                             </Text>
                           </View>

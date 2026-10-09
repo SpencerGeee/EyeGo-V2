@@ -286,7 +286,7 @@ export default function OnboardingScreen() {
               glowColorSecondary={colors.premiumOrange}
               style={styles.premiumCta}
             >
-              <Text style={styles.premiumCtaText}>
+              <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={styles.premiumCtaText}>
                 {currentIndex === SLIDES.length - 1 ? 'Start Your Journey' : 'Continue'}
               </Text>
             </GradientGlowBorder>

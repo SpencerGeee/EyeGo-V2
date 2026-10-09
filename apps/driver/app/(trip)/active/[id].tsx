@@ -1680,7 +1680,7 @@ export default function ActiveTripScreen() {
           accessibilityLabel="Emergency SOS"
           onPress={confirmSos}
         >
-          <Text style={styles.sosBtnText}>SOS</Text>
+          <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={styles.sosBtnText}>SOS</Text>
         </Pressable>
       </View>
 
@@ -1773,7 +1773,7 @@ export default function ActiveTripScreen() {
               )
             }
           >
-            <Text style={[styles.endBtnText, { color: colors.onSurfaceVariant }]}>No-show</Text>
+            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={[styles.endBtnText, { color: colors.onSurfaceVariant }]}>No-show</Text>
           </Pressable>
           <Pressable
             style={styles.endBtn}
@@ -1781,7 +1781,7 @@ export default function ActiveTripScreen() {
             accessibilityRole="button"
             accessibilityLabel="Cancel this trip"
           >
-            <Text style={[styles.endBtnText, { color: colors.error }]}>Cancel trip</Text>
+            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={[styles.endBtnText, { color: colors.error }]}>Cancel trip</Text>
           </Pressable>
         </View>
       </TripStages>

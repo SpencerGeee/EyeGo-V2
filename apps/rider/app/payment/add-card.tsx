@@ -157,7 +157,7 @@ export default function AddCardScreen() {
           accessibilityLabel="Add card securely"
         >
           <Ionicons name="lock-closed" size={18} color={colors.onPrimary} />
-          <Text style={styles.addBtnText}>{isSaving ? 'Opening checkout…' : 'Add Card Securely'}</Text>
+          <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={styles.addBtnText}>{isSaving ? 'Opening checkout…' : 'Add Card Securely'}</Text>
         </Pressable>
       </View>
     </SafeAreaView>

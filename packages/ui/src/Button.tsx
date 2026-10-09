@@ -160,11 +160,17 @@ export function Button({
         <ShinyText
           baseColor={shinyBaseColor ?? vStyle.textColor}
           textStyle={labelStyle}
+          singleLine
         >
           {label}
         </ShinyText>
       ) : (
-        <Text style={labelStyle}>{label}</Text>
+        /* ONE LINE, ALWAYS. A label that wraps doubles the button's height and
+           reads as a slab ("Accept changes" on two lines). It shrinks a little
+           to fit instead — and a label that still cannot fit is too long. */
+        <Text style={labelStyle} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+          {label}
+        </Text>
       )}
     </>
   );

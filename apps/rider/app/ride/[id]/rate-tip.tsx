@@ -336,12 +336,12 @@ export default function RateTipScreen() {
             <Text style={styles.heroName}>{driverName}</Text>
             <View style={styles.vehiclePill}>
               <Ionicons name="car-outline" size={13} color={colors.onSurfaceVariant} />
-              <Text style={styles.vehiclePillText}>{vehicleLabel}</Text>
+              <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={styles.vehiclePillText}>{vehicleLabel}</Text>
             </View>
             {tripFare > 0 && (
               <View style={styles.farePill}>
                 <Ionicons name="receipt-outline" size={12} color={colors.primary} />
-                <Text style={styles.farePillText}>{formatGhs(tripFare)} paid</Text>
+                <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={styles.farePillText}>{formatGhs(tripFare)} paid</Text>
               </View>
             )}
           </MotiView>

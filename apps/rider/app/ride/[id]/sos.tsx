@@ -669,7 +669,7 @@ export default function SOSScreen() {
             size={20}
             color={colors.onPrimary}
           />
-          <Text style={styles.sosButtonText}>
+          <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={styles.sosButtonText}>
             {alertSent ? 'Safety alerted' : loading ? 'Sending alert…' : 'Send SOS to EyeGo'}
           </Text>
         </Pressable>
@@ -682,7 +682,7 @@ export default function SOSScreen() {
           accessibilityLabel={`Call the emergency services on ${emergencyNumber}`}
         >
           <Ionicons name="call" size={20} color={colors.statusError} />
-          <Text style={styles.emergencyButtonText}>
+          <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={styles.emergencyButtonText}>
             {/* The number the button actually dials (operator config), never a
                 hardcoded "112" that could disagree with it. */}
             {alertSent ? `Call ${emergencyNumber}` : 'Emergency call'}

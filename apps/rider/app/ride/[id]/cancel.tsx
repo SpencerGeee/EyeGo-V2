@@ -462,7 +462,7 @@ export default function CancelRideScreen() {
                   size={11}
                   color={selectedReason ? colors.statusSuccess : colors.statusWarning}
                 />
-                <Text
+                <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}
                   style={[
                     styles.requiredPillText,
                     { color: selectedReason ? colors.statusSuccess : colors.statusWarning },
@@ -549,7 +549,7 @@ export default function CancelRideScreen() {
             onPress={() => goBack()}
            accessibilityRole="button">
             <Ionicons name="checkmark-circle" size={20} color={colors.onPrimary} />
-            <Text style={styles.keepButtonText}>Keep My Ride</Text>
+            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={styles.keepButtonText}>Keep My Ride</Text>
           </Pressable>
 
           {/* ENABLED even without a reason — see `nudgeReasons`. A disabled
@@ -575,7 +575,7 @@ export default function CancelRideScreen() {
                 <Ionicons name="reload-outline" size={18} color={colors.statusError} />
               </MotiView>
             ) : (
-              <Text style={[styles.cancelButtonText, !selectedReason && styles.cancelButtonTextWaiting]}>
+              <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={[styles.cancelButtonText, !selectedReason && styles.cancelButtonTextWaiting]}>
                 {selectedReason ? 'Cancel Ride' : 'Pick a reason first'}
               </Text>
             )}

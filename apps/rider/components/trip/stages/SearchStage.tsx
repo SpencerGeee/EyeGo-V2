@@ -699,7 +699,7 @@ function SearchStageImpl() {
                       accessibilityLabel="Order ride"
                     >
                       <Ionicons name="flash" size={18} color={colors.onPrimary} />
-                      <Text style={styles.ctaPrimaryText}>Order Ride</Text>
+                      <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={styles.ctaPrimaryText}>Order Ride</Text>
                     </Pressable>
                     <Pressable
                       style={styles.ctaSecondary}
@@ -708,7 +708,7 @@ function SearchStageImpl() {
                       accessibilityLabel="Schedule"
                     >
                       <Ionicons name="calendar-outline" size={18} color={colors.primary} />
-                      <Text style={styles.ctaSecondaryText}>Schedule</Text>
+                      <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={styles.ctaSecondaryText}>Schedule</Text>
                     </Pressable>
                   </View>
                 </>

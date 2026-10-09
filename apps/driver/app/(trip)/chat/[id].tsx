@@ -396,7 +396,7 @@ export default function TripChatScreen() {
             )}
             {!isPrivate && item.seatNumber != null && (
               <View style={styles.seatChip}>
-                <Text style={styles.seatChipText}>S{item.seatNumber}</Text>
+                <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={styles.seatChipText}>S{item.seatNumber}</Text>
               </View>
             )}
           </View>

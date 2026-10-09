@@ -146,6 +146,36 @@ function main() {
     pass('text scales with the system setting', 'no allowFontScaling={false}');
   }
 
+  /**
+   * RULE 4 — A BUTTON LABEL IS ONE LINE.
+   *
+   * "Fix the issue of having some of the buttons texts span two lines… it
+   * makes the button seem very big and not aesthetic." A wrapped label doubles
+   * the control's height and reads as a slab. Every <Text> styled as a button,
+   * CTA, action, chip or pill label carries numberOfLines (the shared Button
+   * does this itself).
+   */
+  const LABEL = /styles\.[a-zA-Z]*(Btn|Button|Cta|cta|Action|Chip|Pill)[a-zA-Z]*Text\b/;
+  const wrapping = [];
+  for (const f of files) {
+    const s = read(f);
+    for (const m of s.matchAll(/<Text\b[^]*?>/g)) {
+      if (LABEL.test(m[0]) && !/numberOfLines/.test(m[0])) {
+        wrapping.push(`${rel(f)}: ${m[0].replace(/\s+/g, ' ').slice(0, 90)}`);
+      }
+    }
+  }
+  if (wrapping.length) {
+    fail(
+      'a button label is one line',
+      'these button/CTA/chip labels can wrap to two lines:\n    ' +
+        wrapping.join('\n    ') +
+        '\n  Add numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}.',
+    );
+  } else {
+    pass('a button label is one line', 'every button, CTA, chip and pill label is single-line');
+  }
+
   process.exit(summary());
 }
 

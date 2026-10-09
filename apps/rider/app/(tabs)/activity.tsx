@@ -214,7 +214,7 @@ function TripItem({ booking, colors, styles }: { booking: any; colors: Colors; s
           {/* BUGFIX: this printed `booking.status` straight from Prisma, so a
               rider mid-payment read the literal "SEAT_HELD". One label map for
               the whole app — see `bookingStatusLabel`. */}
-          <Text style={[styles.statusChipText, { color: statusColor }]}>
+          <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={[styles.statusChipText, { color: statusColor }]}>
             {bookingStatusLabel(booking.status)}
           </Text>
         </View>
@@ -523,7 +523,7 @@ function ScheduledItem({
           {'  ·  '}{intent.seatCount} seat{intent.seatCount > 1 ? 's' : ''}
         </Text>
         <View style={[styles.statusChip, { backgroundColor: withOpacity(statusColor, 0.15) }]}>
-          <Text style={[styles.statusChipText, { color: statusColor }]}>
+          <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={[styles.statusChipText, { color: statusColor }]}>
             {SCHEDULED_STATUS_LABEL[intent.status] ?? intent.status}
           </Text>
         </View>
@@ -826,7 +826,7 @@ export default function ActivityScreen() {
             accessibilityLabel="Try again"
           >
             <Ionicons name="refresh" size={16} color={colors.onSurface} />
-            <Text style={styles.emptyCtaText}>Try again</Text>
+            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={styles.emptyCtaText}>Try again</Text>
           </Pressable>
         </View>
       ) : filter === 'scheduled' ? (
@@ -893,7 +893,7 @@ export default function ActivityScreen() {
                   accessibilityLabel="Schedule a ride"
                 >
                   <Ionicons name="calendar-outline" size={16} color={colors.onSurface} />
-                  <Text style={styles.emptyCtaText}>Schedule a ride</Text>
+                  <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={styles.emptyCtaText}>Schedule a ride</Text>
                 </Pressable>
               </View>
             }
@@ -959,7 +959,7 @@ export default function ActivityScreen() {
                     accessibilityLabel="Request a trip"
                   >
                     <Ionicons name="search" size={16} color={colors.onSurface} />
-                    <Text style={styles.emptyCtaText}>Request a trip</Text>
+                    <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={styles.emptyCtaText}>Request a trip</Text>
                   </Pressable>
                   <Pressable
                     style={({ pressed }) => [styles.emptyCta, styles.emptyCtaSecondary, pressed && { opacity: 0.8 }]}
@@ -971,7 +971,7 @@ export default function ActivityScreen() {
                     accessibilityLabel="Schedule a ride"
                   >
                     <Ionicons name="calendar-outline" size={16} color={colors.onSurface} />
-                    <Text style={styles.emptyCtaText}>Schedule</Text>
+                    <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={styles.emptyCtaText}>Schedule</Text>
                   </Pressable>
                 </View>
               </View>
