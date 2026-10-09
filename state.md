@@ -17,6 +17,18 @@ flaws, audit the admin side for completeness.
   * GH₵0.00 shown for unknown money at 6 display sites
   * admin Payouts page + GET /admin/payouts (paid / processing / failed→refunded, >24h stale)
 
+## Done this continuation (pushed, f7a818f)
+- 0ac39b2 light-mode ink on colors.primary (home chip, browse pin, banner icon), create-trip near-white fare row + copy, booking tx 10s->20s
+- f7a818f mid-ride offers dead (Route.destinationLat) + decline cooldown NaN (unregistered setting) fixed; prisma-fields.mjs now MODEL-AWARE
+- run-all 526/526 · 28/28 suites green AFTER f7a818f; api.log: 0 unknown fields, 0 unknown setting keys
+- add-passenger copy sentence-cased
+
+## Next (in order)
+1. Restart API, re-run run-all; grep api.log for Unknown field / unknown key / swallowed warns
+2. Premium pass: driver add-passenger, location-picker, chat; rider Services
+3. Admin next build (prod) when memory allows
+4. Update session-log + memory
+
 ## Classes checked clean
 IDOR (all param handlers are admin-gated or token-public by design; tracking is cuid + lifecycle
 gated), direct trip status writes (all CAS-guarded), unknown status literals, uncleared

@@ -275,7 +275,7 @@ export default function AddPassengerScreen() {
              accessibilityRole="button" accessibilityLabel="Go back">
               <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
             </Pressable>
-            <Text style={styles.headerTitle}>Add Passenger</Text>
+            <Text style={styles.headerTitle}>Add a passenger</Text>
             <View style={{ width: 36 }} />
           </View>
 
@@ -325,7 +325,7 @@ export default function AddPassengerScreen() {
                   <Ionicons name="phone-portrait-outline" size={24} color={colors.primary} />
                 </View>
                 <View style={styles.optionInfo}>
-                  <Text style={styles.optionTitle}>Phone + OTP</Text>
+                  <Text style={styles.optionTitle}>Phone and code</Text>
                   <Text variant="bodyMedium" color={colors.onSurfaceVariant}>
                     Enter their number → they receive OTP → verify before boarding.
                   </Text>
@@ -342,7 +342,7 @@ export default function AddPassengerScreen() {
                   <Ionicons name="cash-outline" size={24} color={colors.online} />
                 </View>
                 <View style={styles.optionInfo}>
-                  <Text style={styles.optionTitle}>Cash Passenger</Text>
+                  <Text style={styles.optionTitle}>Cash, no phone</Text>
                   <Text variant="bodyMedium" color={colors.onSurfaceVariant}>
                     No phone needed. Commission auto-deducted from fare.
                   </Text>
@@ -355,7 +355,7 @@ export default function AddPassengerScreen() {
           {/* Mode: Phone input */}
           {mode === 'phone' && (
             <Entrance animation="slideRight" style={styles.formContainer}>
-              <Text style={styles.sectionTitle}>Passenger Details</Text>
+              <Text style={styles.sectionTitle}>Passenger details</Text>
               <View style={styles.fieldWrapper}>
                 <Text variant="caption" color={colors.onSurfaceVariant} style={styles.fieldLabel}>
                   Phone number
@@ -380,7 +380,7 @@ export default function AddPassengerScreen() {
               </View>
               <SeatPicker seatNumber={seatNumber} onDecrement={() => stepSeat(-1)} onIncrement={() => stepSeat(1)} canDecrement={canStep(-1)} canIncrement={canStep(1)} seatsFree={seatsFree} maxSeats={maxSeats} soldOut={firstFreeSeat == null} colors={colors} styles={styles} />
               <Button
-                label="Send OTP to Passenger"
+                label="Text them a code"
                 onPress={() => addByPhone.mutate()}
                 disabled={phone.length < 9}
                 loading={addByPhone.isPending}
@@ -391,7 +391,7 @@ export default function AddPassengerScreen() {
           {/* Mode: OTP verify */}
           {mode === 'otp' && (
             <Entrance animation="slideRight" style={styles.formContainer}>
-              <Text style={styles.sectionTitle}>Verify OTP</Text>
+              <Text style={styles.sectionTitle}>Enter their code</Text>
               <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.otpDesc}>
                 Ask the passenger for the 4-digit code sent to their number.
               </Text>
@@ -408,7 +408,7 @@ export default function AddPassengerScreen() {
                 textAlign="center"
               />
               <Button
-                label="Verify & Board"
+                label="Verify and board"
                 onPress={() => verifyOtp.mutate()}
                 disabled={otp.length < 4}
                 loading={verifyOtp.isPending || boardPassenger.isPending}
@@ -419,13 +419,13 @@ export default function AddPassengerScreen() {
           {/* Mode: Cash */}
           {mode === 'cash' && (
             <Entrance animation="slideRight" style={styles.formContainer}>
-              <Text style={styles.sectionTitle}>Cash Passenger</Text>
+              <Text style={styles.sectionTitle}>Cash, no phone</Text>
               <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.otpDesc}>
                 Select the seat number for this passenger.
               </Text>
               <SeatPicker seatNumber={seatNumber} onDecrement={() => stepSeat(-1)} onIncrement={() => stepSeat(1)} canDecrement={canStep(-1)} canIncrement={canStep(1)} seatsFree={seatsFree} maxSeats={maxSeats} soldOut={firstFreeSeat == null} colors={colors} styles={styles} />
               <Button
-                label="Add Cash Passenger"
+                label="Add cash passenger"
                 onPress={() => addCash.mutate()}
                 loading={addCash.isPending}
               />

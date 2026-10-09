@@ -507,3 +507,12 @@ Decisions:
 - Admin gets a derived Payouts view; payout state is never stored twice.
 Rejected: forcing GlassSurface dark; counting booking rows as seats.
 Open: re-run run-all on a healthy Docker; premium pass on Activity/Services/driver create.
+
+## 2026-10-09 09:00 [saved]
+Goal: Finish the sweep: re-run harness, dead-feature hunt, light-mode ink.
+Decisions:
+- prisma-fields.mjs is model-aware: resolve prisma.<model>.<op>( and walk relation selects.
+- Every settings.get key must be registered; NaN is never nullish, so guard with Number.isFinite.
+- Ink on colors.primary is always colors.onPrimary (primary is dark green in light mode).
+Rejected: name-union field checks (missed Route.destinationLat, a real Driver field).
+Open: admin next build (machine ran out of memory); premium pass on driver chat/location picker, rider Services.
