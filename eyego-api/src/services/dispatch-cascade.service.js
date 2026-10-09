@@ -209,10 +209,13 @@ const RESWEEP_INTERVAL_SECONDS =
  * Abandoning an ACCEPTED trip is a third act and is still permanent; see
  * `excludeDriverIds` in `startCascade`.
  */
-const declineCooldownSeconds = () =>
-  settings.get('DISPATCH_DECLINE_COOLDOWN_SECONDS') ??
-  parseInt(process.env.DISPATCH_DECLINE_COOLDOWN_SECONDS, 10) ??
-  90;
+// Registered in config/settings.js. The old chain ended in `parseInt(undefined)`,
+// which is NaN — and NaN is not nullish, so `?? 90` never fired and every
+// comparison against the cooldown was false: no lapsed offer ever cooled down.
+const declineCooldownSeconds = () => {
+  const v = Number(settings.get('DISPATCH_DECLINE_COOLDOWN_SECONDS'));
+  return Number.isFinite(v) && v >= 0 ? v : 90;
+};
 
 /**
  * The drivers this trip may not currently be offered to, as a Set of ids.

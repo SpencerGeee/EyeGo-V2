@@ -287,6 +287,12 @@ const REGISTRY = [
     min: 5, max: 120,
   },
   {
+    key: 'DISPATCH_DECLINE_COOLDOWN_SECONDS', group: 'dispatch', type: TYPES.INT,
+    label: 'Missed-offer cooldown', envDefault: 90, unit: 'seconds',
+    help: 'A driver who lets an offer lapse is not offered the SAME trip again for this long (a deliberate Pass is permanent). It was read but never registered, so it resolved to NaN and the cooldown never applied — a driver who missed an offer was handed it straight back.',
+    min: 0, max: 1800,
+  },
+  {
     key: 'REQUEST_IMMEDIATE_WINDOW_MINUTES', group: 'dispatch', type: TYPES.INT,
     label: 'Treat a request as "now" within', envDefault: 15, unit: 'minutes',
     help: 'A trip request departing inside this window is dispatched through the sequential cascade — one driver at a time, with a countdown, and a full-screen offer on their phone. Anything further out is broadcast to nearby drivers as a claimable board row instead, because nobody sits on a 45-second countdown for a ride four days away. Raise it if riders book slightly ahead and complain that drivers never see the offer; lower it if drivers are getting live countdowns for rides they cannot start yet.',

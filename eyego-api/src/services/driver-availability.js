@@ -195,7 +195,10 @@ async function midRideAvailableDriverIds(prisma, driverIds) {
         driverId: true,
         dropoffLat: true,
         dropoffLng: true,
-        route: { select: { destinationLat: true, destinationLng: true } },
+        // `destLat`/`destLng` are the Route columns. This selected
+        // `destinationLat`, Prisma threw on every call, the catch below returned
+        // [] — so no mid-ride driver was ever offered their next ride.
+        route: { select: { destLat: true, destLng: true } },
         driver: { select: { currentLat: true, currentLng: true } },
       },
     });
@@ -204,8 +207,8 @@ async function midRideAvailableDriverIds(prisma, driverIds) {
     const eta = require('./eta.service');
     const results = await Promise.all(
       trips.map(async (t) => {
-        const destLat = t.dropoffLat ?? t.route?.destinationLat;
-        const destLng = t.dropoffLng ?? t.route?.destinationLng;
+        const destLat = t.dropoffLat ?? t.route?.destLat;
+        const destLng = t.dropoffLng ?? t.route?.destLng;
         const fromLat = t.driver?.currentLat;
         const fromLng = t.driver?.currentLng;
         if (![destLat, destLng, fromLat, fromLng].every(Number.isFinite)) return null;
