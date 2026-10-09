@@ -1,27 +1,42 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
-import {
-  View,
-  StyleSheet,
-  ScrollView,
-  Modal,
-  Platform,
-} from 'react-native';
+import { View, StyleSheet, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { spacing, radii, fonts, fontSizes, withOpacity , MAX_SEATS_PER_BOOKING, clampSeats } from '@eyego/config';
+import * as Haptics from 'expo-haptics';
+import { spacing, radii, fonts, fontSizes, MAX_SEATS_PER_BOOKING, clampSeats } from '@eyego/config';
 // `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
 // drops the `({ pressed }) => style` function form on RN's Pressable, which
 // silently deletes the whole style. See components/trip/stages/SearchStage.tsx.
-import { Text, GlassCard, Button, Pressable, goDeeper, goBack, notify } from '@eyego/ui';
+import { Text, Button, Pressable, GradientGlowBorder, GlassSurface, goDeeper, goBack, notify } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
-import { tripsApi } from '@eyego/api';
+import { tripsApi, ridesApi } from '@eyego/api';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { consumePickedPlace } from '../../utils/placePickerResult';
 import { useRideStore } from '../../stores/ride.store';
 import { useTripFlow } from '../../stores/tripFlow.store';
-import { shortDateTime } from '@eyego/utils';
+import { clockTime, dayMonth, weekdayShort } from '@eyego/utils';
+
+/**
+ * SCHEDULE A RIDE — Uber Reserve's shape.
+ *
+ * "Uber Reserve style": the question is WHEN, so the page leads with it. A
+ * strip of days, the pickup times for the chosen day in 15-minute steps, and a
+ * summary that reads the answer back the way the rider will think about it —
+ * "Thu 9 Oct · 8:45 AM · arrives about 9:10". Where and how many sit below,
+ * already filled in from the Where-to screen.
+ *
+ * WHAT IT REPLACED. A form: two address bars, a seat stepper, and the time
+ * behind a modal spinner on iOS and two system dialogs on Android — so the one
+ * thing this screen exists to set was the hardest thing on it to see, and it
+ * said "Step 1 of 2" for a flow with no step 2. Slots work the same on both
+ * platforms and need no modal at all.
+ *
+ * The rules are the server's: at least 30 minutes' notice, at most 30 days
+ * out (scheduleTrip: SCHEDULE_TOO_FAR_OUT). Nothing is charged by scheduling —
+ * an intent holds no money — and it can be cancelled until a driver is
+ * matched (cancelScheduledRide accepts PENDING and DISPATCHED only).
+ */
 
 interface PickedLocation {
   lat: number;
@@ -29,21 +44,42 @@ interface PickedLocation {
   address: string;
 }
 
-function getMinDate() {
-  const d = new Date();
-  d.setMinutes(d.getMinutes() + 30);
+const NOTICE_MIN = 30;
+const MAX_DAYS = 30;
+const SLOT_MIN = 15;
+
+/** The earliest pickup the server accepts, rounded up to the next slot. */
+function earliestSlot(now = new Date()): Date {
+  const d = new Date(now.getTime() + NOTICE_MIN * 60_000);
+  const m = d.getMinutes();
+  const up = Math.ceil(m / SLOT_MIN) * SLOT_MIN;
+  d.setMinutes(up, 0, 0);
   return d;
 }
 
-/** The server refuses anything further out (scheduleTrip: SCHEDULE_TOO_FAR_OUT). */
-function getMaxDate() {
-  const d = new Date();
-  d.setDate(d.getDate() + 30);
+function latestAllowed(now = new Date()): Date {
+  const d = new Date(now);
+  d.setDate(d.getDate() + MAX_DAYS);
   return d;
 }
 
-function formatDate(date: Date) {
-  return shortDateTime(date);
+function startOfDay(d: Date): Date {
+  const s = new Date(d);
+  s.setHours(0, 0, 0, 0);
+  return s;
+}
+
+/** Every bookable pickup time on one calendar day. */
+function slotsFor(day: Date): Date[] {
+  const start = startOfDay(day).getTime();
+  const min = earliestSlot().getTime();
+  const max = latestAllowed().getTime();
+  const out: Date[] = [];
+  for (let m = 0; m < 24 * 60; m += SLOT_MIN) {
+    const t = start + m * 60_000;
+    if (t >= min && t <= max) out.push(new Date(t));
+  }
+  return out;
 }
 
 export default function ScheduleRideScreen() {
@@ -51,42 +87,67 @@ export default function ScheduleRideScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
 
-  // Clamped, not trusted. This seeds from whatever Where To last set, and Where
-  // To's stepper and this one used to disagree about the ceiling — so a value
-  // this screen could not itself produce arrived here and was posted to a
-  // validator that rejected it ("scheduling failed (validation failed)").
-  const [seatCount, setSeatCount] = useState(() =>
-    clampSeats(useRideStore.getState().requestSeatCount || 1),
+  // Clamped, not trusted — see the history in clampSeats.
+  const [seatCount, setSeatCount] = useState(() => clampSeats(useRideStore.getState().requestSeatCount || 1));
+
+  /** Bookable days: today (if any slot is left) through MAX_DAYS out. */
+  const days = useMemo(() => {
+    const out: Date[] = [];
+    const today = startOfDay(new Date());
+    for (let i = 0; i <= MAX_DAYS; i++) {
+      const d = new Date(today);
+      d.setDate(today.getDate() + i);
+      if (slotsFor(d).length) out.push(d);
+    }
+    return out;
+  }, []);
+
+  const [day, setDay] = useState<Date>(() => days[0] ?? startOfDay(new Date()));
+  const slots = useMemo(() => slotsFor(day), [day]);
+  /** A morning default for a later day; the first bookable slot for today. */
+  const defaultSlot = useCallback(
+    (forDay: Date, list: Date[]) =>
+      startOfDay(forDay).getTime() === startOfDay(new Date()).getTime()
+        ? list[0]
+        : list.find((s) => s.getHours() === 8 && s.getMinutes() === 0) ?? list[0],
+    [],
   );
-  const [selectedDate, setSelectedDate] = useState<Date>(getMinDate());
-  const [showPicker, setShowPicker] = useState(false);
-  const [tempDate, setTempDate] = useState<Date>(getMinDate());
-  // Carry over whatever the rider already chose on the where-to surface.
-  // Tapping "Schedule" there instead of "Order Ride" used to land on a blank
-  // form, forcing them to re-pick a destination they had just set on the map.
-  // Both stores are the same ones SearchStage writes to, so this works for any
-  // entry point into this screen — no route params to keep in sync.
+  const [selected, setSelected] = useState<Date>(() => defaultSlot(day, slots) ?? earliestSlot());
+
+  const pickDay = (d: Date) => {
+    void Haptics.selectionAsync().catch(() => {});
+    setDay(d);
+    const list = slotsFor(d);
+    // Keep the same clock time on the new day when it exists there.
+    const same = list.find((s) => s.getHours() === selected.getHours() && s.getMinutes() === selected.getMinutes());
+    setSelected(same ?? defaultSlot(d, list) ?? earliestSlot());
+  };
+
+  // Scroll the time strip so the chosen slot is in view.
+  const timeStripRef = useRef<ScrollView>(null);
+  const SLOT_W = 92;
+  useEffect(() => {
+    const i = slots.findIndex((s) => s.getTime() === selected.getTime());
+    if (i < 0) return;
+    const t = setTimeout(() => timeStripRef.current?.scrollTo({ x: Math.max(0, i * SLOT_W - SLOT_W), animated: true }), 60);
+    return () => clearTimeout(t);
+  }, [day, slots, selected]);
+
+  // Carried over from Where-to: scheduling the same journey should not mean
+  // re-picking it. Same stores SearchStage writes.
   const carriedDest = useTripFlow((s) => s.searchPlace);
   const carriedOrigin = useRideStore((s) => s.origin);
-
   const [requestPickup, setRequestPickup] = useState<PickedLocation | null>(() =>
-    carriedOrigin
-      ? { lat: carriedOrigin.latitude, lng: carriedOrigin.longitude, address: carriedOrigin.address }
-      : null
+    carriedOrigin ? { lat: carriedOrigin.latitude, lng: carriedOrigin.longitude, address: carriedOrigin.address } : null,
   );
   const [requestDest, setRequestDest] = useState<PickedLocation | null>(() =>
     carriedDest
-      ? {
-          lat: carriedDest.latitude,
-          lng: carriedDest.longitude,
-          address: carriedDest.fullAddress || carriedDest.name,
-        }
-      : null
+      ? { lat: carriedDest.latitude, lng: carriedDest.longitude, address: carriedDest.fullAddress || carriedDest.name }
+      : null,
   );
   const pickingFieldRef = useRef<'pickup' | 'dest' | null>(null);
 
-  // Default pickup to the device's current position so the rider only has to
-  // actively pick a destination — pickup stays overridable via the map picker.
+  // Default pickup to the device's position; the rider only has to pick where to.
   useEffect(() => {
     if (requestPickup) return;
     (async () => {
@@ -97,13 +158,11 @@ export default function ScheduleRideScreen() {
         const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
         setRequestPickup({ lat: loc.coords.latitude, lng: loc.coords.longitude, address: 'Current location' });
       } catch {
-        // No GPS fix — pickup stays unset; rider can still set it manually via the map picker.
+        // No fix — the rider sets it on the map.
       }
     })();
   }, [requestPickup]);
 
-  // Consume a location confirmed on the map picker screen — pickingFieldRef
-  // tracks which of the two fields (pickup/dest) triggered the navigation.
   useFocusEffect(
     useCallback(() => {
       const field = pickingFieldRef.current;
@@ -114,9 +173,41 @@ export default function ScheduleRideScreen() {
       const location: PickedLocation = { lat: picked.latitude, lng: picked.longitude, address: picked.fullAddress };
       if (field === 'pickup') setRequestPickup(location);
       else setRequestDest(location);
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [])
+    }, []),
   );
+
+  /**
+   * "ARRIVES ABOUT 9:10" — from the road, not a guess.
+   *
+   * The same quote the ride picker uses measures the journey and returns its
+   * duration. A preview only: nothing is booked or held by it.
+   */
+  const [tripMin, setTripMin] = useState<number | null>(null);
+  useEffect(() => {
+    if (!requestPickup || !requestDest) {
+      setTripMin(null);
+      return;
+    }
+    let cancelled = false;
+    ridesApi
+      .quote({
+        pickupLat: requestPickup.lat,
+        pickupLng: requestPickup.lng,
+        dropoffLat: requestDest.lat,
+        dropoffLng: requestDest.lng,
+        tier: 'ECO',
+        seatCount,
+      } as any)
+      .then((q: any) => {
+        if (!cancelled && typeof q?.durationMin === 'number' && Number.isFinite(q.durationMin)) {
+          setTripMin(Math.max(1, Math.round(q.durationMin)));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [requestPickup?.lat, requestPickup?.lng, requestDest?.lat, requestDest?.lng, seatCount]);
 
   const queryClient = useQueryClient();
   const mountedRef = useRef(true);
@@ -124,22 +215,14 @@ export default function ScheduleRideScreen() {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      // Dismiss any open picker modal before unmount to avoid native modal
-      // conflicts during swipe-back gesture.
-      setShowPicker(false);
     };
   }, []);
 
-  // Group/on-demand model: scheduling only needs a pickup point + destination
-  // (both map-picked), no route selection. Writes a real ScheduledRideIntent
-  // so it shows up on /scheduled-rides and gets picked up by the backend's
-  // scheduled-ride matching sweep (which also reminds the matched driver
-  // ahead of the departure time).
   const scheduleMutation = useMutation({
     mutationFn: () =>
       tripsApi.schedule({
         destination: requestDest!.address,
-        scheduledAt: selectedDate.toISOString(),
+        scheduledAt: selected.toISOString(),
         seatCount,
         pickupLat: requestPickup!.lat,
         pickupLng: requestPickup!.lng,
@@ -149,253 +232,196 @@ export default function ScheduleRideScreen() {
       }),
     onSuccess: () => {
       if (!mountedRef.current) return;
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       queryClient.invalidateQueries({ queryKey: ['trips', 'scheduled'] });
       router.replace('/scheduled-rides' as any);
     },
     onError: (err: any) => {
-      // err.message was the generic axios message ("Request failed with status
-      // code 409") — the backend's actual reason (e.g. the duplicate-schedule
-      // dedupe check) lives in the response body and was never surfaced, so a
-      // 409 looked identical to any other failure and riders assumed nothing
-      // had been scheduled when the first attempt may have already succeeded.
-      notify('Scheduling Failed', err?.response?.data?.message || err?.message || 'Could not schedule your ride. Please try again.');
+      // The server's own reason (a duplicate, too far out) — a bare status code
+      // left riders unsure whether the first attempt had already gone through.
+      notify('Could not schedule that', err?.response?.data?.message || err?.message || 'Please try again.');
     },
   });
 
   const handleSubmit = () => {
-    if (!requestPickup) {
-      notify('Set a Pickup Point', 'Please set where you want to be picked up.');
-      return;
-    }
-    if (!requestDest) {
-      notify('Choose a Destination', 'Please pick where you want to go on the map.');
-      return;
-    }
-    const minDate = getMinDate();
-    if (selectedDate < minDate) {
-      notify('Invalid Time', 'Scheduled time must be at least 30 minutes from now.');
-      return;
+    if (!requestPickup) return notify('Set a pickup point', 'Choose where you want to be picked up.');
+    if (!requestDest) return notify('Choose a destination', 'Pick where you are going.');
+    if (selected < earliestSlot(new Date(Date.now() - SLOT_MIN * 60_000))) {
+      return notify('Pick a later time', `Scheduled rides need at least ${NOTICE_MIN} minutes' notice.`);
     }
     scheduleMutation.mutate();
   };
 
-  const handleDateChange = (_: any, date?: Date) => {
-    if (date) {
-      setTempDate(date);
-      if (Platform.OS === 'android') {
-        setSelectedDate(date);
-        setShowPicker(false);
-      }
-    } else if (Platform.OS === 'android') {
-      setShowPicker(false);
-    }
-  };
+  const isToday = startOfDay(selected).getTime() === startOfDay(new Date()).getTime();
+  const isTomorrow = startOfDay(selected).getTime() === startOfDay(new Date(Date.now() + 86_400_000)).getTime();
+  const dayWord = isToday ? 'Today' : isTomorrow ? 'Tomorrow' : `${weekdayShort(selected)} ${dayMonth(selected)}`;
+  const arrives = tripMin != null ? clockTime(new Date(selected.getTime() + tripMin * 60_000)) : null;
 
-  const handleConfirmDate = () => {
-    setSelectedDate(tempDate);
-    setShowPicker(false);
+  const openPicker = (field: 'pickup' | 'dest') => {
+    pickingFieldRef.current = field;
+    goDeeper('/profile/place-picker' as any);
   };
-
-  /**
-   * ANDROID HAS NO DATE-AND-TIME PICKER.
-   *
-   * `mode="datetime"` is iOS-only; Android quietly showed a DATE dialog, so an
-   * Android rider could pick the day but never the time — every scheduled
-   * ride kept whatever minute the screen opened at. Two system dialogs, date
-   * then time, like every Android app.
-   */
-  const openAndroidPicker = () => {
-    const base = selectedDate;
-    DateTimePickerAndroid.open({
-      value: base,
-      mode: 'date',
-      minimumDate: getMinDate(),
-      maximumDate: getMaxDate(),
-      onChange: (e, day) => {
-        if (e.type !== 'set' || !day) return;
-        DateTimePickerAndroid.open({
-          value: base,
-          mode: 'time',
-          onChange: (e2, time) => {
-            if (e2.type !== 'set' || !time) return;
-            const next = new Date(day);
-            next.setHours(time.getHours(), time.getMinutes(), 0, 0);
-            const min = getMinDate();
-            if (next < min) {
-              notify('Pick a later time', 'Scheduled rides need at least 30 minutes’ notice.');
-              setSelectedDate(min);
-            } else {
-              setSelectedDate(next);
-            }
-          },
-        });
-      },
-    });
-  };
-
-  const isPending = scheduleMutation.isPending;
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-      {/* ── Header ── */}
       <View style={styles.header}>
-        <GlassCard style={styles.backBtnGlass}>
-          <Pressable onPress={() => goBack()} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
-            <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
-          </Pressable>
-        </GlassCard>
-        <View style={styles.headerCenter}>
-          <Text variant="titleSmall" style={{ color: colors.onSurface }}>Schedule Ride</Text>
-          <Text style={styles.stepLabel}>Step 1 of 2</Text>
-        </View>
-        <View style={styles.headerSpacer} />
-      </View>
-
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-        {/* ── Pickup + destination — map-picked, no fixed routes ── */}
-        <Text style={[styles.sectionLabel, { marginBottom: spacing.sm }]}>PICKUP &amp; DESTINATION</Text>
-        <View style={{ gap: spacing.sm }}>
-          <Pressable
-            style={styles.searchBar}
-            onPress={() => {
-              pickingFieldRef.current = 'pickup';
-              goDeeper('/profile/place-picker' as any);
-            }}
-           accessibilityRole="button">
-            <Ionicons name="radio-button-on-outline" size={18} color={colors.primary} />
-            <Text
-              variant="bodyLarge"
-              numberOfLines={1}
-              style={{ flex: 1, color: requestPickup ? colors.onSurface : colors.outlineVariant }}
-            >
-              {requestPickup?.address ?? 'Locating pickup…'}
-            </Text>
-            <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
-          </Pressable>
-          <Pressable
-            style={styles.searchBar}
-            onPress={() => {
-              pickingFieldRef.current = 'dest';
-              goDeeper('/profile/place-picker' as any);
-            }}
-           accessibilityRole="button">
-            <Ionicons name="navigate-outline" size={18} color={colors.primary} />
-            <Text
-              variant="bodyLarge"
-              numberOfLines={1}
-              style={{ flex: 1, color: requestDest ? colors.onSurface : colors.outlineVariant }}
-            >
-              {requestDest?.address ?? 'Choose destination on map'}
-            </Text>
-            <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
-          </Pressable>
-        </View>
-
-        {/* ── Seats ── */}
-        <Text style={[styles.sectionLabel, { marginTop: spacing.xl, marginBottom: spacing.sm }]}>SEATS</Text>
-        <GlassCard style={styles.fieldRow}>
-          <Pressable
-            onPress={() => setSeatCount((s) => Math.max(1, s - 1))}
-            accessibilityRole="button"
-            accessibilityLabel="Decrease seats"
-            hitSlop={8}
-          >
-            <Ionicons name="remove-circle-outline" size={26} color={seatCount > 1 ? colors.primary : colors.outline} />
-          </Pressable>
-          <Text variant="bodyLarge" style={{ color: colors.onSurface, flex: 1, textAlign: 'center' }}>
-            {seatCount} seat{seatCount > 1 ? 's' : ''}
-          </Text>
-          <Pressable
-            onPress={() => setSeatCount((s) => Math.min(MAX_SEATS_PER_BOOKING, s + 1))}
-            accessibilityRole="button"
-            accessibilityLabel="Increase seats"
-            hitSlop={8}
-          >
-            <Ionicons name="add-circle-outline" size={26} color={seatCount < MAX_SEATS_PER_BOOKING ? colors.primary : colors.outline} />
-          </Pressable>
-        </GlassCard>
-
-        {/* ── Pickup Time ── */}
-        <View style={[styles.modeRow, { marginTop: spacing.xl }]}>
-          <Text style={styles.sectionLabel}>PICKUP TIME</Text>
-          <View style={styles.noticePill}>
-            <Ionicons name="information-circle-outline" size={13} color={colors.statusWarning} />
-            <Text style={styles.noticeText}>Min. 30m notice</Text>
-          </View>
-        </View>
-        <Pressable
-          onPress={() => {
-            if (Platform.OS === 'android') return openAndroidPicker();
-            setTempDate(selectedDate);
-            setShowPicker(true);
-          }}
-          style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
-         accessibilityRole="button">
-          <GlassCard style={styles.fieldRow}>
-            <Ionicons name="calendar-outline" size={20} color={colors.primary} />
-            <Text variant="bodyLarge" style={{ color: colors.onSurface, flex: 1 }}>
-              {formatDate(selectedDate)}
-            </Text>
-            <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceVariant} />
-          </GlassCard>
+        <Pressable onPress={() => goBack()} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
+          <GlassSurface style={StyleSheet.absoluteFill} borderRadius={22} />
+          <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
         </Pressable>
-
-        {/* ── Helper text ── */}
-        <Text variant="caption" style={{ color: colors.outlineVariant, marginTop: spacing.sm }}>
-          Select a time at least 30 minutes from now to ensure driver availability.
-        </Text>
-      </ScrollView>
-
-      {/* ── Fixed bottom bar - GlassCard sheet ── */}
-      <View style={styles.footer}>
-        <GlassCard sheet style={styles.footerSheet}>
-          <View style={styles.footerSheetInner}>
-            <Button
-              label={scheduleMutation.isPending ? 'Scheduling…' : 'Confirm Schedule'}
-              onPress={handleSubmit}
-              disabled={isPending}
-              loading={isPending}
-              variant="glow"
-              icon={<Ionicons name="calendar" size={20} color={colors.onSurface} />}
-            />
-          </View>
-        </GlassCard>
+        <Text style={styles.headerTitle}>Schedule a ride</Text>
+        <View style={{ width: 44 }} />
       </View>
 
-      {/* ── iOS Modal Picker ── */}
-      {Platform.OS === 'ios' && showPicker && (
-        <Modal
-          transparent
-          animationType="slide"
-          visible={showPicker}
-          onRequestClose={() => setShowPicker(false)}
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        <Text style={styles.title}>When should we pick you up?</Text>
+
+        {/* THE ANSWER, READ BACK. The page's one glow. */}
+        <GradientGlowBorder
+          palette="brandGreen"
+          fillColor={colors.surfaceContainerHigh}
+          borderRadius={radii['2xl']}
+          glow
+          glowIntensity={0.6}
+          style={styles.summaryWrap}
         >
-          <View style={styles.modalOverlay}>
-            <View style={[styles.modalSheet, { backgroundColor: colors.surfaceCard ?? colors.surfaceContainer }]}>
-              <View style={styles.modalHeader}>
-                <Pressable onPress={() => setShowPicker(false)} accessibilityRole="button">
-                  <Text variant="bodyMedium" style={{ color: colors.statusError }}>Cancel</Text>
-                </Pressable>
-                <Text variant="titleSmall" style={{ color: colors.onSurface }}>Select Date & Time</Text>
-                <Pressable onPress={handleConfirmDate} accessibilityRole="button">
-                  <Text variant="bodyMedium" style={{ color: colors.primary }}>Done</Text>
-                </Pressable>
-              </View>
-              <DateTimePicker
-                value={tempDate}
-                mode="datetime"
-                display="spinner"
-                minimumDate={getMinDate()}
-                maximumDate={getMaxDate()}
-                onChange={handleDateChange}
-                textColor={colors.onSurface}
-              />
+          <View style={styles.summary}>
+            <Text style={styles.summaryDay}>{dayWord}</Text>
+            <Text style={styles.summaryTime}>{clockTime(selected)}</Text>
+            <View style={styles.summaryMeta}>
+              <Ionicons name="flag-outline" size={13} color={colors.onSurfaceVariant} />
+              <Text style={styles.summaryMetaText} numberOfLines={1}>
+                {arrives ? `Arrives about ${arrives}` : 'Pickup time'}
+                {seatCount > 1 ? ` · ${seatCount} seats` : ''}
+              </Text>
             </View>
           </View>
-        </Modal>
-      )}
+        </GradientGlowBorder>
 
-      {/* Android: system date then time dialogs — see openAndroidPicker. */}
+        {/* DAYS */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dayStrip}>
+          {days.map((d, i) => {
+            const active = startOfDay(d).getTime() === startOfDay(day).getTime();
+            return (
+              <Pressable
+                key={d.toISOString()}
+                onPress={() => pickDay(d)}
+                style={[styles.dayChip, active && styles.dayChipActive]}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+                accessibilityLabel={i === 0 ? 'Today' : `${weekdayShort(d)} ${dayMonth(d)}`}
+              >
+                <Text style={[styles.dayChipTop, active && styles.dayChipTopActive]} numberOfLines={1}>
+                  {i === 0 && startOfDay(d).getTime() === startOfDay(new Date()).getTime()
+                    ? 'Today'
+                    : weekdayShort(d)}
+                </Text>
+                <Text style={[styles.dayChipNum, active && styles.dayChipNumActive]}>{d.getDate()}</Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+
+        {/* TIMES — the same control on iPhone and Android, no modal. */}
+        <ScrollView
+          ref={timeStripRef}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.timeStrip}
+        >
+          {slots.map((s) => {
+            const active = s.getTime() === selected.getTime();
+            return (
+              <Pressable
+                key={s.toISOString()}
+                onPress={() => {
+                  void Haptics.selectionAsync().catch(() => {});
+                  setSelected(s);
+                }}
+                style={[styles.timeChip, active && styles.timeChipActive]}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+                accessibilityLabel={`Pick up at ${clockTime(s)}`}
+              >
+                <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={[styles.timeChipText, active && styles.timeChipTextActive]}>
+                  {clockTime(s)}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+
+        {/* WHERE */}
+        <View style={styles.tripCard}>
+          <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii.xl} intensity="low" />
+          <Pressable style={styles.tripRow} onPress={() => openPicker('pickup')} accessibilityRole="button" accessibilityLabel="Change pickup">
+            <View style={[styles.dot, { borderColor: colors.onSurfaceVariant }]} />
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={styles.tripLabel}>PICKUP</Text>
+              <Text style={styles.tripValue} numberOfLines={1}>{requestPickup?.address ?? 'Finding your location…'}</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
+          </Pressable>
+          <View style={styles.tripDivider} />
+          <Pressable style={styles.tripRow} onPress={() => openPicker('dest')} accessibilityRole="button" accessibilityLabel="Change destination">
+            <Ionicons name="location" size={14} color={colors.primary} style={{ width: 12 }} />
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={[styles.tripLabel, { color: colors.primary }]}>DROP-OFF</Text>
+              <Text style={[styles.tripValue, !requestDest && { color: colors.onSurfaceVariant }]} numberOfLines={1}>
+                {requestDest?.address ?? 'Where are you going?'}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
+          </Pressable>
+        </View>
+
+        {/* HOW MANY */}
+        <View style={styles.seatRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.seatLabel}>Seats</Text>
+            <Text style={styles.seatHint}>How many of you are travelling</Text>
+          </View>
+          <Pressable
+            onPress={() => setSeatCount((s) => Math.max(1, s - 1))}
+            disabled={seatCount <= 1}
+            style={[styles.stepBtn, seatCount <= 1 && { opacity: 0.4 }]}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Fewer seats"
+          >
+            <Ionicons name="remove" size={18} color={colors.onSurface} />
+          </Pressable>
+          <Text style={styles.seatValue}>{seatCount}</Text>
+          <Pressable
+            onPress={() => setSeatCount((s) => Math.min(MAX_SEATS_PER_BOOKING, s + 1))}
+            disabled={seatCount >= MAX_SEATS_PER_BOOKING}
+            style={[styles.stepBtn, seatCount >= MAX_SEATS_PER_BOOKING && { opacity: 0.4 }]}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="More seats"
+          >
+            <Ionicons name="add" size={18} color={colors.onSurface} />
+          </Pressable>
+        </View>
+
+        {/* THE TERMS, IN ONE LINE — what Uber Reserve puts under its button. */}
+        <View style={styles.policy}>
+          <Ionicons name="shield-checkmark-outline" size={16} color={colors.primary} />
+          <Text style={styles.policyText}>
+            Nothing is charged now. We find your driver ahead of time, and you can cancel free until one is matched.
+          </Text>
+        </View>
+      </ScrollView>
+
+      <View style={styles.footer}>
+        <Button
+          label={`Schedule for ${isToday ? 'today' : isTomorrow ? 'tomorrow' : weekdayShort(selected)} · ${clockTime(selected)}`}
+          onPress={handleSubmit}
+          loading={scheduleMutation.isPending}
+          disabled={scheduleMutation.isPending || !requestDest}
+          variant="glow"
+        />
+      </View>
     </SafeAreaView>
   );
 }
@@ -407,202 +433,123 @@ const makeStyles = (colors: Colors) =>
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingHorizontal: spacing['2xl'],
-      paddingVertical: spacing.base,
-    },
-    backBtnGlass: {
-      width: 44,
-      height: 44,
-      borderRadius: 22,
+      paddingHorizontal: spacing.xl,
+      paddingVertical: spacing.md,
     },
     backBtn: {
       width: 44,
       height: 44,
+      borderRadius: 22,
       alignItems: 'center',
       justifyContent: 'center',
-    },
-    headerCenter: {
-      alignItems: 'center',
-    },
-    stepLabel: {
-      fontFamily: fonts.labelCaps,
-      fontSize: 10,
-      lineHeight: 14,
-      letterSpacing: 1,
-      textTransform: 'uppercase',
-      color: `${colors.primary}B3`,
-      marginTop: 2,
-    },
-    headerSpacer: {
-      width: 44,
-    },
-    scroll: {
-      paddingHorizontal: spacing['2xl'],
-      paddingTop: spacing.sm,
-      paddingBottom: 180,
-    },
-    modeRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      marginBottom: spacing.sm,
-    },
-    sectionLabel: {
-      fontFamily: fonts.labelCaps,
-      fontSize: 11,
-      lineHeight: 15,
-      letterSpacing: 1,
-      textTransform: 'uppercase',
-      color: colors.outline,
-    },
-    modeToggle: {
-      fontFamily: fonts.medium,
-      fontSize: fontSizes.bodySmall,
-      lineHeight: Math.round(fontSizes.bodySmall * 1.3),
-      color: colors.primary,
-    },
-    searchBar: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.sm,
-      backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
-      borderRadius: radii.lg,
-      borderWidth: 1,
-      borderColor: colors.rimLightSubtle,
-      paddingHorizontal: spacing.base,
-      height: 52,
-    },
-    searchInput: {
-      flex: 1,
-      fontFamily: fonts.regular,
-      fontSize: fontSizes.bodyLarge,
-      lineHeight: Math.round(fontSizes.bodyLarge * 1.4),
-      color: colors.onSurface,
-      height: '100%',
-    },
-    placeholderCard: {
-      padding: spacing.lg,
-      alignItems: 'center',
-    },
-    requestPromptCard: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.sm,
-      backgroundColor: `${colors.primary}10`,
-      borderRadius: radii.lg,
-      borderWidth: 1,
-      borderColor: `${colors.primary}30`,
-      padding: spacing.base,
-    },
-    routeCard: {
-      padding: spacing.base,
-      gap: spacing.base,
       overflow: 'hidden',
     },
-    routeCardSelected: {
-      borderColor: colors.primary,
-      transform: [{ scale: 1.02 }],
+    headerTitle: {
+      fontFamily: fonts.displaySemiBold,
+      fontSize: fontSizes.titleSmall,
+      color: colors.onSurface,
     },
-
-    routeBody: { flex: 1 },
-    routeRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-    originDot: {
-      width: 8,
-      height: 8,
-      borderRadius: 4,
-      backgroundColor: colors.outline,
+    scroll: { paddingHorizontal: spacing.xl, paddingBottom: 140, gap: spacing.lg },
+    title: {
+      fontFamily: fonts.displayBold,
+      fontSize: fontSizes.headlineMedium,
+      lineHeight: Math.round(fontSizes.headlineMedium * 1.2),
+      letterSpacing: -0.5,
+      color: colors.onSurface,
+      marginTop: spacing.sm,
     },
-    originDotActive: {
-      backgroundColor: colors.primary,
-      shadowColor: colors.primary,
-      shadowOffset: { width: 0, height: 0 },
-      shadowOpacity: 0.6,
-      shadowRadius: 8,
+    summaryWrap: { width: '100%' },
+    summary: { paddingVertical: spacing.xl, paddingHorizontal: spacing.xl, alignItems: 'center', gap: 2 },
+    summaryDay: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodyMedium, color: colors.primary, letterSpacing: 0.2 },
+    summaryTime: {
+      fontFamily: fonts.displayBold,
+      fontSize: 44,
+      lineHeight: 52,
+      letterSpacing: -1.2,
+      color: colors.onSurface,
     },
-    routeConnector: {
-      width: 2,
-      height: 14,
-      backgroundColor: colors.outlineVariant,
-      marginLeft: 3,
-      marginVertical: 2,
+    summaryMeta: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
+    summaryMetaText: { fontFamily: fonts.medium, fontSize: fontSizes.bodySmall, color: colors.onSurfaceVariant },
+    dayStrip: { gap: spacing.sm, paddingVertical: 2 },
+    dayChip: {
+      width: 58,
+      paddingVertical: spacing.sm,
+      borderRadius: radii.lg,
+      alignItems: 'center',
+      gap: 2,
+      backgroundColor: colors.surfaceContainerHigh,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.outlineVariant,
     },
-    routeMeta: { alignItems: 'flex-end', gap: spacing.sm },
-    etaPill: {
-      backgroundColor: `${colors.surfaceVariant ?? colors.outlineVariant}80`,
+    dayChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+    dayChipTop: { fontFamily: fonts.medium, fontSize: fontSizes.caption, color: colors.onSurfaceVariant },
+    dayChipTopActive: { color: colors.onPrimary },
+    dayChipNum: { fontFamily: fonts.displayBold, fontSize: fontSizes.titleSmall, color: colors.onSurface },
+    dayChipNumActive: { color: colors.onPrimary },
+    timeStrip: { gap: spacing.sm, paddingVertical: 2 },
+    timeChip: {
+      width: 84,
+      height: 44,
       borderRadius: radii.full,
-      paddingHorizontal: spacing.sm,
-      paddingVertical: 3,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.surfaceContainerHigh,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.outlineVariant,
     },
-    etaPillSelected: {
-      backgroundColor: `${colors.primary}20`,
-    },
-    etaText: {
-      fontFamily: fonts.monoRegular,
-      fontSize: 10,
-      lineHeight: 14,
-      letterSpacing: 0.4,
-      color: colors.onSurfaceVariant,
-    },
-    etaTextSelected: {
-      color: colors.primary,
-    },
-    fieldRow: {
+    timeChipActive: { backgroundColor: `${colors.primary}22`, borderColor: colors.primary, borderWidth: 1.5 },
+    timeChipText: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodySmall, color: colors.onSurface },
+    timeChipTextActive: { color: colors.primary },
+    tripCard: { borderRadius: radii.xl, overflow: 'hidden', paddingHorizontal: spacing.base },
+    tripRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.md },
+    tripDivider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.outlineVariant, marginLeft: 24 },
+    dot: { width: 12, height: 12, borderRadius: 6, borderWidth: 2.5 },
+    tripLabel: { fontFamily: fonts.semiBold, fontSize: 10, letterSpacing: 1, color: colors.onSurfaceVariant },
+    tripValue: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodyMedium, color: colors.onSurface, marginTop: 1 },
+    seatRow: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: spacing.md,
-      padding: spacing.base,
-      minHeight: 56,
+      paddingHorizontal: spacing.base,
+      paddingVertical: spacing.md,
+      borderRadius: radii.xl,
+      backgroundColor: colors.surfaceContainerHigh,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.outlineVariant,
     },
-    noticePill: {
-      flexDirection: 'row',
+    seatLabel: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodyMedium, color: colors.onSurface },
+    seatHint: { fontFamily: fonts.regular, fontSize: fontSizes.caption, color: colors.onSurfaceVariant },
+    stepBtn: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
       alignItems: 'center',
-      gap: 4,
-      backgroundColor: withOpacity(colors.statusWarning, 0.15),
-      borderRadius: radii.full,
-      paddingHorizontal: spacing.sm,
-      paddingVertical: 3,
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: colors.outline,
     },
-    noticeText: {
-      fontFamily: fonts.monoRegular,
-      fontSize: 10,
-      lineHeight: 14,
-      letterSpacing: 0.4,
-      color: colors.statusWarning,
+    seatValue: {
+      fontFamily: fonts.displayBold,
+      fontSize: fontSizes.titleSmall,
+      color: colors.onSurface,
+      minWidth: 22,
+      textAlign: 'center',
+    },
+    policy: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, paddingHorizontal: spacing.xs },
+    policyText: {
+      flex: 1,
+      fontFamily: fonts.regular,
+      fontSize: fontSizes.caption,
+      lineHeight: Math.round(fontSizes.caption * 1.5),
+      color: colors.onSurfaceVariant,
     },
     footer: {
       position: 'absolute',
-      bottom: 0,
       left: 0,
       right: 0,
-      paddingHorizontal: spacing['2xl'],
-      paddingBottom: spacing['2xl'],
-    },
-    footerSheet: {
-      borderTopLeftRadius: radii['4xl'],
-      borderTopRightRadius: radii['4xl'],
-      borderBottomLeftRadius: 0,
-      borderBottomRightRadius: 0,
-    },
-    footerSheetInner: {
-      padding: spacing.lg,
-    },
-    modalOverlay: {
-      flex: 1,
-      justifyContent: 'flex-end',
-      backgroundColor: 'rgba(0,0,0,0.4)',
-    },
-    modalSheet: {
-      borderTopLeftRadius: radii.xl,
-      borderTopRightRadius: radii.xl,
-      paddingBottom: spacing['3xl'],
-    },
-    modalHeader: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      paddingHorizontal: spacing['2xl'],
-      paddingVertical: spacing.base,
-      borderBottomWidth: 1,
-      borderBottomColor: 'rgba(255,255,255,0.08)',
+      bottom: 0,
+      paddingHorizontal: spacing.xl,
+      paddingTop: spacing.md,
+      paddingBottom: spacing.xl,
     },
   });
