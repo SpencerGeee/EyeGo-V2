@@ -496,3 +496,14 @@ Decisions:
 - Rider JWT carries userId, never id — req.user.id reads are always undefined.
 Rejected: rendering the driving stages on the home tab (swipe sat under the tab bar).
 Open: prod API redeploy; device-verify sheet heights and minibus puck rotation.
+
+## 2026-10-09 04:00 [saved]
+Goal: Premium pass, light mode, all-bug-class hunt, admin audit.
+Decisions:
+- Light mode gets its own shader composite (white valleys, brand crests), never a dimmed dark mode.
+- Button labels are one line everywhere; ux-invariants rule 4 enforces it.
+- Schedule a ride is Uber Reserve style: day strip, 15-min slots, read-back summary.
+- Unknown Prisma fields are caught statically (prisma-fields.mjs), not by swallowed runtime warns.
+- Admin gets a derived Payouts view; payout state is never stored twice.
+Rejected: forcing GlassSurface dark; counting booking rows as seats.
+Open: re-run run-all on a healthy Docker; premium pass on Activity/Services/driver create.

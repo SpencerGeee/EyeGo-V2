@@ -1,29 +1,39 @@
-# State — 2026-10-09 (premium pass + all-bug-class hunt + admin audit)
+# State — 2026-10-09 (premium pass + bug-class hunt + admin audit)
 
 ## Current Goal
-User: "do everything… make sure everything is touched and looking premium… hunt for all types
-of bug class… identify all the flaws in the system and also audit the admin side so it's complete."
+User: make everything premium, hunt every bug class (like the money audit), find all system
+flaws, audit the admin side for completeness.
 
-## Done this session (all pushed to main, last 93974f3)
-- Device round 2026-10-08: driver one trip screen, party boarding, minibus puck, offer card,
-  rider seat holds/live card/ended-while-closed, seat picker life, receipts, trips/alerts.
-- Light mode: shader light composite (white valleys, brand crests, opaque, contrast curve,
-  luminance-balanced crest), white grounds, 9 forced-dark GlassSurface removed, dark-only colours.
-- Button labels single-line (Button/ShinyText + 30 hand-built labels) + ux-invariants rule 4.
-- Rider request flow: ride options (per-tier ETA from nearest car of class, drop-off time, trip
-  summary, Cash row, named CTAs), Plan your ride (Choose a ride, distances), schedule Uber
-  Reserve style, scheduled list polish. Server: nearby drivers return tier + rounded distance.
-- New harness: party-boarding.mjs, shader-compile.mjs, dispatch-payload offer-length check.
+## Done (pushed to main)
+- d158369 light mode: shader light composite, white grounds, crest balance (+ shader-compile.mjs)
+- b299f71 single-line button labels everywhere (+ ux-invariants rule 4)
+- 740fa61 ride options: per-tier ETA (nearest car of class) + drop-off time, trip summary, Cash row
+- 5350277 schedule a ride, Uber Reserve style; scheduled list polish; forced-dark glass removed
+- 183c00a bug-class sweep:
+  * publishSeatUpdate selected non-existent Booking.seatHeldUntil → every seat push threw and
+    was swallowed (since 5ea52c5). Fixed; new static check prisma-fields.mjs (brace-matched).
+  * seats-not-rows in 9 server/admin sites (availability, group page, pulse, GraphQL, offers,
+    upcoming, rider fare summary, admin user/driver pages)
+  * GH₵0.00 shown for unknown money at 6 display sites
+  * admin Payouts page + GET /admin/payouts (paid / processing / failed→refunded, >24h stale)
 
-## Plan (this turn)
-1. Run full run-all against local stack (docker compose up; API on 5020; run in background).
-2. Bug-class hunt by grep: req.user.id (done), IDOR/ownership, seats-as-rows, lying fallbacks
-   (`?? 0` money / placeholder text), swallowed write errors, status writes bypassing
-   assertTransition, missing select fields, unbounded queries, socket room names.
-3. Admin audit (apps/admin Next 15): build/tsc, RBAC on every route, audit log, money pages.
-4. Premium pass on untouched pages (Activity, Services, driver create/add-passenger…).
-5. Docs: state.md, session-log [saved], memory.
+## Classes checked clean
+IDOR (all param handlers are admin-gated or token-public by design; tracking is cuid + lifecycle
+gated), direct trip status writes (all CAS-guarded), unknown status literals, uncleared
+intervals, money amount validation (services assert pesewas), admin route guards (auth +
+read-only blanket + roles on money/settings + audit on writes), swallowed money writes.
+
+## Evidence
+- tsc rider/driver/admin clean; conditional-hooks, ui/ux/motion/button/formatters/maestro,
+  prisma-fields, shader-compile green.
+- run-all before the sweep fixes: 518/522 (3 suites red from a crawling local DB: 250 ms
+  SELECT 1, 10 s Prisma tx timeouts). Docker Desktop then stopped responding; the post-fix
+  rerun could not complete. RE-RUN run-all once Docker is healthy.
 
 ## Open / tell the user
-- Redeploy production API (nearby-driver tier/distance, seat map userId fix, party boarding).
+- Redeploy production API (seat push fix, seats sums, nearby-driver tier/distance, payouts).
+- bookSeat runs a 10 s interactive transaction; with the DB 280 ms away (Frankfurt) a slow
+  moment 500s a booking — colocate API + DB (see Latency Is Topology memory).
+- Premium pass NOT yet done on: rider Activity/Services layout, driver create-trip,
+  add-passenger, location picker, chat; seats & extras steps beyond shared fixes.
 - Device-verify: light wave, ride option rows, schedule strips, trip sheet heights, puck.
