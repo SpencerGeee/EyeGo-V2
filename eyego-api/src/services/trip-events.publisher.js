@@ -232,7 +232,12 @@ async function publishSeatUpdate(tripId) {
             select: {
               id: true, seatNumber: true, status: true, paymentStatus: true,
               fareAmountPesewas: true, commissionAmountPesewas: true,
-              guestName: true, guestPhone: true, isOffline: true, seatHeldUntil: true,
+              guestName: true, guestPhone: true, isOffline: true,
+              // `holdExpiresAt` is the column. This selected `seatHeldUntil`, which
+              // does not exist, so Prisma threw on EVERY call, the catch below
+              // swallowed it, and no seat-update frame was ever sent — the
+              // "push" this function exists for silently never happened.
+              holdExpiresAt: true, seats: true, userId: true,
               user: { select: { id: true, name: true } },
             },
             orderBy: { seatNumber: 'asc' },

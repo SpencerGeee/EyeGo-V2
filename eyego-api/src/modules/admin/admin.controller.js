@@ -508,6 +508,12 @@ const bulkDriverAction = async (req, res) => {
 
 // ── Money ────────────────────────────────────────────────────────
 const refunds = require('../../services/refunds.service');
+const payouts = require('../../services/payouts.service');
+
+/** Driver withdrawals and what became of each — see payouts.service. */
+const listPayouts = async (req, res) => {
+  ok(res, await payouts.listPayouts(req.query));
+};
 const riderWallet = require('../../services/rider-wallet.service');
 
 const getRefundable = async (req, res) => {
@@ -619,7 +625,7 @@ module.exports = {
   acknowledgeSosEvent, releaseSosEvent, getSosAlertingHealth,
   listNotes, addNote, deleteNote,
   globalSearch, bulkDriverAction,
-  getRefundable, issueRefund, listRefunds,
+  getRefundable, issueRefund, listRefunds, listPayouts,
   adjustRiderWallet, adjustDriverWallet, getRiderWallet,
   listExports, exportCsv,
   getTotpStatus, beginTotpEnrolment, confirmTotpEnrolment, disableTotp, resetAdminTotp,

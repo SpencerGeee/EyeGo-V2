@@ -621,7 +621,7 @@ export default function RideDetailScreen() {
                   * buys, and let the sheet carry the itemisation.
                   */}
                 <View style={styles.fareBreakdown}>
-                  <FareRow label="Your seat" value={formatGhs(computedFare ?? trip?.farePerSeatPesewas ?? 0)} bold />
+                  <FareRow label="Your seat" value={formatGhs(computedFare ?? trip?.farePerSeatPesewas ?? null)} bold />
                   {(trip?.distanceKm || durationMinutes) ? (
                     <>
                       <View style={styles.fareDivider} />
@@ -691,7 +691,7 @@ export default function RideDetailScreen() {
                   label={
                     bookingWhileOnAnotherRide && !guestInfo
                       ? 'Who is this ride for?'
-                      : `Book This Seat · ${computedFare != null ? formatGhs(computedFare) : trip ? formatGhs(trip.farePerSeatPesewas ?? 0) : '...'}`
+                      : `Book This Seat · ${computedFare != null ? formatGhs(computedFare) : trip ? formatGhs(trip.farePerSeatPesewas ?? null) : '...'}`
                   }
                   onPress={() =>
                     bookingWhileOnAnotherRide && !guestInfo
@@ -702,7 +702,7 @@ export default function RideDetailScreen() {
                   accessibilityLabel={
                     bookingWhileOnAnotherRide && !guestInfo
                       ? 'Choose who this ride is for'
-                      : `Book this seat for ${computedFare != null ? formatGhs(computedFare) : trip ? formatGhs(trip.farePerSeatPesewas ?? 0) : 'loading'}`
+                      : `Book this seat for ${computedFare != null ? formatGhs(computedFare) : trip ? formatGhs(trip.farePerSeatPesewas ?? null) : 'loading'}`
                   }
                 />
                 {isGroupFlow && (

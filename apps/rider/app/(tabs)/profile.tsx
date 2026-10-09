@@ -121,7 +121,7 @@ export default function ProfileScreen() {
           detail={
             <SkeletonValue loading={wallet.isPending} width={64} height={14} borderRadius={4}>
               <Text style={styles.tileDetail} numberOfLines={1}>
-                {wallet.data == null && wallet.isError ? 'Tap to load' : formatGhs(wallet.data ?? 0)}
+                {wallet.data == null && wallet.isError ? 'Tap to load' : (wallet.isLoading ? '…' : formatGhs(wallet.data ?? null))}
               </Text>
             </SkeletonValue>
           }

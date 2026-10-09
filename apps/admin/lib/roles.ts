@@ -108,6 +108,8 @@ export const NAV: NavSection[] = [
       // one — the agent on a call needs to know whether this was already dealt
       // with, which is a different question from being allowed to move money.
       { href: '/refunds', label: 'Refunds', icon: 'refresh', roles: ['FINANCE', 'SUPPORT', 'OPS'] },
+      // Driver withdrawals and their outcome — "my MoMo never came" is a support call.
+      { href: '/payouts', label: 'Payouts', icon: 'cash', roles: ['FINANCE', 'SUPPORT', 'OPS'] },
       { href: '/promotions', label: 'Promotions', icon: 'tag', roles: ['FINANCE', 'OPS', 'VIEWER'] },
     ],
   },

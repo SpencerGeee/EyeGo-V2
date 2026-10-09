@@ -208,7 +208,7 @@ export default function TripDetailScreen() {
             <StatBox
               icon="ticket-outline"
               label="Fare/Seat"
-              value={`${formatGhs(trip?.farePerSeatPesewas ?? 0, { showDecimals: false })}`}
+              value={`${formatGhs(trip?.farePerSeatPesewas ?? null, { showDecimals: false })}`}
               colors={colors}
             />
           </View>

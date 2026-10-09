@@ -5,7 +5,7 @@ const env = require('../../config/env');
 const { calculateFare, calculateSegmentFare, calculateSegmentFareByRatio, detourKm, calculateDeviationSurcharge, pinnedRatesFor, commissionRateFor } = require('../trips/fare.calculator');
 const { SeatTakenError, NotFoundError, AppError, ForbiddenError } = require('../../utils/errors');
 const tripState = require('../../services/trip-state.service');
-const { seatOccupyingWhere, SEAT_RELEASING_STATUSES } = require('../../utils/booking-status');
+const { seatOccupyingWhere, SEAT_RELEASING_STATUSES, sumSeats } = require('../../utils/booking-status');
 const routeGeometry = require('../../services/route-geometry.service');
 const reconcile = require('../../services/trip-reconcile.service');
 const boardingPin = require('../../services/boarding-pin.service');
@@ -886,6 +886,7 @@ async function getTripFareForRider(tripId, userId, { tx = prisma, bookingId = nu
     paymentStatus: true,
     paymentMethod: true,
     status: true,
+    seats: true,
   };
   const group = await tx.rideGroup.findUnique({
     where: { tripId },
@@ -917,7 +918,9 @@ async function getTripFareForRider(tripId, userId, { tx = prisma, bookingId = nu
   const totalPesewas = sum(...bookings.map((b) => b.fareAmountPesewas || 0));
   const cargoSurchargePesewas = sum(...bookings.map(cargoSurchargeFor));
   const deviationSurchargePesewas = sum(...bookings.map((b) => b.deviationSurchargePesewas || 0));
-  const seatCount = bookings.length;
+  // SEATS, not rows — an on-demand party of three is one row of three seats.
+  const seats = (rows) => sumSeats(rows);
+  const seatCount = seats(bookings);
   // The clean unit price: the total with the extras taken back out. Derived FROM
   // the total rather than the total being derived from it, so the two can never
   // disagree by a rounding step.
@@ -938,14 +941,14 @@ async function getTripFareForRider(tripId, userId, { tx = prisma, bookingId = nu
     perSeatPesewas,
     cargoSurchargePesewas,
     deviationSurchargePesewas,
-    committedSeatCount: bookings.filter(isCommitted).length,
-    paidSeatCount: bookings.filter((b) => b.paymentStatus === 'PAID').length,
-    heldSeatCount: bookings.filter((b) => b.status === 'SEAT_HELD').length,
-    coveredSeatCount: bookings.filter((b) => b.isCoveredByLead).length,
+    committedSeatCount: seats(bookings.filter(isCommitted)),
+    paidSeatCount: seats(bookings.filter((b) => b.paymentStatus === 'PAID')),
+    heldSeatCount: seats(bookings.filter((b) => b.status === 'SEAT_HELD')),
+    coveredSeatCount: seats(bookings.filter((b) => b.isCoveredByLead)),
     seatNumbers: bookings.map((b) => b.seatNumber).filter((n) => n != null).sort((a, b) => a - b),
     isCoverAll,
     /** Seats on this trip owned by somebody else that this rider is covering. */
-    seatsCoveredForOthers: bookings.filter((b) => b.userId !== userId).length,
+    seatsCoveredForOthers: seats(bookings.filter((b) => b.userId !== userId)),
   };
 }
 

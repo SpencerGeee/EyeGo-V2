@@ -21,7 +21,7 @@ const ratingIntegrity = require('../../services/rating-integrity.service');
 // The preconditions for IN_PROGRESS — somebody aboard, every asked-for code
 // given. Shared with rides.service so both departure endpoints enforce one rule.
 const boardingPin = require('../../services/boarding-pin.service');
-const { seatOccupyingWhere, departureCountedWhere, livePassengerWhere } = require('../../utils/booking-status');
+const { seatOccupyingWhere, departureCountedWhere, livePassengerWhere, sumSeats } = require('../../utils/booking-status');
 const { isDriverAvailable } = require('../../services/driver-availability');
 const supply = require('../../services/supply-index.service');
 const routeGeometry = require('../../services/route-geometry.service');
@@ -2742,7 +2742,7 @@ async function getPendingTripRequests(driverId, { lat, lng } = {}) {
     where: { status: 'REASSIGNING', driverId: { not: driverId } },
     orderBy: { updatedAt: 'desc' },
     take: 20,
-    include: { route: true, bookings: { where: { ...seatOccupyingWhere() }, select: { id: true } } },
+    include: { route: true, bookings: { where: { ...seatOccupyingWhere() }, select: { id: true, seats: true } } },
   });
   const reassignmentOffers = reassignments
     .filter((t) => {
@@ -2756,7 +2756,7 @@ async function getPendingTripRequests(driverId, { lat, lng } = {}) {
       routeOrigin: 'Pickup nearby',
       routeDestination: t.route?.destinationName,
       departureTime: t.departureTime,
-      seatCount: t.bookings.length,
+      seatCount: sumSeats(t.bookings),
       pickupLat: t.pickupLat,
       pickupLng: t.pickupLng,
     }));
@@ -2779,7 +2779,7 @@ async function getUpcomingScheduledTrips(driverId) {
     take: 50,
     include: {
       route: { select: { originName: true, destinationName: true, originLat: true, originLng: true, destLat: true, destLng: true } },
-      _count: { select: { bookings: { where: { ...seatOccupyingWhere() } } } },
+      bookings: { where: { ...seatOccupyingWhere() }, select: { seats: true } },
     },
   });
 
@@ -2792,7 +2792,7 @@ async function getUpcomingScheduledTrips(driverId) {
     departureTime: t.departureTime,
     seatCount: t.maxSeats,
     confirmedSeats: t.confirmedSeats,
-    bookedSeats: t._count.bookings,
+    bookedSeats: sumSeats(t.bookings),
     pickupLat: t.pickupLat ?? t.route?.originLat ?? null,
     pickupLng: t.pickupLng ?? t.route?.originLng ?? null,
   }));

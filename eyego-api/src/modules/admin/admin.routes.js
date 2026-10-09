@@ -180,6 +180,8 @@ router.post('/ota/publish', requireRole(), adminActionLimiter, audit('ota.publis
 // Reading what has been refunded is open to SUPPORT too, because the agent on
 // the call needs to know whether this was already dealt with.
 router.get('/refunds', requireRole(ROLE.SUPPORT, ROLE.FINANCE, ROLE.OPS), controller.listRefunds);
+// Driver payouts — read-only. Support answers "where is my MoMo", finance reconciles.
+router.get('/payouts', requireRole(ROLE.SUPPORT, ROLE.FINANCE, ROLE.OPS), controller.listPayouts);
 router.get('/bookings/:id/refundable', requireRole(ROLE.SUPPORT, ROLE.FINANCE, ROLE.OPS), controller.getRefundable);
 router.post('/bookings/:id/refund', requireRole(ROLE.FINANCE), adminActionLimiter, audit('refund.issue', { targetType: 'Booking' }), controller.issueRefund);
 

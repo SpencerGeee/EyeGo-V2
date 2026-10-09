@@ -385,7 +385,7 @@ export default async function DriverDetailPage({ params }: { params: Promise<{ i
                         <td className="hidden md:table-cell text-text-dim truncate-1 max-w-[280px]">
                           {t.route?.originName || '—'} → {t.route?.destinationName || '—'}
                         </td>
-                        <td className="num">{num(t.bookings?.length ?? 0)}</td>
+                        <td className="num">{num((t.bookings ?? []).reduce((n: number, b: any) => n + (b?.seats ?? 1), 0))}</td>
                         <td className="num text-text-faint">{relative(t.createdAt)}</td>
                       </tr>
                     );

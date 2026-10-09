@@ -385,7 +385,7 @@ function ScheduledTripCard({
 
           {/* ── The fare, and the way in ── */}
           <View style={styles.schedRight}>
-            <Text style={styles.schedFare}>{formatGhs(trip.farePerSeatPesewas ?? 0)}</Text>
+            <Text style={styles.schedFare}>{formatGhs(trip.farePerSeatPesewas ?? null)}</Text>
             <View style={[styles.schedGo, { backgroundColor: `${accent}1F`, borderColor: `${accent}44` }]}>
               <Ionicons name="arrow-forward" size={13} color={accent} />
             </View>
@@ -657,7 +657,7 @@ function SuggestedTripCard({
         </View>
       </View>
       <Text style={[styles.tripFare, { color: colors.onSurface }]}>
-        {formatGhs(trip.farePerSeatPesewas ?? 0)}
+        {formatGhs(trip.farePerSeatPesewas ?? null)}
       </Text>
       </View>
       </GradientGlowBorder>

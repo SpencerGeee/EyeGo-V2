@@ -385,7 +385,7 @@ function TripCard({ booking, showCancel, onCancel, showDispute, onDispute }: {
           {tripWhen(trip, booking) ? formatTripDate(tripWhen(trip, booking)) : '—'}
         </Text>
         <Text variant="fareSmall">
-          {formatGhs(booking.fareAmountPesewas ?? booking.fare ?? 0)}
+          {formatGhs(booking.fareAmountPesewas ?? booking.fare ?? null)}
         </Text>
       </View>
 

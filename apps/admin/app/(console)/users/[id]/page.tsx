@@ -154,7 +154,13 @@ export default async function UserDetailPage({ params }: { params: Promise<{ id:
       />
 
       <section aria-label="Rider summary" className="grid gap-3 mb-4 grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Seats booked" value={num(bookings.length)} hint="recent 20 shown below" icon="ticket" />
+        <StatCard
+          label="Seats booked"
+          // Seats, not rows — an on-demand party of three is one booking.
+          value={num(bookings.reduce((n: number, b: any) => n + (b?.seats ?? 1), 0))}
+          hint={`${num(bookings.length)} recent bookings shown below`}
+          icon="ticket"
+        />
         <StatCard label="Settled spend" value={ghs(spent)} hint={`${num(settled.length)} paid`} icon="cash" />
         <StatCard
           label="Wallet"

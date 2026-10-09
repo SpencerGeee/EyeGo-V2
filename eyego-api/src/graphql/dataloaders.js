@@ -2,7 +2,7 @@
 
 const DataLoader = require('dataloader');
 const prisma = require('../config/database');
-const { seatOccupyingWhere } = require('../utils/booking-status');
+const { seatOccupyingWhere, sumSeats } = require('../utils/booking-status');
 
 /**
  * createDataLoaders — call once per request, never share across requests.
@@ -35,7 +35,7 @@ function createDataLoaders() {
            * which means GraphQL reported a full trip as wide open. Anything
            * booking off this number can overbook the vehicle.
            */
-          bookings: { where: seatOccupyingWhere(), select: { id: true } },
+          bookings: { where: seatOccupyingWhere(), select: { id: true, seats: true } },
         },
       });
 
@@ -53,8 +53,8 @@ function createDataLoaders() {
           route: trip.route,
           driver: trip.driver,
           // Holds included — see the `bookings` include above.
-          availableSeats: Math.max(0, trip.maxSeats - trip.bookings.length),
-          occupiedSeats: trip.bookings.length,
+          availableSeats: Math.max(0, trip.maxSeats - sumSeats(trip.bookings)),
+          occupiedSeats: sumSeats(trip.bookings),
           baseFarePesewas: trip.baseFarePesewas,
           maxSeats: trip.maxSeats,
         };

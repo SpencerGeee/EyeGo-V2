@@ -388,7 +388,7 @@ async function getTrip(id, viewerUserId = null) {
           // any rider on the trip and by anyone browsing a public listing; the
           // driver's own payload (drivers.service.js) is where a guest's number
           // belongs, because the driver is the only person who needs to ring it.
-          userId: true, isOffline: true, guestName: true, fareAmountPesewas: true,
+          userId: true, isOffline: true, guestName: true, fareAmountPesewas: true, seats: true,
         },
       },
     },
@@ -426,6 +426,7 @@ async function getTrip(id, viewerUserId = null) {
       seatNumber: b.seatNumber,
       status: b.status,
       isOffline: b.isOffline,
+      seats: b.seats,
     }));
     if (trip.driver) {
       trip.driver = { ...trip.driver, currentLat: null, currentLng: null, currentHeading: null };
@@ -496,8 +497,9 @@ async function getTrip(id, viewerUserId = null) {
    * excluded. Computed once, here, and every client reads this field instead of
    * doing its own arithmetic.
    */
-  trip.availableSeats = Math.max(0, trip.maxSeats - trip.bookings.length);
-  trip.occupiedSeats = trip.bookings.length;
+  // SEATS, not rows — an on-demand party of three is one row (see sumSeats).
+  trip.occupiedSeats = sumSeats(trip.bookings);
+  trip.availableSeats = Math.max(0, trip.maxSeats - trip.occupiedSeats);
 
   // Attach driver's average rating
   if (trip.driver) {
@@ -546,7 +548,7 @@ async function getTripByShareToken(shareToken) {
           driver: { select: { id: true, name: true, profilePhoto: true } },
           bookings: {
             where: { ...seatOccupyingWhere() },
-            select: { seatNumber: true, status: true },
+            select: { seatNumber: true, status: true, seats: true },
           },
         },
       },
@@ -584,8 +586,8 @@ async function getTripByShareToken(shareToken) {
   // held-but-unpaid seats the host is holding precisely BECAUSE they shared
   // this link — so the page under-reported occupancy to the people being
   // invited into the van.
-  group.trip.availableSeats = Math.max(0, group.trip.maxSeats - group.trip.bookings.length);
-  group.trip.occupiedSeats = group.trip.bookings.length;
+  group.trip.occupiedSeats = sumSeats(group.trip.bookings);
+  group.trip.availableSeats = Math.max(0, group.trip.maxSeats - group.trip.occupiedSeats);
 
   /**
    * THE ROAD, NOT A STRAIGHT LINE.
@@ -710,7 +712,7 @@ async function getPulseSchedules() {
         orderBy: { departureTime: 'asc' },
         take: 1,
         include: {
-          bookings: { where: { ...seatOccupyingWhere() }, select: { id: true } },
+          bookings: { where: { ...seatOccupyingWhere() }, select: { id: true, seats: true } },
         },
       },
     },
@@ -729,7 +731,7 @@ async function getPulseSchedules() {
   return schedules.map((s) => ({
     ...s,
     nextTrip: s.trips[0] || null,
-    seatsAvailable: s.trips[0] ? s.maxSeats - (s.trips[0].bookings?.length || 0) : s.maxSeats,
+    seatsAvailable: s.trips[0] ? Math.max(0, s.maxSeats - sumSeats(s.trips[0].bookings)) : s.maxSeats,
   }));
 }
 
