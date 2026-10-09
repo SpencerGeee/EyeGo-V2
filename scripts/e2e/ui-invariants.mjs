@@ -423,17 +423,18 @@ function main() {
 
   check('the map draws the real search radius', () => {
     const src = read(join(ROOT, 'apps/rider/components/trip/TripMap.tsx'));
-    if (!/const searchRing = useMemo/.test(src)) {
+    // Its own component since the ring GROWS to each new radius (see SearchRing).
+    if (!/function SearchRing\(/.test(src)) {
       throw new Error(
         'no search ring. While dispatch runs, a quiet area leaves the map holding a pickup pin and nothing ' +
           'else — which reads as broken, not as searching. This was reported five times.',
       );
     }
-    if (!/dispatchRadiusKm/.test(src)) {
+    if (!/<SearchRing[^>]*radiusKm=\{dispatchRadiusKm/.test(src)) {
       throw new Error('the ring is not driven by the server radius, so it is decoration rather than the search');
     }
     // A ground circle, not a screen-space disc: it must zoom with the map.
-    if (!/Math\.cos\(latRad\)/.test(src)) {
+    if (!/Math\.cos\(\(lat \* Math\.PI\) \/ 180\)/.test(src)) {
       throw new Error(
         'the ring does not correct longitude for latitude, so the "circle" renders as an east-west ellipse.',
       );
