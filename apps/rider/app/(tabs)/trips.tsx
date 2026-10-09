@@ -476,7 +476,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     marginBottom: spacing.md,
   },
   tripCard: {
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: colors.surfaceContainer,
     borderRadius: radii.xl,
     borderWidth: 1,
     borderColor: colors.outlineVariant,

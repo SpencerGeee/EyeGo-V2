@@ -1141,7 +1141,7 @@ export default function ActiveTripScreen() {
             hitSlop={12}
             style={[styles.backEscapeButton, { top: insets.top + 12 }]}
            accessibilityRole="button">
-            <Text style={{ color: '#fff', fontFamily: fonts.semiBold, fontSize: 13 }}>← Back to Home</Text>
+            <Text style={{ color: colors.onSurface, fontFamily: fonts.semiBold, fontSize: 13 }}>← Back to Home</Text>
           </Pressable>
         )}
       </View>
@@ -2136,7 +2136,7 @@ function QuickAction({
 
 const makeStyles = (colors: DriverColors) =>
   StyleSheet.create({
-    safe: { flex: 1, backgroundColor: '#050508' },
+    safe: { flex: 1, backgroundColor: colors.background },
     loadingOverlay: {
       position: 'absolute',
       top: 0, left: 0, right: 0,
@@ -2159,7 +2159,7 @@ const makeStyles = (colors: DriverColors) =>
     },
     // Stands in for the map while the trip loads. Deliberately not a MapView:
     // see the note at its use site.
-    loadingBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: '#050508' },
+    loadingBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: colors.backgroundDeep },
     // Glassmorphic header
     header: {
       position: 'absolute',
@@ -2176,11 +2176,11 @@ const makeStyles = (colors: DriverColors) =>
       width: 38,
       height: 38,
       borderRadius: radii.lg,
-      backgroundColor: 'rgba(255,255,255,0.08)',
+      backgroundColor: colors.surfaceContainerHigh,
       alignItems: 'center',
       justifyContent: 'center',
       borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.12)',
+      borderColor: colors.outlineVariant,
     },
     headerCenter: {
       flex: 1,

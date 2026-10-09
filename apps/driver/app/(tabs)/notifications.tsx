@@ -294,7 +294,7 @@ const makeStyles = (colors: DriverColors) =>
     card: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: 'rgba(255,255,255,0.04)',
+      backgroundColor: colors.surfaceContainer,
       borderRadius: radii.xl,
       borderWidth: 1,
       borderColor: colors.outline,
@@ -305,7 +305,7 @@ const makeStyles = (colors: DriverColors) =>
     },
     cardUnread: {
       borderColor: colors.primary + '40',
-      backgroundColor: 'rgba(255,255,255,0.07)',
+      backgroundColor: colors.primary + '0F',
     },
     unreadStripe: {
       position: 'absolute',
