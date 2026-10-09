@@ -589,7 +589,7 @@ function SuggestedTripCard({
             leaving first — nothing ranked it. */}
         {featured && (
           <View style={styles.tripTopPickChip}>
-            <Ionicons name="flash" size={10} color="#0A0A0C" />
+            <Ionicons name="flash" size={10} color={colors.onPrimary} />
             <Text style={styles.tripTopPickText}>NEXT OUT</Text>
           </View>
         )}
@@ -2260,7 +2260,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     fontFamily: fonts.labelCaps,
     fontSize: 9,
     lineHeight: 12,
-    color: '#0A0A0C',
+    // On `colors.primary`: dark green in light mode, so the ink must follow it.
+    color: colors.onPrimary,
     letterSpacing: 0.6,
   },
   tripCardRow: {

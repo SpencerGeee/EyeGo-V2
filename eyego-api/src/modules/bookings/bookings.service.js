@@ -145,7 +145,9 @@ async function recomputeBookingAddons(bookingId, userId, { pickupLat, pickupLng,
       }
       return tx.booking.findUnique({ where: { id: bookingId } });
     },
-    { isolationLevel: 'Serializable', maxWait: 5000, timeout: 10000 },
+    // 20 s = the app-wide default (config/database.js). A stricter 10 s here 500ed
+    // bookings whenever the DB was slow for a moment — a refusal the rider cannot act on.
+    { isolationLevel: 'Serializable', maxWait: 5000, timeout: 20000 },
   ).then(async (updated) => {
     /**
      * TELL THE DRIVER. "I updated the pickup point on the group hub but it
@@ -656,7 +658,9 @@ async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, payment
     {
       isolationLevel: 'Serializable', // Prevent double-booking race conditions
       maxWait: 5000, // Wait up to 5s for the transaction to begin
-      timeout: 10000, // Abort after 10s if the transaction hasn't completed
+      // 20 s = the app-wide default (config/database.js). 10 s 500ed real bookings
+      // whenever the DB was slow for a moment (seen against the Frankfurt DB).
+      timeout: 20000,
     },
   );
 

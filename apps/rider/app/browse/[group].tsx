@@ -268,8 +268,11 @@ function BrowseMap({
           >
             <View style={s.pricePin}>
               <View style={[s.pricePinBody, { backgroundColor: selAccent }]}>
-                <Ionicons name="bus" size={12} color="#0A0A0B" />
-                <Text style={s.pricePinText} numberOfLines={1}>
+                <Ionicons name="bus" size={12} color={selAccent === colors.primary ? colors.onPrimary : '#0A0A0B'} />
+                <Text
+                  style={[s.pricePinText, selAccent === colors.primary && { color: colors.onPrimary }]}
+                  numberOfLines={1}
+                >
                   {typeof selFare === 'number' ? formatGhs(selFare) : 'Ride'}
                 </Text>
               </View>

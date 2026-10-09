@@ -348,7 +348,7 @@ export default function CreateTripScreen() {
         <Pressable onPress={() => (step > 1 ? setStep((s) => s - 1) : goBack())} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
           <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
         </Pressable>
-        <Text style={styles.headerTitle}>Create Trip</Text>
+        <Text style={styles.headerTitle}>Publish a trip</Text>
         <View style={{ width: 36 }} />
       </View>
 
@@ -362,7 +362,7 @@ export default function CreateTripScreen() {
         {/* STEP 1: Pickup + Destination — ad-hoc map locations, not a predefined route */}
         {step === 1 && (
           <Entrance key="step1" animation="slideRight">
-            <Text style={styles.stepTitle}>Set Pickup & Destination</Text>
+            <Text style={styles.stepTitle}>Where is this trip going?</Text>
             <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.stepDesc}>
               Where are you starting from, and where's this trip headed?
             </Text>
@@ -437,7 +437,7 @@ export default function CreateTripScreen() {
         {/* STEP 2: Departure time */}
         {step === 2 && (
           <Entrance key="step2" animation="slideRight">
-            <Text style={styles.stepTitle}>Departure Time</Text>
+            <Text style={styles.stepTitle}>When do you leave?</Text>
             <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.stepDesc}>
               When does this trip depart?
             </Text>
@@ -513,7 +513,7 @@ export default function CreateTripScreen() {
         {/* STEP 3: Seats */}
         {step === 3 && (
           <Entrance key="step3" animation="slideRight">
-            <Text style={styles.stepTitle}>Available Seats</Text>
+            <Text style={styles.stepTitle}>How many seats are free?</Text>
             <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.stepDesc}>
               How many passenger seats are available?{' '}
               {capacityKnown
@@ -559,7 +559,7 @@ export default function CreateTripScreen() {
         {/* STEP 4: Summary */}
         {step === 4 && origin && destination && (
           <Entrance key="step4" animation="slideRight">
-            <Text style={styles.stepTitle}>Review & Publish</Text>
+            <Text style={styles.stepTitle}>Review and publish</Text>
             <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.stepDesc}>
               Confirm your trip details before publishing.
             </Text>
@@ -582,7 +582,7 @@ export default function CreateTripScreen() {
 
             {/* Service tier — sets pricing band; ECONOMY is the shared/pooled
                 default, COMFORT is the premium band riders pay a surcharge for. */}
-            <Text style={styles.tierLabel}>Service Tier</Text>
+            <Text style={styles.tierLabel}>Service tier</Text>
             {/* Each tier carries its own ring and its own colour — Eco green,
                 Comfort blue, Premium gold — from the same shared `getTierTheme`
                 the rider's picker and the tier badge use, so a driver setting up
@@ -757,7 +757,9 @@ export default function CreateTripScreen() {
                   label="Whole trip, if full"
                   value={formatGhs(fareEstimateData.totalTripCostPesewas)}
                   sub={`all ${seats} seats together`}
-                  accent={FARE_TONES.tripTotal}
+                  // The theme's own ink: the fixed near-white vanished on a
+                  // light-mode card.
+                  accent={colors.onSurface}
                   colors={colors}
                 />
                 <View style={styles.fareRowDivider} />
@@ -786,7 +788,7 @@ export default function CreateTripScreen() {
       {/* Footer */}
       <View style={styles.footer}>
         <Button
-          label={step === MAX_STEPS ? 'Publish Trip' : 'Continue'}
+          label={step === MAX_STEPS ? 'Publish trip' : 'Continue'}
           onPress={handleNext}
           disabled={!canProceed()}
           loading={publishTrip.isPending}
@@ -804,8 +806,6 @@ export default function CreateTripScreen() {
 const FARE_TONES = {
   /** Out of the rider's pocket. */
   riderPays: '#F5A524',
-  /** The whole vehicle, gross. Deliberately neutral: context, not income. */
-  tripTotal: '#E7E7EA',
   /** Into the driver's. */
   youKeep: '#22C55E',
 } as const;

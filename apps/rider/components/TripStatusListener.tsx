@@ -704,7 +704,7 @@ export function TripStatusListener() {
       <Pressable onPress={handleBannerPress} style={styles.pressable} accessibilityRole="button">
         <BlurView intensity={85} tint="dark" style={styles.blurContainer}>
           <View style={[styles.iconCircle, { backgroundColor: colors.primary }]}>
-            <Ionicons name={bannerIcon as any} size={16} color="#050508" />
+            <Ionicons name={bannerIcon as any} size={16} color={colors.onPrimary} />
           </View>
           <View style={styles.textContainer}>
             <Text style={[styles.label, { color: colors.primary }]}>TRIP UPDATE</Text>
