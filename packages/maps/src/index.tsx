@@ -161,6 +161,8 @@ export interface CameraRef {
     pitch?: number;
     animationDuration?: number;
     padding?: { paddingTop?: number; paddingBottom?: number; paddingLeft?: number; paddingRight?: number };
+    /** 'linear' for a camera that must keep moving across back-to-back legs (an orbit). */
+    easing?: 'linear' | 'ease' | 'fly';
   }) => void;
   /**
    * `edgePadding` is an EDGE INSET — `top`/`right`/`bottom`/`left`. It is NOT
@@ -176,6 +178,11 @@ export interface CameraRef {
       paddingTop?: number; paddingBottom?: number; paddingLeft?: number; paddingRight?: number;
     },
     animated?: boolean,
+    /**
+     * Bearing/pitch to land on. Omitted, MapLibre KEEPS the current ones (both
+     * platforms) — so a fit after a tilted, rotated camera stays tilted.
+     */
+    view?: { bearing?: number; pitch?: number },
   ) => void;
 }
 
@@ -545,7 +552,7 @@ export const Camera = React.forwardRef<CameraRef, CameraProps>(function Camera(
   }, []);
 
   useImperativeHandle(ref, () => ({
-    setCamera: ({ centerCoordinate: coord, zoomLevel: zoom, heading: bearing, pitch: p, animationDuration: duration, padding }) => {
+    setCamera: ({ centerCoordinate: coord, zoomLevel: zoom, heading: bearing, pitch: p, animationDuration: duration, padding, easing }) => {
       if (coord !== undefined && !isFiniteLngLat(coord)) return;
       applyStop({
         center: coord,
@@ -553,6 +560,7 @@ export const Camera = React.forwardRef<CameraRef, CameraProps>(function Camera(
         bearing,
         pitch: p,
         duration,
+        easing,
         padding: padding
           ? {
               top: padding.paddingTop ?? 0,
@@ -586,7 +594,7 @@ export const Camera = React.forwardRef<CameraRef, CameraProps>(function Camera(
     // map's first layout — so MLRNCamera stashes it as the *initial* camera
     // update and replays it during layoutSubviews. Guarding here fixes every
     // screen at once, since they all go through this adapter.
-    fitBounds: (coords, edgePadding, animated = true) => {
+    fitBounds: (coords, edgePadding, animated = true, view) => {
       if (!coords?.length) return;
       coords = coords.filter(isFiniteLngLat);
       if (!coords.length) return;
@@ -650,6 +658,8 @@ export const Camera = React.forwardRef<CameraRef, CameraProps>(function Camera(
         bounds,
         padding: { top: padTop, right: padRight, bottom: padBottom, left: padLeft },
         duration: animated ? 500 : 0,
+        ...(Number.isFinite(view?.bearing) ? { bearing: view!.bearing } : null),
+        ...(Number.isFinite(view?.pitch) ? { pitch: view!.pitch } : null),
       });
     },
   }));

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { View, StyleSheet, Pressable, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIsFocused } from '@react-navigation/native';
+import { useReducedMotion } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { VehicleMarker } from './VehicleMarker';
 import MapboxGL from '../../utils/mapbox';
@@ -51,6 +52,14 @@ import { fetchRoute, fetchWalkingRoute } from '../../utils/routing';
  */
 
 /** Fraction of the screen the bottom sheet covers, per stage. */
+/** The search orbit — see `searchOrbit`. One turn every two minutes. */
+const ORBIT_PITCH = 45;
+const ORBIT_LEG_MS = 8000;
+const ORBIT_STEP_DEG = 24;
+const ORBIT_ARRIVE_MS = 1600;
+/** How long the search ring takes to grow to a new radius. */
+const RING_GROW_MS = 900;
+
 const SHEET_FRACTION: Record<string, number> = {
   search: 0.62,
   // The paged configure flow is a tall sheet; the map keeps the strip above it.
@@ -324,7 +333,7 @@ function TripMapImpl() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { isDark } = useThemeStore();
   const insets = useSafeAreaInsets();
-  const { height: screenHeight } = useWindowDimensions();
+  const { height: screenHeight, width: screenWidth } = useWindowDimensions();
 
   const stage = useTripFlow((s) => s.stage);
   const searchPlace = useTripFlow((s) => s.searchPlace);
@@ -525,8 +534,27 @@ function TripMapImpl() {
     if (!canFollowVehicle && followVehicle) setFollowVehicle(false);
   }, [canFollowVehicle, followVehicle]);
 
+  /**
+   * THE SEARCH ORBIT — the map is the page while dispatch runs.
+   *
+   * FEATURE ("the request trip page needs fullscreen immersion like Uber, Bolt
+   * and Yango — give me all the animations you can think about"). While the
+   * search is live the camera tilts down into the pickup's neighbourhood and
+   * turns slowly around it, so the 3D buses nearby, the search ring and the
+   * road to the driver being asked are seen in depth rather than as a flat
+   * plan. The orbit is the screen driving the camera, so the planner is told
+   * `free` and stands aside; a pan stops it (the rider has the map) and the
+   * recentre chip brings it back. Reduce-motion keeps the still overview.
+   */
+  const reduceMotion = useReducedMotion();
+  const orbitCentre = coord(snapshot?.pickup?.lng, snapshot?.pickup?.lat) ?? pickupCoord;
+  const searchOrbit =
+    (status === 'REQUESTED' || status === 'MATCHING' || status === 'REASSIGNING') && !!orbitCentre && !reduceMotion;
+
   const mode =
-    followVehicle && canFollowVehicle
+    searchOrbit
+      ? 'free'
+      : followVehicle && canFollowVehicle
       ? 'follow'
       : followMe && canFollowMe
         ? 'follow'
@@ -694,6 +722,63 @@ function TripMapImpl() {
     },
     [camera],
   );
+
+  /**
+   * The orbit's frame: wide enough for the cars being asked, never tighter than
+   * ~600 m, never wider than the search itself. Quantised to a quarter zoom so
+   * a 5 s refresh of nearby cars does not restart a leg for a few metres.
+   */
+  const orbitZoom = useMemo(() => {
+    if (!orbitCentre) return 14;
+    let reach = 600;
+    for (const d of nearbyDrivers) reach = Math.max(reach, metresBetween(orbitCentre, [d.longitude, d.latitude]));
+    reach = Math.min(reach * 1.15, Math.max(600, (dispatchRadiusKm ?? 3) * 1000));
+    const cosLat = Math.cos((orbitCentre[1] * Math.PI) / 180);
+    // MapLibre: metres per point at zoom z = C·cos(lat) / (512·2^z). Fit the
+    // reach into ~42% of the width either side of the centre.
+    const z = Math.log2((40075016.686 * cosLat * screenWidth * 0.42) / (512 * reach));
+    return Math.round(Math.min(15.5, Math.max(12, z)) * 4) / 4;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orbitCentre?.[0], orbitCentre?.[1], nearbyDrivers, dispatchRadiusKm, screenWidth]);
+
+  const orbitHeadingRef = useRef(0);
+  const orbitArrivedRef = useRef(false);
+  const orbitKey = orbitCentre ? `${orbitCentre[0].toFixed(5)},${orbitCentre[1].toFixed(5)}` : '';
+  useEffect(() => {
+    const cam = camera.cameraRef.current;
+    if (!searchOrbit || !isFocused || camera.released || !orbitCentre || !cam?.setCamera) {
+      orbitArrivedRef.current = false;
+      return;
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const go = (duration: number, easing: 'linear' | 'ease') =>
+      cam.setCamera({
+        centerCoordinate: orbitCentre,
+        zoomLevel: orbitZoom,
+        pitch: ORBIT_PITCH,
+        heading: orbitHeadingRef.current,
+        animationDuration: duration,
+        easing,
+        padding: getPadding(),
+      });
+    // Back-to-back LINEAR legs, each issued a beat before the last lands, so
+    // the turn never eases to a stop between them.
+    const turn = () => {
+      orbitHeadingRef.current = (orbitHeadingRef.current + ORBIT_STEP_DEG) % 360;
+      go(ORBIT_LEG_MS, 'linear');
+      timer = setTimeout(turn, ORBIT_LEG_MS - 60);
+    };
+    if (orbitArrivedRef.current) {
+      turn();
+    } else {
+      // Arrive first: tilt down into the neighbourhood, then start turning.
+      orbitArrivedRef.current = true;
+      go(ORBIT_ARRIVE_MS, 'ease');
+      timer = setTimeout(turn, ORBIT_ARRIVE_MS);
+    }
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchOrbit, isFocused, camera.released, orbitKey, orbitZoom, getPadding, camera.cameraRef]);
 
   const puckCoord: Coord | null = camera.puck
     ? [camera.puck.longitude, camera.puck.latitude]
@@ -863,31 +948,7 @@ function TripMapImpl() {
    * 64 points: smooth at every zoom the map allows, and cheap enough to rebuild
    * only when the radius actually changes (the memo key), not per frame.
    */
-  const searchRing = useMemo(() => {
-    if (!dispatchIsSearching) return null;
-    const centre = pickup ?? pickupCoord;
-    if (!centre || !Number.isFinite(dispatchRadiusKm) || (dispatchRadiusKm as number) <= 0) return null;
-
-    const R_EARTH_KM = 6371;
-    const [lng, lat] = centre;
-    const latRad = (lat * Math.PI) / 180;
-    const dLat = ((dispatchRadiusKm as number) / R_EARTH_KM) * (180 / Math.PI);
-    const dLng = dLat / Math.max(Math.cos(latRad), 0.01);
-
-    const ring: [number, number][] = [];
-    const STEPS = 64;
-    for (let i = 0; i <= STEPS; i++) {
-      const t = (i / STEPS) * 2 * Math.PI;
-      ring.push([lng + dLng * Math.cos(t), lat + dLat * Math.sin(t)]);
-    }
-    // A GeoJSON Polygon's ring must be closed; the `<=` above repeats the first
-    // point as the last, which is what closes it.
-    return {
-      type: 'Feature' as const,
-      properties: {},
-      geometry: { type: 'Polygon' as const, coordinates: [ring] },
-    };
-  }, [dispatchIsSearching, pickup, pickupCoord, dispatchRadiusKm]);
+  const searchRingCentre = dispatchIsSearching ? pickup ?? pickupCoord : null;
 
   const approachLine = useMemo(() => {
     // Once the ride is under way the rider is IN the vehicle; a line from their
@@ -1038,27 +1099,8 @@ function TripMapImpl() {
           is on opacity and radius only — both GPU-composited paint properties,
           no layout, no re-render.
         */}
-        {searchRing && (
-          <MapboxGL.ShapeSource id="dispatch-search-ring" shape={searchRing}>
-            <MapboxGL.FillLayer
-              id="dispatch-search-fill"
-              style={{
-                fillColor: colors.primary,
-                fillOpacity: 0.07,
-              }}
-              // Under every pin and line. The ring is context, never content.
-              belowLayerID="rider-approach-line"
-            />
-            <MapboxGL.LineLayer
-              id="dispatch-search-edge"
-              style={{
-                lineColor: colors.primary,
-                lineWidth: 1.5,
-                lineOpacity: 0.5,
-                lineDasharray: [3, 2],
-              }}
-            />
-          </MapboxGL.ShapeSource>
+        {searchRingCentre && Number.isFinite(dispatchRadiusKm) && (dispatchRadiusKm as number) > 0 && (
+          <SearchRing centre={searchRingCentre} radiusKm={dispatchRadiusKm as number} color={colors.primary} />
         )}
 
         {/*
@@ -1369,6 +1411,69 @@ function GlidingCar({
         <VehicleMarker bearing={bearing} size={asked ? 34 : 26} />
       </View>
     </MapboxGL.AnimatedMarkerView>
+  );
+}
+
+/**
+ * THE SEARCH, DRAWN AS THE GROUND IT COVERS — and grown, not swapped.
+ *
+ * The radius is the real one the cascade is sweeping (DISPATCH_PROGRESS). It
+ * used to jump when the server widened; now it grows out to the new edge, and
+ * on first appearance grows out of the pickup, so "we are looking further" is
+ * something the rider watches happen. Its own component so the ~50 frames of
+ * a grow re-render this, not the whole map.
+ */
+function SearchRing({ centre, radiusKm, color }: { centre: Coord; radiusKm: number; color: string }) {
+  const reduceMotion = useReducedMotion();
+  const [shownKm, setShownKm] = useState(reduceMotion ? radiusKm : radiusKm * 0.15);
+  const shownRef = useRef(shownKm);
+  useEffect(() => {
+    const from = shownRef.current;
+    if (reduceMotion || Math.abs(from - radiusKm) < 0.001) {
+      shownRef.current = radiusKm;
+      setShownKm(radiusKm);
+      return;
+    }
+    const start = Date.now();
+    let raf = 0;
+    const step = () => {
+      const t = Math.min(1, (Date.now() - start) / RING_GROW_MS);
+      const v = from + (radiusKm - from) * (1 - (1 - t) ** 3);
+      shownRef.current = v;
+      setShownKm(v);
+      if (t < 1) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [radiusKm, reduceMotion]);
+
+  // `cos(lat)` on the longitude term, or the circle is an east-west ellipse.
+  // 64 points: smooth at every zoom the map allows.
+  const shape = useMemo(() => {
+    const [lng, lat] = centre;
+    const dLat = (shownKm / 6371) * (180 / Math.PI);
+    const dLng = dLat / Math.max(Math.cos((lat * Math.PI) / 180), 0.01);
+    const ring: [number, number][] = [];
+    for (let i = 0; i <= 64; i++) {
+      const t = (i / 64) * 2 * Math.PI;
+      ring.push([lng + dLng * Math.cos(t), lat + dLat * Math.sin(t)]);
+    }
+    return { type: 'Feature' as const, properties: {}, geometry: { type: 'Polygon' as const, coordinates: [ring] } };
+  }, [centre, shownKm]);
+
+  return (
+    <MapboxGL.ShapeSource id="dispatch-search-ring" shape={shape}>
+      {/* Under every pin and line. The ring is context, never content. */}
+      <MapboxGL.FillLayer
+        id="dispatch-search-fill"
+        style={{ fillColor: color, fillOpacity: 0.07 }}
+        belowLayerID="rider-approach-line"
+      />
+      <MapboxGL.LineLayer
+        id="dispatch-search-edge"
+        style={{ lineColor: color, lineWidth: 1.5, lineOpacity: 0.5, lineDasharray: [3, 2] }}
+      />
+    </MapboxGL.ShapeSource>
   );
 }
 

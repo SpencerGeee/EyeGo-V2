@@ -159,6 +159,14 @@ export function useMapCamera(args: UseMapCameraArgs): MapCamera {
   };
   const modeRef = useRef<CameraMode>(mode);
   modeRef.current = mode;
+  // A change of intent re-frames even onto the same box: coming back from a
+  // screen-driven `free` (the rider's search orbit) must refit and flatten,
+  // not match the key it left with and stay where the orbit put it.
+  useEffect(() => {
+    lastOverviewKeyRef.current = '';
+    lastPaddingKeyRef.current = '';
+    fitSettlesAtRef.current = 0;
+  }, [mode]);
   const paddingRef = useRef<CameraPadding | (() => CameraPadding)>(padding);
   paddingRef.current = padding;
   const fitIncludesPuckRef = useRef(fitIncludesPuck);
@@ -467,6 +475,9 @@ function applyPlan(
         left: padding.paddingLeft ?? 0,
       },
       duration > 0,
+      // An overview is north-up and flat. Without this a fit after a tilted,
+      // turning camera (the rider's search orbit) kept the tilt and the turn.
+      { bearing: 0, pitch: 0 },
     );
     return;
   }

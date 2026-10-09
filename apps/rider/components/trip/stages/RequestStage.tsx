@@ -1,15 +1,15 @@
-﻿import React, { useMemo, useEffect, useRef, useState } from 'react';
-import { View, StyleSheet, Pressable } from 'react-native';
+﻿import React, { useCallback, useMemo, useEffect, useRef, useState } from 'react';
+import { View, StyleSheet, Pressable, useWindowDimensions, type LayoutChangeEvent } from 'react-native';
+import Animated, { FadeInDown, ReduceMotion } from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { expectTripSurfaceReturn } from '../../../utils/tripSurfaceReturn';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import {
   Text, Button, GlassSurface, MorphTarget, AppBackground, GradientGlowBorder,
-  goDeeper, goBack, notify, goOut, goFresh, Pressable as HapticPressable, getTierTheme,
+  goDeeper, goBack, notify, goOut, goFresh, Pressable as HapticPressable, getTierTheme, useSheetMetrics,
 } from '@eyego/ui';
 import * as Haptics from 'expo-haptics';
 import { formatGhs, shortDateTime } from '@eyego/utils';
@@ -228,6 +228,46 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
     attempt: dispatch?.attempt ?? 0,
     total: dispatch?.totalCandidates ?? 0,
   };
+
+  // A tick in the hand each time the search reaches a new driver — the map
+  // draws the road to them at the same moment, so the two land together.
+  const askedDriverId = dispatchOffer?.driverId ?? null;
+  useEffect(() => {
+    if (askedDriverId) Haptics.selectionAsync().catch(() => {});
+  }, [askedDriverId]);
+
+  /**
+   * THE CARD TELLS THE CAMERA WHERE IT IS.
+   *
+   * The card floats over a full-screen map, and how tall it is depends on what
+   * it holds (the boost row, the cancel confirmation). It publishes its top
+   * edge into the surface's sheet channel — the same one the assigned and
+   * tracking sheets use — so the map frames the pickup in the strip above it
+   * rather than against a guessed fraction. Handed back on the way out only
+   * if nobody has taken the channel over since (the next stage's sheet).
+   */
+  const sheetMetrics = useSheetMetrics();
+  const { height: screenH } = useWindowDimensions();
+  const cardTopRef = useRef<number | null>(null);
+  const onCardLayout = useCallback(
+    (e: LayoutChangeEvent) => {
+      if (mode !== 'stage') return;
+      const top = screenH - (insets.bottom + spacing.sm) - e.nativeEvent.layout.height;
+      cardTopRef.current = top;
+      sheetMetrics.retired.value = false;
+      sheetMetrics.top.value = top;
+    },
+    [mode, screenH, insets.bottom, sheetMetrics],
+  );
+  useEffect(
+    () => () => {
+      if (cardTopRef.current != null && sheetMetrics.top.value === cardTopRef.current) {
+        sheetMetrics.top.value = sheetMetrics.screenHeight.value;
+        sheetMetrics.retired.value = true;
+      }
+    },
+    [sheetMetrics],
+  );
 
   /**
    * THE JOURNEY, KEPT BY THE SCREEN THAT IS SHOWING IT.
@@ -1398,7 +1438,9 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
    * The rebuild is the arrangement every hailing app converged on, for the
    * reason they converged on it: while you wait, you watch.
    *
-   *   THE MAP IS UNCOVERED   Top ~56% of the screen. Pannable, because the
+   *   THE MAP IS UNCOVERED   All of it, edge to edge, with the card floating
+   *                          over it (and the camera tilting and turning round
+   *                          the pickup — see `searchOrbit` in TripMap). Pannable, because the
    *                          question the rider is asking is "is anyone near
    *                          me". `box-none` all the way down so the pans reach
    *                          it — the exact bug the tracking stage had.
@@ -1417,13 +1459,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
     // grows into this surface instead of hard-pushing. Inert when the rider
     // arrived any other way.
     <MorphTarget id="home-pending-request" borderRadius={0} style={styles.safe}>
-    <View style={[styles.safe, { paddingTop: insets.top }]} pointerEvents="box-none">
-      {/* Reading ground for the back control, which floats on live tiles. */}
-      <LinearGradient
-        colors={[withOpacity(colors.backgroundDeep, 0.85), 'transparent']}
-        style={styles.topScrim}
-        pointerEvents="none"
-      />
+    <View style={styles.safe} pointerEvents="box-none">
       <Pressable
         onPress={handleBack}
         style={[styles.floatingBack, { top: insets.top + spacing.sm }]}
@@ -1434,16 +1470,20 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
         <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
       </Pressable>
 
-      <View style={styles.panelDock} pointerEvents="box-none">
-        <LinearGradient
-          colors={['transparent', withOpacity(colors.backgroundDeep, 0.9)]}
-          style={styles.panelScrim}
-          pointerEvents="none"
-        />
-        <View style={[styles.panel, { paddingBottom: insets.bottom + spacing.lg }]}>
+      {/* THE CARD FLOATS. Full-bleed map behind it, edge to edge — no scrims
+          and no docked half-screen — with the search in one card the camera
+          frames around. It rises in once; every change after that happens
+          inside it. */}
+      <Animated.View
+        entering={FadeInDown.duration(380).reduceMotion(ReduceMotion.System)}
+        style={[styles.panelDock, { bottom: insets.bottom + spacing.sm }]}
+        pointerEvents="box-none"
+        onLayout={onCardLayout}
+      >
+        <View style={styles.panel}>
           {body('stage')}
         </View>
-      </View>
+      </Animated.View>
     </View>
     </MorphTarget>
   );
@@ -1495,7 +1535,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     gap: spacing.lg,
   },
   /** Reading ground for the floating back control. */
-  topScrim: { position: 'absolute', top: 0, left: 0, right: 0, height: 132 },
   /** Stage mode's back control — on the map, not in the panel. */
   floatingBack: {
     position: 'absolute',
@@ -1517,25 +1556,28 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  /** The bottom half. `box-none` so pans land on the map above it. */
-  panelDock: { position: 'absolute', left: 0, right: 0, bottom: 0 },
-  /** Softens the map into the panel's top edge instead of cutting it. */
-  panelScrim: { position: 'absolute', left: 0, right: 0, bottom: '100%', height: 96 },
+  /** The floating card's frame, inset from the screen edges. */
+  panelDock: { position: 'absolute', left: spacing.md, right: spacing.md },
   /**
-   * The opaque half. Not glass — see the note at the render site: map tiles
+   * The opaque card. Not glass — see the note at the render site: map tiles
    * are bright and moving, and a translucent panel is a different colour
    * everywhere it sits.
    */
   panel: {
     backgroundColor: colors.backgroundDeep,
-    borderTopLeftRadius: radii['4xl'],
-    borderTopRightRadius: radii['4xl'],
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderColor: withOpacity(colors.onSurface, 0.1),
-    paddingTop: spacing.xl,
-    paddingHorizontal: spacing['2xl'],
+    borderRadius: radii['3xl'],
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: withOpacity(colors.onSurface, 0.12),
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.lg,
+    paddingHorizontal: spacing.xl,
     alignItems: 'center',
     gap: spacing.md,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.32,
+    shadowRadius: 24,
+    elevation: 16,
   },
   /**
    * The panel's own content box.

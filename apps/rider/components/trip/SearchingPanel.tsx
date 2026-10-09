@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { AccessibilityInfo, StyleSheet, View } from 'react-native';
 import Animated, {
   Easing,
+  FadeIn,
+  ReduceMotion,
   cancelAnimation,
   interpolate,
   useAnimatedStyle,
@@ -352,13 +354,23 @@ export function SearchingPanel({
 
       <View style={styles2.headRow}>
         <RadarChip colors={colors} status={status} />
+        {/* Each new beat of the search — a new driver asked, the ring widened,
+            the queue emptied — fades in rather than snapping, so the rider
+            notices the line changed. The once-a-second countdown is not a beat. */}
         <View style={styles2.headText}>
-          <Text style={styles2.headline} numberOfLines={1}>
-            {headline}
-          </Text>
-          <Text style={styles2.substatus} numberOfLines={2}>
-            {substatus}
-          </Text>
+          <Animated.View key={headline} entering={FadeIn.duration(240).reduceMotion(ReduceMotion.System)}>
+            <Text style={styles2.headline} numberOfLines={1}>
+              {headline}
+            </Text>
+          </Animated.View>
+          <Animated.View
+            key={`${status}|${offerPending ? attempt.attempt : 0}|${waiting}|${radiusKm ?? ''}`}
+            entering={FadeIn.duration(240).reduceMotion(ReduceMotion.System)}
+          >
+            <Text style={styles2.substatus} numberOfLines={2}>
+              {substatus}
+            </Text>
+          </Animated.View>
         </View>
         {/* Tabular figures — a clock whose digits shift width jitters once a
             second for as long as the rider is watching it. */}
