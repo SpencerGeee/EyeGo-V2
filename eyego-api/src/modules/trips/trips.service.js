@@ -2229,7 +2229,14 @@ async function getNearbyAvailableDrivers({ lat, lng, radiusKm = 6 }) {
       currentLat: { not: null },
       currentLng: { not: null },
     },
-    select: { id: true, currentLat: true, currentLng: true },
+    select: {
+      id: true,
+      currentLat: true,
+      currentLng: true,
+      // The car class, so the ride picker can say how far the nearest car of
+      // EACH tier is ("Comfort · 4 min away") instead of one ETA for all.
+      vehicles: { where: { isActive: true }, select: { tier: true }, take: 1 },
+    },
     take: 60,
   });
 
@@ -2239,11 +2246,16 @@ async function getNearbyAvailableDrivers({ lat, lng, radiusKm = 6 }) {
       latitude: Math.round(d.currentLat * 1e4) / 1e4,
       longitude: Math.round(d.currentLng * 1e4) / 1e4,
       distanceKm: haversineKm(lat, lng, d.currentLat, d.currentLng),
+      tier: d.vehicles?.[0]?.tier ?? null,
     }))
     .filter((d) => Number.isFinite(d.distanceKm) && d.distanceKm <= radiusKm)
     .sort((a, b) => a.distanceKm - b.distanceKm)
     .slice(0, 20)
-    .map(({ id, latitude, longitude }) => ({ id, latitude, longitude }));
+    // Distance from the asker's own pickup, to 0.1 km — no finer than the
+    // already-coarsened position, and nothing that identifies the driver.
+    .map(({ id, latitude, longitude, distanceKm, tier }) => ({
+      id, latitude, longitude, tier, distanceKm: Math.round(distanceKm * 10) / 10,
+    }));
 }
 
 // ── "Notify me" alerts ──────────────────────────────────────────────────────

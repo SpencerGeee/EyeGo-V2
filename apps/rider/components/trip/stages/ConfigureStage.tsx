@@ -13,10 +13,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { useAnimatedStyle, useDerivedValue, withTiming } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { ridesApi } from '@eyego/api';
-import { formatGhs } from '@eyego/utils';
+import { ridesApi, tripsApi } from '@eyego/api';
+import { formatGhs, clockTime } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii, MAX_SEATS_PER_BOOKING } from '@eyego/config';
-import { Text, Button, Entrance, GradientGlowBorder, getTierTheme } from '@eyego/ui';
+import { Text, Button, Entrance, GradientGlowBorder, getTierTheme, normalizeTier } from '@eyego/ui';
 import { useColors, Colors } from '../../../utils/useColors';
 import { MapGestureHint } from '../MapGestureHint';
 import { useRideStore } from '../../../stores/ride.store';
@@ -237,6 +237,42 @@ function ConfigureStageImpl() {
    */
   const [loyaltyDiscountPesewas, setLoyaltyDiscountPesewas] = useState(0);
   const [quoting, setQuoting] = useState(false);
+  /** The journey the quote measured — the same road for every tier. */
+  const [tripInfo, setTripInfo] = useState<{ km: number | null; min: number | null }>({ km: null, min: null });
+
+  /**
+   * HOW FAR AWAY EACH KIND OF CAR IS.
+   *
+   * Uber and Bolt put "3 min away · drop-off 4:52" on every ride option,
+   * because the price is only half of the choice. The server returns the
+   * available cars near the pickup with their class and distance (no identity);
+   * the nearest of each class becomes that row's pickup estimate. A class with
+   * no car nearby says so rather than showing a time nobody can meet.
+   */
+  const [nearestKm, setNearestKm] = useState<Partial<Record<Tier, number>>>({});
+  const [nearbyKnown, setNearbyKnown] = useState(false);
+  useEffect(() => {
+    if (origin?.latitude == null || origin?.longitude == null) return;
+    let cancelled = false;
+    tripsApi
+      .getNearbyDrivers(origin.latitude, origin.longitude)
+      .then((res) => {
+        if (cancelled) return;
+        const rows: any[] = Array.isArray(res.data?.data) ? (res.data.data as any[]) : [];
+        const next: Partial<Record<Tier, number>> = {};
+        for (const d of rows) {
+          if (!d?.tier || !Number.isFinite(d?.distanceKm)) continue;
+          const id = TIER_ORDER.find((x) => normalizeTier(x) === normalizeTier(d.tier));
+          if (id && (next[id] == null || d.distanceKm < (next[id] as number))) next[id] = d.distanceKm;
+        }
+        setNearestKm(next);
+        setNearbyKnown(true);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [origin?.latitude, origin?.longitude]);
 
   useEffect(() => {
     // No pair, no road. Clearing rather than leaving the last one up is what
@@ -294,6 +330,14 @@ function ConfigureStageImpl() {
              */
             if (q?.geometry?.coordinates?.length) {
               setPreviewPath(q.geometry as { type: 'LineString'; coordinates: [number, number][] });
+            }
+            if (q && (Number.isFinite(q.distanceKm) || Number.isFinite(q.durationMin))) {
+              setTripInfo({
+                km: Number.isFinite(q.distanceKm) ? Math.round(q.distanceKm * 10) / 10 : null,
+                min: typeof q.durationMin === 'number' && Number.isFinite(q.durationMin)
+                  ? Math.max(1, Math.round(q.durationMin))
+                  : null,
+              });
             }
             /**
              * What good standing took off this fare.
@@ -476,6 +520,19 @@ function ConfigureStageImpl() {
           <Entrance key={`title-${step}`} animation="slideRight">
             <Text style={styles.title}>{stepTitle}</Text>
             <Text style={styles.blurb}>{stepBlurb}</Text>
+            {step === 3 && (tripInfo.km != null || tripInfo.min != null) ? (
+              <View style={styles.tripSummary}>
+                <Ionicons name="git-commit-outline" size={14} color={colors.onSurfaceVariant} />
+                <Text style={styles.tripSummaryText}>
+                  {[
+                    tripInfo.km != null ? `${tripInfo.km} km` : null,
+                    tripInfo.min != null ? `about ${tripInfo.min} min on the road` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </Text>
+              </View>
+            ) : null}
           </Entrance>
 
           {/*
@@ -498,6 +555,20 @@ function ConfigureStageImpl() {
                 const t = getTierTheme(colors, id);
                 const active = rideTier === id;
                 const price = fares[id];
+                const km = nearestKm[id];
+                // Same rule the driver's offer card uses: road ≈ 1.3× straight,
+                // ~24 km/h through town. An estimate, and labelled as one.
+                const etaMin = km != null ? Math.max(1, Math.round(((km * 1.3) / 24) * 60)) : null;
+                const dropoff =
+                  tripInfo.min != null
+                    ? clockTime(new Date(Date.now() + ((etaMin ?? 0) + tripInfo.min) * 60_000))
+                    : null;
+                const meta = [
+                  etaMin != null ? `${etaMin} min away` : nearbyKnown ? 'No cars nearby right now' : null,
+                  dropoff ? `drop-off ${dropoff}` : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · ');
                 return (
                   <GradientGlowBorder
                     key={id}
@@ -515,34 +586,57 @@ function ConfigureStageImpl() {
                         void Haptics.selectionAsync();
                         setRideOptions({ rideTier: id });
                       }}
-                      style={[styles.option, active && { backgroundColor: t.softBg }]}
+                      style={[styles.option, styles.tierOption, active && { backgroundColor: t.softBg }]}
                       accessibilityRole="radio"
                       accessibilityState={{ selected: active }}
                       accessibilityLabel={`${t.label} — ${t.blurb}${price != null ? `, ${formatGhs(price)}` : ''}`}
                     >
-                      <View style={[styles.optionIcon, { backgroundColor: t.iconBg }]}>
-                        <Ionicons name={t.icon} size={22} color={t.accent} />
+                      <View style={[styles.optionIcon, styles.tierIcon, { backgroundColor: t.iconBg }]}>
+                        <Ionicons name={t.icon} size={24} color={t.accent} />
                       </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={[styles.optionLabel, active && { color: t.accent }]}>
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={[styles.tierLabel, active && { color: t.accent }]} numberOfLines={1}>
                           {t.label}
                         </Text>
-                        <Text variant="caption" color={colors.onSurfaceVariant}>
+                        {meta ? (
+                          <Text
+                            style={[styles.tierMeta, { color: etaMin != null ? colors.onSurface : colors.onSurfaceVariant }]}
+                            numberOfLines={1}
+                          >
+                            {meta}
+                          </Text>
+                        ) : null}
+                        <Text variant="caption" color={colors.onSurfaceVariant} numberOfLines={1}>
                           {t.blurb}
                         </Text>
                       </View>
                       <View style={styles.optionTrailing}>
-                        <Text style={[styles.optionPrice, active && { color: t.accent }]}>
+                        <Text style={[styles.tierPrice, active && { color: t.accent }]} numberOfLines={1}>
                           {price != null ? formatGhs(price) : quoting ? '···' : '—'}
                         </Text>
-                        {active && (
+                        {active ? (
                           <Ionicons name="checkmark-circle" size={18} color={t.accent} />
-                        )}
+                        ) : null}
                       </View>
                     </Pressable>
                   </GradientGlowBorder>
                 );
               })}
+              {/* How this ride is paid — Uber and Bolt keep it under the
+                  options so the price is never read without it. On-demand
+                  rides are cash today (see RequestStage), so it is a fact, not
+                  a picker. */}
+              <View style={styles.payRow}>
+                <View style={[styles.payIcon, { backgroundColor: `${colors.primary}1A` }]}>
+                  <Ionicons name="cash-outline" size={18} color={colors.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.optionLabel}>Cash</Text>
+                  <Text variant="caption" color={colors.onSurfaceVariant}>
+                    Pay your driver at the end of the ride
+                  </Text>
+                </View>
+              </View>
             </Entrance>
           )}
 
@@ -792,7 +886,13 @@ function ConfigureStageImpl() {
               the ring carries the tier the rider has selected so the button
               agrees with the card above it. */}
           <Button
-            label={step === STEP_LAST ? 'Confirm ride' : 'Continue'}
+            label={
+              step === 3
+                ? `Choose ${tierTheme.label}`
+                : step === STEP_LAST
+                  ? `Request ${tierTheme.label}${fare != null ? ` · ${formatGhs(fare)}` : ''}`
+                  : 'Continue'
+            }
             onPress={next}
             variant="glow"
             palette={tierTheme.ringPalette}
@@ -1057,6 +1157,46 @@ const makeStyles = (colors: Colors) =>
       color: colors.onSurface,
     },
     optionTrailing: { alignItems: 'flex-end', gap: 3 },
+    /** Inside a ring already — a second border inside it read as a double edge. */
+    tierOption: { borderWidth: 0, paddingVertical: spacing.base, gap: spacing.base },
+    tierIcon: { width: 50, height: 50, borderRadius: 16 },
+    tierLabel: {
+      fontFamily: fonts.displaySemiBold,
+      fontSize: fontSizes.bodyLarge,
+      lineHeight: Math.round(fontSizes.bodyLarge * 1.3),
+      color: colors.onSurface,
+    },
+    tierMeta: {
+      fontFamily: fonts.medium,
+      fontSize: fontSizes.bodySmall,
+      lineHeight: Math.round(fontSizes.bodySmall * 1.4),
+      marginTop: 1,
+    },
+    tierPrice: {
+      fontFamily: fonts.displayBold,
+      fontSize: fontSizes.titleSmall,
+      lineHeight: Math.round(fontSizes.titleSmall * 1.3),
+      color: colors.onSurface,
+      letterSpacing: -0.3,
+    },
+    tripSummary: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: spacing.sm },
+    tripSummaryText: {
+      fontFamily: fonts.medium,
+      fontSize: fontSizes.bodySmall,
+      color: colors.onSurfaceVariant,
+    },
+    payRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.md,
+      paddingHorizontal: spacing.base,
+      paddingVertical: spacing.md,
+      marginTop: spacing.xs,
+      borderRadius: radii.xl,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.outlineVariant,
+    },
+    payIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
     optionPrice: {
       fontFamily: fonts.displaySemiBold,
       fontSize: fontSizes.bodyLarge,

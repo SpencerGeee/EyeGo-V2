@@ -91,7 +91,7 @@ export const tripsApi = {
    * pins on the "looking for a driver" map. Coarse by design — see the endpoint.
    */
   getNearbyDrivers: (latitude: number, longitude: number, radiusKm = 6) =>
-    apiClient.get<ApiResponse<Array<{ id: string; latitude: number; longitude: number }>>>(
+    apiClient.get<ApiResponse<Array<{ id: string; latitude: number; longitude: number; tier?: string | null; distanceKm?: number }>>>(
       '/trips/nearby-drivers',
       { params: { lat: latitude, lng: longitude, radiusKm } },
     ),

@@ -512,6 +512,18 @@ function SearchStageImpl() {
    * The map is not mounted behind this at all any more, so there is no leak to
    * cover and no second opaque layer to pay for.
    */
+  /**
+   * How far a suggestion is from the pickup — Uber prints it on every recent.
+   * It is what lets a rider tell "Accra Mall" the one they meant from the one
+   * across town at a glance.
+   */
+  const fromPickup = (lat?: number | null, lng?: number | null): string | undefined => {
+    if (origin?.latitude == null || origin?.longitude == null || lat == null || lng == null) return undefined;
+    const m = metresBetween(origin.latitude, origin.longitude, lat, lng);
+    if (!Number.isFinite(m) || m < 50) return undefined;
+    return m < 1000 ? `${Math.round(m / 10) * 10} m` : `${(m / 1000).toFixed(m < 10_000 ? 1 : 0)} km`;
+  };
+
   return (
     <View style={styles.screen}>
       {/* NO <AppBackground /> HERE ANY MORE. The app's ambient shader is already
@@ -532,7 +544,7 @@ function SearchStageImpl() {
           <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
         </Pressable>
 
-        <Text style={styles.headerTitle}>Set your trip</Text>
+        <Text style={styles.headerTitle}>Plan your ride</Text>
 
         {/* Steps 1-2 of the same 5-step flow ConfigureStage continues, so the
             rider can see how much is left rather than discovering it. Pickup is
@@ -696,10 +708,10 @@ function SearchStageImpl() {
                       style={styles.ctaPrimary}
                       onPress={handleOrderRide}
                       accessibilityRole="button"
-                      accessibilityLabel="Order ride"
+                      accessibilityLabel="Choose a ride"
                     >
-                      <Ionicons name="flash" size={18} color={colors.onPrimary} />
-                      <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={styles.ctaPrimaryText}>Order Ride</Text>
+                      <Ionicons name="car-sport" size={18} color={colors.onPrimary} />
+                      <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={styles.ctaPrimaryText}>Choose a ride</Text>
                     </Pressable>
                     <Pressable
                       style={styles.ctaSecondary}
@@ -753,6 +765,7 @@ function SearchStageImpl() {
                 // Work row below for the "Accra" this replaced.
                 title={homePlace ? 'Home' : 'Add home address'}
                 subtitle={homePlace ? shortAddress(homePlace.address, 3) ?? homePlace.address : undefined}
+                meta={homePlace ? fromPickup(homePlace.lat, homePlace.lng) : undefined}
                 isPrompt={!homePlace}
                 onPress={() => (homePlace ? commitSaved(homePlace) : openSavedPlaces())}
               />
@@ -769,6 +782,7 @@ function SearchStageImpl() {
                 // geocoder's town name as its label. A shortcut is its slot.
                 title={workPlace ? 'Work' : 'Add work address'}
                 subtitle={workPlace ? shortAddress(workPlace.address, 3) ?? workPlace.address : undefined}
+                meta={workPlace ? fromPickup(workPlace.lat, workPlace.lng) : undefined}
                 isPrompt={!workPlace}
                 onPress={() => (workPlace ? commitSaved(workPlace) : openSavedPlaces())}
               />
@@ -807,6 +821,7 @@ function SearchStageImpl() {
                       icon={savedIcon(p)}
                       title={p.label}
                       subtitle={p.address}
+                      meta={fromPickup(p.lat, p.lng)}
                       onPress={() => commitSaved(p)}
                     />
                   </React.Fragment>
@@ -829,6 +844,7 @@ function SearchStageImpl() {
                       icon="time-outline"
                       title={p.name}
                       subtitle={p.fullAddress !== p.name ? p.fullAddress : undefined}
+                      meta={fromPickup(p.latitude, p.longitude)}
                       onPress={() => commitToFocused(p)}
                     />
                   </React.Fragment>
@@ -857,6 +873,7 @@ function SlotRow({
   icon,
   title,
   subtitle,
+  meta,
   isPrompt,
   onPress,
 }: {
@@ -865,6 +882,8 @@ function SlotRow({
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
   subtitle?: string;
+  /** Distance from the pickup, right-aligned. */
+  meta?: string;
   isPrompt?: boolean;
   onPress: () => void;
 }) {
@@ -890,6 +909,7 @@ function SlotRow({
           <Text style={styles.placeAddress} numberOfLines={1}>{subtitle}</Text>
         )}
       </View>
+      {meta ? <Text style={styles.placeMeta} numberOfLines={1}>{meta}</Text> : null}
       <Ionicons
         name={isPrompt ? 'add' : 'chevron-forward'}
         size={16}
@@ -1339,8 +1359,14 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     flexDirection: 'row',
     gap: 10,
   },
+  placeMeta: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.caption,
+    color: colors.onSurfaceVariant,
+    marginLeft: 6,
+  },
   ctaPrimary: {
-    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    flex: 1.6, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     gap: 6, borderRadius: 28, paddingVertical: 14, backgroundColor: colors.primary,
   },
   ctaPrimaryText: {
