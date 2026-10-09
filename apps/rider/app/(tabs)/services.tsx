@@ -248,7 +248,6 @@ function SpecialServiceCard({ service, colors, styles }: { service: SpecialServi
           <GlassSurface
             borderRadius={radii.xl - 3}
             intensity="high"
-            dark
             style={styles.specialGlassInset}
           />
           {row}
@@ -271,7 +270,7 @@ function SpecialServiceCard({ service, colors, styles }: { service: SpecialServi
           thickness="thin"
           style={styles.specialCard}
         >
-          <GlassSurface borderRadius={radii.xl - 1} intensity="low" dark style={styles.specialGlassInset} />
+          <GlassSurface borderRadius={radii.xl - 1} intensity="low" style={styles.specialGlassInset} />
           {row}
         </GradientGlowBorder>
       )}

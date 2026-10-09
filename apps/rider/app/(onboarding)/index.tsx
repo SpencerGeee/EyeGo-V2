@@ -38,6 +38,7 @@ import {
   PREMIUM_RING_LOCATIONS,
 } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
+import { useThemeStore } from '../../stores/theme.store';
 import { consumeReturnTo } from '../../utils/returnTo';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -386,7 +387,7 @@ function SlideItem({
           <Animated.View style={[styles.glowHalo, { borderColor: slide.accentColor + '40' }, glowStyle]} />
           
           {Platform.OS === 'ios' ? (
-            <BlurView intensity={30} tint="dark" style={styles.illustrationGlass}>
+            <BlurView intensity={30} tint={useThemeStore.getState().isDark ? 'dark' : 'light'} style={styles.illustrationGlass}>
               <View style={[styles.illustrationCore, { backgroundColor: withOpacity(colors.primary, 0.05) }]}>
                 <SlideIllustration slideId={slide.id} />
               </View>

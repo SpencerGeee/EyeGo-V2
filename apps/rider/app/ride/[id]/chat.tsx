@@ -817,7 +817,7 @@ export default function ChatScreen() {
             { paddingBottom: spacing.base + (keyboardShown ? 0 : insets.bottom) },
           ]}
         >
-          <GlassSurface borderRadius={radii.full} intensity="low" dark style={styles.inputFieldWrap}>
+          <GlassSurface borderRadius={radii.full} intensity="low" style={styles.inputFieldWrap}>
             <Ionicons name="chatbubble-outline" size={16} color={colors.outline} style={styles.inputLeadIcon} />
           <TextInput maxFontSizeMultiplier={1.4}
             value={input}

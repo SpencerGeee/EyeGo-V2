@@ -338,7 +338,7 @@ function ScheduledTripCard({
         disabled
         style={styles.schedCard}
       >
-        <GlassSurface borderRadius={18} intensity="low" dark style={styles.schedGlassInset} />
+        <GlassSurface borderRadius={18} intensity="low" style={styles.schedGlassInset} />
         <View style={styles.schedRow}>
           {/* ── The stub: when it leaves ── */}
           <View style={styles.schedStub}>
@@ -584,7 +584,7 @@ function SuggestedTripCard({
         disabled={!featured}
         style={styles.tripCard}
       >
-        <GlassSurface borderRadius={17} intensity="low" dark style={styles.tripGlassInset} />
+        <GlassSurface borderRadius={17} intensity="low" style={styles.tripGlassInset} />
         {/* "NEXT OUT", not "TOP PICK": the featured card is simply the one
             leaving first — nothing ranked it. */}
         {featured && (

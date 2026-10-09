@@ -516,7 +516,7 @@ export default function TripCompleteScreen() {
             glowColor={colors.primary}
             style={styles.fareCard}
           >
-            <GlassSurface borderRadius={radii['2xl'] - 3} intensity="high" dark style={styles.glassInset} />
+            <GlassSurface borderRadius={radii['2xl'] - 3} intensity="high" style={styles.glassInset} />
             <View style={styles.fareCardInner}>
           <Text style={styles.fareLabel}>Total Fare</Text>
           {/* A shimmer bar rather than a number we do not have yet — see the

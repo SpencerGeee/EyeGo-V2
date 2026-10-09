@@ -312,7 +312,7 @@ export default function CancelRideScreen() {
             </View>
 
             {/* Glass route card */}
-            <GlassSurface borderRadius={radii['2xl']} intensity="low" dark style={styles.glassCard}>
+            <GlassSurface borderRadius={radii['2xl']} intensity="low" style={styles.glassCard}>
               <View style={styles.cardHeader}>
                 <View style={styles.cardHeaderLeft}>
                   <Ionicons name="car-outline" size={18} color={colors.onSurfaceVariant} />

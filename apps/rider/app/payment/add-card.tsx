@@ -125,7 +125,7 @@ export default function AddCardScreen() {
           animate={{ opacity: 1, translateY: 0 }}
           transition={{ type: 'spring', ...springs.micro, delay: 80 }}
         >
-          <GlassSurface borderRadius={radii.lg} intensity="low" dark style={styles.infoCard}>
+          <GlassSurface borderRadius={radii.lg} intensity="low" style={styles.infoCard}>
           <View style={styles.infoRow}>
             <View style={[styles.infoIconWrap, { backgroundColor: withOpacity(colors.statusSuccess, 0.12) }]}>
               <Ionicons name="shield-checkmark" size={18} color={colors.statusSuccess} />

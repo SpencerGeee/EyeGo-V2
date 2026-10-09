@@ -162,7 +162,7 @@ export default function DisputeScreen() {
           </Text>
 
           {/* Trip summary card */}
-          <GlassSurface borderRadius={radii['2xl']} intensity="low" dark style={styles.tripCard}>
+          <GlassSurface borderRadius={radii['2xl']} intensity="low" style={styles.tripCard}>
             <View style={styles.tripThumb}>
               <Ionicons name="location" size={26} color={colors.primary} />
             </View>
