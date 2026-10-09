@@ -516,3 +516,14 @@ Decisions:
 - Ink on colors.primary is always colors.onPrimary (primary is dark green in light mode).
 Rejected: name-union field checks (missed Route.destinationLat, a real Driver field).
 Open: admin next build (machine ran out of memory); premium pass on driver chat/location picker, rider Services.
+
+## 2026-10-09 16:00 [saved]
+Goal: 13-item device sweep: nav rebase, away outcomes, 3D models, immersive search/offer.
+Decisions:
+- Scheduled booking blocks new bookings only within SCHEDULED_RIDE_BLOCK_MINUTES (60) of departure; liveForRiderWhere() is the one predicate.
+- Server-owned trip stages rebase the stack to [root, trip]; payment success goes straight to the ride.
+- away-outcomes.service owns "while you were closed" (48 h, newest first, once per device via AsyncStorage seen-set).
+- 3D markers are procedural low-poly drawn by Skia (packages/maps/src/three), yaw = heading − map bearing; no native deps.
+- Overview fitBounds always lands bearing 0 / pitch 0 — MapLibre keeps current tilt on bounds fits.
+Rejected: adding skia peerDep to packages/maps (dual-lockfile churn); camera tilt on the driver offer (pushes the near road under the card).
+Open: device-verify search orbit, 3D marker perf, driver native puck swap; push 5 local commits.

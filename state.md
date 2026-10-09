@@ -22,7 +22,16 @@ Fix user's 13-item device list (rider + driver) with root-cause fixes; 3D models
   RequestStage re-POSTs when the surface projects 'request' for an existing trip.
 - 9: home ended-check reads TRIP status (booking NO_SHOW invisible); non-COMPLETED endings dropped silently.
 
-## Plan status
-[ ] 1/12 Text guard  [ ] 11 adapter keys  [ ] 8 zIndex  [ ] 13 server window + client open-my-ride
-[ ] 3/4 browse seed + rebase  [ ] 6 payment  [ ] 9 away outcomes  [ ] 7 3D engine+models
-[ ] 10 rider immersion  [ ] 11b driver offer immersion  [ ] verify (tsc, e2e static)  [ ] docs/memory
+## Plan status — ALL DONE, committed locally, NOT pushed (ask user)
+[x] 1/12 Text guard  [x] 11 adapter keys  [x] 8 zIndex  [x] 13 server window + client open-my-ride  (1091793)
+[x] 3/4 browse seed + rebase  [x] 6 payment  (1091793)   [x] 9 away outcomes (5a388c3)
+[x] 7 3D engine+models (3aba6f7)  [x] 10 rider immersion (d572eeb)  [x] 11b driver offer (7f559ba)
+[x] verify: tsc rider/driver/admin, prisma-fields, conditional-hooks, ui/ux/motion invariants, button-wiring,
+    formatters, maestro, shader-compile all green; jest away-outcomes + rider-live-window 9/9.
+    Server-dependent e2e suites not run (no local API up).
+
+## Device-test watch list
+- Search orbit (TripMap `searchOrbit`): linear setCamera legs; verify smooth turn + pan stops it + recentre resumes.
+- Overview fits now pass bearing 0 / pitch 0 — confirm post-orbit refit lands flat.
+- 3D markers: Model3D = one Skia canvas per marker; watch frame rate with many nearby buses.
+- Driver native puck = modelDataUri PNG per 4°/5° step (Images swap) — watch for flicker in course mode.
