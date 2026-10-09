@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { formatGhs, relativeDayTime, shortDateTime } from '@eyego/utils';
+import { formatGhs, relativeDayTime, clockTime, dayMonth, weekdayShort } from '@eyego/utils';
 import { View, StyleSheet, FlatList, Alert, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -58,9 +58,27 @@ export default function ScheduledRidesScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       <View style={styles.header}>
-        <Ionicons name="arrow-back" size={22} color={colors.onSurface} onPress={() => goBack()} />
-        <Text style={styles.title}>Scheduled Rides</Text>
-        <View style={{ width: 22 }} />
+        <Pressable
+          onPress={() => goBack()}
+          style={styles.headerBtn}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
+          <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
+        </Pressable>
+        <Text style={styles.title}>Scheduled rides</Text>
+        {/* Booking another is the next thing a rider on this page wants —
+            Uber Reserve keeps "+ Reserve" right here. */}
+        <Pressable
+          onPress={() => goDeeper('/ride/schedule')}
+          style={[styles.headerBtn, { backgroundColor: `${colors.primary}1F` }]}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Schedule another ride"
+        >
+          <Ionicons name="add" size={22} color={colors.primary} />
+        </Pressable>
       </View>
 
       <FlatList
@@ -154,19 +172,27 @@ export default function ScheduledRidesScreen() {
             />
           ) : null
         }
-        renderItem={({ item }) => (
+        renderItem={({ item }) => {
+          const tone =
+            item.status === 'MATCHED' ? colors.statusSuccess
+            : item.status === 'CANCELLED' || item.status === 'EXPIRED' ? colors.onSurfaceVariant
+            : colors.primary;
+          const [dd, mon] = dayMonth(item.scheduledAt).split(' ');
+          return (
           <View style={styles.card}>
-            <View style={{ flex: 1 }}>
-              <View style={styles.destRow}>
-                <Ionicons name="navigate-outline" size={13} color={colors.onSurfaceVariant} />
-                <Text style={styles.route} numberOfLines={1}>
-                  {item.route?.destinationName ?? 'Destination'}
-                </Text>
-              </View>
-              <Text style={styles.meta}>
-                {shortDateTime(item.scheduledAt)}
-                {'  ·  '}{item.seatCount} seat{item.seatCount > 1 ? 's' : ''}
-                {item.route?.distanceKm != null ? `  ·  ${item.route.distanceKm.toFixed(1)} km` : ''}
+            {/* The date as a calendar tile — scanned before anything else. */}
+            <View style={[styles.dateTile, { borderColor: `${tone}55` }]}>
+              <Text style={[styles.dateTileMon, { color: tone }]}>{(mon ?? '').toUpperCase()}</Text>
+              <Text style={styles.dateTileDay}>{dd}</Text>
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={styles.route} numberOfLines={1}>
+                {item.route?.destinationName ?? 'Destination'}
+              </Text>
+              <Text style={styles.meta} numberOfLines={1}>
+                {weekdayShort(item.scheduledAt)} · {clockTime(item.scheduledAt)}
+                {' · '}{item.seatCount} seat{item.seatCount > 1 ? 's' : ''}
+                {item.route?.distanceKm != null ? ` · ${item.route.distanceKm.toFixed(1)} km` : ''}
               </Text>
               {item.matchedTrip ? (
                 <Text style={styles.meta}>
@@ -175,9 +201,12 @@ export default function ScheduledRidesScreen() {
                   {'  ·  '}{formatGhs(item.matchedTrip.farePerSeatPesewas)}/seat
                 </Text>
               ) : null}
-              <Text style={[styles.status, { color: item.status === 'MATCHED' ? colors.statusSuccess : colors.onSurfaceVariant }]}>
-                {STATUS_LABEL[item.status] ?? item.status}
-              </Text>
+              <View style={[styles.statusPill, { backgroundColor: `${tone}1A` }]}>
+                <View style={[styles.statusDot, { backgroundColor: tone }]} />
+                <Text style={[styles.status, { color: tone }]} numberOfLines={1}>
+                  {STATUS_LABEL[item.status] ?? item.status}
+                </Text>
+              </View>
             </View>
             {(item.status === 'PENDING' || item.status === 'DISPATCHED') && (
               <Button
@@ -194,11 +223,14 @@ export default function ScheduledRidesScreen() {
                   )
                 }
                 disabled={cancel.isPending}
+                fullWidth={false}
+                size="sm"
                 style={{ paddingHorizontal: spacing.md }}
               />
             )}
           </View>
-        )}
+          );
+        }}
       />
     </SafeAreaView>
   );
@@ -206,11 +238,19 @@ export default function ScheduledRidesScreen() {
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.background },
+  headerBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surfaceContainerHigh,
+  },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: spacing.xl, paddingVertical: spacing.md,
   },
-  title: { fontFamily: fonts.displayBold, fontSize: fontSizes.titleLarge, color: colors.onSurface },
+  title: { fontFamily: fonts.displaySemiBold, fontSize: fontSizes.titleSmall, color: colors.onSurface },
   // paddingTop reserves room for the live card's glow bloom (a shadowRadius-36
   // iOS shadow). Without it the scroll container clipped the top of the halo
   // and the card read as cut off — same fix as the Activity tab's lists.
@@ -222,14 +262,25 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   empty: { textAlign: 'center', marginTop: spacing['3xl'], color: colors.onSurfaceVariant, fontFamily: fonts.regular },
   card: {
-    flexDirection: 'row', alignItems: 'center',
-    backgroundColor: colors.surfaceContainer, borderRadius: radii.lg,
-    padding: spacing.lg, borderWidth: 1, borderColor: colors.outlineVariant,
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+    backgroundColor: colors.surfaceContainer, borderRadius: radii.xl,
+    padding: spacing.base, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.outlineVariant,
   },
+  dateTile: {
+    width: 52, height: 56, borderRadius: radii.lg, borderWidth: 1,
+    alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceContainerHigh,
+  },
+  dateTileMon: { fontFamily: fonts.semiBold, fontSize: 10, letterSpacing: 0.8 },
+  dateTileDay: { fontFamily: fonts.displayBold, fontSize: fontSizes.titleMedium, lineHeight: fontSizes.titleMedium + 4, color: colors.onSurface },
+  statusPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start',
+    paddingHorizontal: 8, paddingVertical: 3, borderRadius: radii.full, marginTop: 2,
+  },
+  statusDot: { width: 6, height: 6, borderRadius: 3 },
   destRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 4 },
-  route: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodyLarge, color: colors.onSurface },
+  route: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodyLarge, color: colors.onSurface, marginBottom: 2 },
   meta: { fontFamily: fonts.regular, fontSize: fontSizes.bodySmall, color: colors.onSurfaceVariant, marginBottom: 4 },
-  status: { fontFamily: fonts.medium, fontSize: fontSizes.caption },
+  status: { fontFamily: fonts.semiBold, fontSize: fontSizes.caption },
   liveCard: {
     padding: spacing.lg,
     marginBottom: spacing.lg,
