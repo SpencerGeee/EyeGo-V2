@@ -29,6 +29,14 @@ export interface AwayOutcome {
   cancelled?: number;
   documentType?: string;
   reason?: string | null;
+  /** Rider COMPLETED: already rated — the inbox lists it, the away sheet skips it. */
+  rated?: boolean;
+  /** SUPPORT_REPLY */
+  ticketId?: string;
+  subject?: string | null;
+  category?: string | null;
+  from?: string;
+  preview?: string;
 }
 
 /**
@@ -126,9 +134,9 @@ export const bookingsApi = {
     apiClient.get<ApiResponse<Booking | null>>('/bookings/active'),
 
   /** What ended or changed while the app was closed (48 h). See away-outcomes.service. */
-  outcomes: (sinceMs?: number) =>
+  outcomes: (sinceMs?: number, days?: number) =>
     apiClient.get<ApiResponse<{ outcomes: AwayOutcome[] }>>('/bookings/outcomes', {
-      params: sinceMs ? { since: sinceMs } : undefined,
+      params: { since: sinceMs || undefined, days },
     }),
 
   getHistory: (params?: { page?: number; limit?: number; status?: string }) =>

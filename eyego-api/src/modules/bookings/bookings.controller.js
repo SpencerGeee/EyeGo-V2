@@ -252,7 +252,7 @@ const getActiveBooking = async (req, res) => {
 
 /** What ended, refunded or changed while the app was closed. See away-outcomes.service. */
 const getOutcomes = async (req, res) => {
-  const outcomes = await require('../../services/away-outcomes.service').forRider(req.user.userId, req.query.since);
+  const outcomes = await require('../../services/away-outcomes.service').forRider(req.user.userId, req.query.since, { days: req.query.days });
   ok(res, { outcomes });
 };
 

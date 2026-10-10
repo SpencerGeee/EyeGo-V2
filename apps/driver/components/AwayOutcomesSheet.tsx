@@ -18,10 +18,15 @@ import { OutcomeSheet, goDeeper } from '@eyego/ui';
  * On cold start and every foreground: read the server's last 48 h
  * (away-outcomes.service), drop what this device already showed, present the
  * rest one sheet at a time, newest first.
+ *
+ * Facts from the last foreground stretch are NOT shown: the driver was looking,
+ * and DriverTripStatusListener already bannered them ("A passenger cancelled",
+ * "Kofi took seat 3"). Without that, every banner came back a second time on
+ * the next return as "while you were away". They stay in the inbox.
  */
 
 type Icon = keyof typeof Ionicons.glyphMap;
-type Present = {
+export type Present = {
   icon: Icon;
   tone: 'bad' | 'neutral' | 'good';
   title: string;
@@ -32,17 +37,37 @@ type Present = {
 
 const SEEN_KEY = 'eyego.driver.awaySeen.v1';
 const MIN_GAP_MS = 30_000;
+/** Inbox-only: the driver did these themselves. */
+const NOT_FOR_SHEET = new Set(['TRIP_COMPLETED']);
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
 const docName = (t?: string) => (t ? t.toLowerCase().replace(/_/g, ' ') : 'document');
 const toWhere = (o: AwayOutcome) => (o.destination ? ` to ${o.destination}` : '');
 
-function present(o: AwayOutcome): Present | null {
+type Seen = { keys: string[]; lastAtMs: number; liveFrom?: number; liveTo?: number };
+
+export async function loadDriverSeen(): Promise<Seen> {
+  const raw = await AsyncStorage.getItem(SEEN_KEY).catch(() => null);
+  try {
+    return raw ? { keys: [], lastAtMs: 0, ...JSON.parse(raw) } : { keys: [], lastAtMs: 0 };
+  } catch {
+    return { keys: [], lastAtMs: 0 };
+  }
+}
+
+async function saveSeen(patch: Partial<Seen>): Promise<void> {
+  const cur = await loadDriverSeen();
+  const next = { ...cur, ...patch, keys: (patch.keys ?? cur.keys).slice(-300) };
+  await AsyncStorage.setItem(SEEN_KEY, JSON.stringify(next)).catch(() => {});
+}
+
+/** The words for one fact — shared by this sheet and the Alerts inbox. */
+export function present(o: AwayOutcome): Present | null {
   const amount = o.amountPesewas != null ? formatGhs(o.amountPesewas) : null;
   switch (o.kind) {
     case 'RIDER_CANCELLED':
       return {
         icon: 'person-remove-outline', tone: 'bad', title: 'The rider cancelled',
-        body: `Your trip${toWhere(o)} was cancelled by the rider while the app was closed. You're free for new requests.`,
+        body: `Your trip${toWhere(o)} was cancelled by the rider. You're free for new requests.`,
         cta: 'See my trips', go: '/(tabs)/trips',
       };
     case 'TRIP_CANCELLED_BY_EYEGO':
@@ -56,6 +81,12 @@ function present(o: AwayOutcome): Present | null {
         icon: 'hourglass-outline', tone: 'neutral', title: 'A trip was closed',
         body: `Your trip${toWhere(o)} passed its time without starting, so it was closed automatically.`,
         cta: 'See my trips', go: '/(tabs)/trips',
+      };
+    case 'TRIP_COMPLETED':
+      return {
+        icon: 'checkmark-circle-outline', tone: 'good', title: 'Trip completed',
+        body: `Your trip${toWhere(o)} is complete.`,
+        cta: 'View trip', go: o.tripId ? `/(trip)/complete/${o.tripId}` : '/(tabs)/trips',
       };
     case 'SEATS_CHANGED': {
       const booked = o.booked ?? 0;
@@ -80,6 +111,11 @@ function present(o: AwayOutcome): Present | null {
         icon: 'trophy-outline', tone: 'good', title: 'Bonus earned',
         body: `${amount ?? 'A quest bonus'} was added to your wallet.`, cta: 'View earnings', go: '/(tabs)/earnings',
       };
+    case 'PAYOUT_COMPLETED':
+      return {
+        icon: 'cash-outline', tone: 'good', title: 'Cash-out complete',
+        body: `${amount ?? 'Your withdrawal'} was sent to your payout account.`, cta: 'View earnings', go: '/(tabs)/earnings',
+      };
     case 'PAYOUT_FAILED':
       return {
         icon: 'card-outline', tone: 'bad', title: 'A payout didn’t go through',
@@ -97,6 +133,17 @@ function present(o: AwayOutcome): Present | null {
         body: `Your ${docName(o.documentType)} was not accepted${o.reason ? `: ${o.reason}` : ''}. Upload a new one to stay on the road.`,
         cta: 'Fix it', go: '/(profile)/documents',
       };
+    case 'SUPPORT_REPLY':
+      return {
+        icon: 'chatbubbles-outline', tone: 'neutral', title: 'Support replied',
+        body: o.preview ?? 'There’s a new reply on your support request.',
+        cta: 'Read reply', go: `/(profile)/help${o.ticketId ? `?ticket=${o.ticketId}` : ''}`,
+      };
+    case 'REPORT_RESOLVED':
+      return {
+        icon: 'shield-checkmark-outline', tone: 'neutral', title: 'Your report was reviewed',
+        body: 'Support has reviewed the trip report you filed. Thanks for flagging it.', cta: 'Done',
+      };
     default:
       return null;
   }
@@ -108,20 +155,22 @@ export function AwayOutcomesSheet() {
   const lastRun = useRef(0);
 
   useEffect(() => {
+    let foregroundSince = Date.now();
     const run = async () => {
       if (busy.current || Date.now() - lastRun.current < MIN_GAP_MS) return;
       busy.current = true;
       lastRun.current = Date.now();
       try {
-        const raw = await AsyncStorage.getItem(SEEN_KEY).catch(() => null);
-        const seen: { keys: string[]; lastAtMs: number } = raw ? JSON.parse(raw) : { keys: [], lastAtMs: 0 };
+        const seen = await loadDriverSeen();
         const res = await driverApi.outcomes(seen.lastAtMs ? seen.lastAtMs - 5 * 60_000 : undefined);
         const list: AwayOutcome[] = (res.data as any)?.data?.outcomes ?? [];
-        const fresh = list.filter((o) => !seen.keys.includes(o.key) && present(o));
-        await AsyncStorage.setItem(
-          SEEN_KEY,
-          JSON.stringify({ keys: [...seen.keys, ...fresh.map((o) => o.key)].slice(-300), lastAtMs: Date.now() }),
-        ).catch(() => {});
+        const unseen = list.filter((o) => !seen.keys.includes(o.key));
+        const whileLooking = (o: AwayOutcome) => {
+          const t = Date.parse(o.at);
+          return !!seen.liveTo && t >= (seen.liveFrom ?? 0) && t <= seen.liveTo;
+        };
+        const fresh = unseen.filter((o) => present(o) && !NOT_FOR_SHEET.has(o.kind) && !whileLooking(o));
+        await saveSeen({ keys: [...seen.keys, ...unseen.map((o) => o.key)], lastAtMs: Date.now() });
         if (fresh.length) setQueue((q) => [...q, ...fresh]);
       } catch {
         // Offline — the next foreground asks again.
@@ -131,7 +180,12 @@ export function AwayOutcomesSheet() {
     };
     void run();
     const sub = AppState.addEventListener('change', (s) => {
-      if (s === 'active') void run();
+      if (s === 'active') {
+        foregroundSince = Date.now();
+        void run();
+      } else if (s === 'background') {
+        void saveSeen({ liveFrom: foregroundSince, liveTo: Date.now() });
+      }
     });
     return () => sub.remove();
   }, []);

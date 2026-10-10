@@ -26,10 +26,10 @@ describe('riderBookingOutcome — what a closed app is owed on reopen', () => {
   it('the rider’s own cancellation is not news', () => {
     expect(riderBookingOutcome(booking({ status: 'CANCELLED' }, { status: 'CANCELLED', cancelledBy: 'RIDER' }), new Set())).toBeNull();
   });
-  it('a completed ride is owed only while unrated', () => {
+  it('a completed ride is listed either way, flagged once rated (the sheet skips rated ones)', () => {
     const done = booking({ status: 'COMPLETED' }, { status: 'COMPLETED' });
-    expect(riderBookingOutcome(done, new Set()).kind).toBe('COMPLETED');
-    expect(riderBookingOutcome(done, new Set(['t1']))).toBeNull();
+    expect(riderBookingOutcome(done, new Set())).toMatchObject({ kind: 'COMPLETED', rated: false });
+    expect(riderBookingOutcome(done, new Set(['t1']))).toMatchObject({ kind: 'COMPLETED', rated: true });
   });
   it('an expired hold is a released seat, not a cancellation', () => {
     const o = riderBookingOutcome(booking({ status: 'CANCELLED', paymentStatus: 'PENDING', cancellationReason: 'HOLD_EXPIRED' }), new Set());

@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { View, StyleSheet, ScrollView, Linking, TextInput, Modal, KeyboardAvoidingView, Platform, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useLocalSearchParams } from 'expo-router';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -73,7 +74,9 @@ export default function HelpScreen() {
   const [bookingId, setBookingId] = useState<string | null>(null);
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
-  const [openId, setOpenId] = useState<string | null>(null);
+  // `?ticket=` — a support-reply notification opens its thread directly.
+  const { ticket: ticketParam } = useLocalSearchParams<{ ticket?: string }>();
+  const [openId, setOpenId] = useState<string | null>(ticketParam ?? null);
   const [reply, setReply] = useState('');
 
   const tripsQ = useQuery({

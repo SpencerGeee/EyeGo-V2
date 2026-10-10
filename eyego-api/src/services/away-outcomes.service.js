@@ -18,17 +18,46 @@ const prisma = require('../config/database');
  * decides what was "seen" — that is per device, and showing a ride's ending on
  * a second phone is correct, not a duplicate.
  *
- * Read-only and cheap: four indexed `findMany`s, no writes, safe to call on
- * every foreground.
+ * Read-only and cheap: a handful of indexed `findMany`s, no writes, safe to
+ * call on every foreground.
+ *
+ * ── AND THE INBOX ───────────────────────────────────────────────────────────
+ * Both apps' notification inboxes used to be derived feeds of their own
+ * (bookings → "Seat booked!", trips → "Trip completed") with mark-read routes
+ * that did nothing and an unread count that counted PAID bookings forever. The
+ * inbox is now this same list over `days` (≤ 30), worded by the same client
+ * presenters as the away sheets — one source of "what happened to me".
  */
 
 const WINDOW_MS = 48 * 60 * 60 * 1000;
+const MAX_DAYS = 30;
 const TAKE = 20;
 
-function sinceDate(sinceMs) {
-  const floor = Date.now() - WINDOW_MS;
+/** `days` widens the window for the inbox; the away sheet keeps 48 h. */
+function sinceDate(sinceMs, days) {
+  const d = Number(days);
+  const windowMs = Number.isFinite(d) && d > 0 ? Math.min(d, MAX_DAYS) * 86_400_000 : WINDOW_MS;
+  const floor = Date.now() - windowMs;
   const s = Number(sinceMs);
   return new Date(Number.isFinite(s) && s > floor ? s : floor);
+}
+
+/**
+ * Someone else wrote on one of this person's tickets — support, or (lost item)
+ * the driver. `ownRoles` are the roles this person writes under themselves.
+ */
+async function supportReplies(ticketWhere, ownRoles, since) {
+  const replies = await prisma.ticketMessage.findMany({
+    where: { createdAt: { gte: since }, senderRole: { notIn: ownRoles }, ticket: ticketWhere },
+    select: { id: true, ticketId: true, text: true, senderRole: true, createdAt: true, ticket: { select: { subject: true, category: true } } },
+    orderBy: { createdAt: 'desc' },
+    take: 10,
+  });
+  return replies.map((m) => ({
+    key: `SUPPORT_REPLY:${m.id}`, kind: 'SUPPORT_REPLY', at: m.createdAt, ticketId: m.ticketId,
+    subject: m.ticket?.subject ?? null, category: m.ticket?.category ?? null, from: m.senderRole,
+    preview: m.text.length > 140 ? `${m.text.slice(0, 137)}…` : m.text,
+  }));
 }
 
 const dest = (b) => b.dropoffAddress ?? b.trip?.dropoffAddress ?? b.trip?.route?.destinationName ?? null;
@@ -52,10 +81,10 @@ function riderBookingOutcome(b, ratedTripIds) {
   if (b.cancellationReason === 'DRIVER_DECLINED') return { kind: 'DRIVER_CANCELLED', at: b.updatedAt, ...base };
   switch (t?.status) {
     case 'COMPLETED':
-      // Only a ride they actually took, and only while a rating is still owed.
+      // Only a ride they actually took. `rated` lets the away sheet skip a ride
+      // they already rated while the inbox still lists it.
       if (!['COMPLETED', 'BOARDED', 'PAID', 'CONFIRMED'].includes(b.status)) return null;
-      if (ratedTripIds.has(b.tripId)) return null;
-      return { kind: 'COMPLETED', at: t.updatedAt, ...base };
+      return { kind: 'COMPLETED', at: t.updatedAt, rated: ratedTripIds.has(b.tripId), ...base };
     case 'NO_SHOW':
       return { kind: 'DRIVER_NO_SHOW', at: t.updatedAt, ...base };
     case 'NO_DRIVERS_FOUND':
@@ -74,9 +103,9 @@ function riderBookingOutcome(b, ratedTripIds) {
   }
 }
 
-async function forRider(userId, sinceMs) {
-  const since = sinceDate(sinceMs);
-  const [bookings, requests, intents, refunds, ratings] = await Promise.all([
+async function forRider(userId, sinceMs, { days } = {}) {
+  const since = sinceDate(sinceMs, days);
+  const [bookings, requests, intents, refunds, ratings, replies, received] = await Promise.all([
     prisma.booking.findMany({
       where: {
         userId,
@@ -98,7 +127,7 @@ async function forRider(userId, sinceMs) {
         },
       },
       orderBy: { updatedAt: 'desc' },
-      take: TAKE,
+      take: days ? 50 : TAKE,
     }),
     // An on-demand request that ended before any booking existed.
     prisma.trip.findMany({
@@ -124,7 +153,17 @@ async function forRider(userId, sinceMs) {
       orderBy: { updatedAt: 'desc' },
       take: 5,
     }),
-    prisma.driverRating.findMany({ where: { userId, createdAt: { gte: since } }, select: { tripId: true } }),
+    // Not windowed: a ride rated before the window opened is still rated.
+    prisma.driverRating.findMany({ where: { userId, createdAt: { gte: new Date(since.getTime() - 7 * 86_400_000) } }, select: { tripId: true } }),
+    // A driver's own tickets also carry a shadow userId — those are not the rider's.
+    supportReplies({ userId, driverId: null }, ['USER'], since),
+    // Ride credits sent by another rider (send-money). The push is pref-gated.
+    prisma.paymentTransaction.findMany({
+      where: { userId, status: 'SUCCESS', createdAt: { gte: since }, gatewayResponse: { startsWith: 'P2P_RECEIVE' } },
+      select: { id: true, amountPesewas: true, createdAt: true },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+    }),
   ]);
 
   const rated = new Set(ratings.map((r) => r.tripId));
@@ -150,13 +189,17 @@ async function forRider(userId, sinceMs) {
       bookingId: r.bookingId, amountPesewas: r.amountPesewas,
     });
   }
+  items.push(...replies);
+  for (const p of received) {
+    items.push({ key: `MONEY_RECEIVED:${p.id}`, kind: 'MONEY_RECEIVED', at: p.createdAt, amountPesewas: p.amountPesewas });
+  }
   return sortNewestFirst(items);
 }
 
 /** The driver's side: their trips ending, their passengers moving, their money. */
-async function forDriver(driverId, sinceMs) {
-  const since = sinceDate(sinceMs);
-  const [ended, seatChanges, wallet, documents] = await Promise.all([
+async function forDriver(driverId, sinceMs, { days } = {}) {
+  const since = sinceDate(sinceMs, days);
+  const [ended, seatChanges, wallet, documents, replies, reports] = await Promise.all([
     prisma.trip.findMany({
       where: {
         driverId,
@@ -166,14 +209,16 @@ async function forDriver(driverId, sinceMs) {
           { status: 'CANCELLED', cancelledBy: { in: ['RIDER', 'SYSTEM', 'ADMIN'] } },
           { status: 'CANCELLED', cancelledBy: null },
           { status: 'EXPIRED' },
+          // The driver ended these themselves — the inbox lists them, the sheet doesn't.
+          { status: 'COMPLETED' },
         ],
       },
       select: {
-        id: true, status: true, cancelledBy: true, cancelledAt: true, updatedAt: true, departureTime: true,
+        id: true, status: true, cancelledBy: true, cancelledAt: true, completedAt: true, updatedAt: true, departureTime: true,
         dropoffAddress: true, route: { select: { destinationName: true } },
       },
       orderBy: { updatedAt: 'desc' },
-      take: 10,
+      take: days ? 40 : 10,
     }),
     // Seats taken and given back on trips that are still ahead of them.
     prisma.booking.findMany({
@@ -186,7 +231,15 @@ async function forDriver(driverId, sinceMs) {
       take: 200,
     }),
     prisma.walletTransaction.findMany({
-      where: { driverId, createdAt: { gte: since }, type: { in: ['TIP', 'WITHDRAWAL_REVERSAL', 'QUEST_BONUS'] } },
+      where: {
+        driverId,
+        createdAt: { gte: since },
+        OR: [
+          { type: { in: ['TIP', 'WITHDRAWAL_REVERSAL', 'QUEST_BONUS'] } },
+          // payouts.service rewrites the description on `transfer.success`.
+          { type: 'WITHDRAWAL', description: 'Withdrawal completed' },
+        ],
+      },
       select: { id: true, type: true, amountPesewas: true, tripId: true, createdAt: true },
       orderBy: { createdAt: 'desc' },
       take: 10,
@@ -196,13 +249,25 @@ async function forDriver(driverId, sinceMs) {
       select: { id: true, type: true, status: true, rejectionReason: true, reviewedAt: true },
       take: 10,
     }),
+    supportReplies({ driverId }, ['USER', 'DRIVER'], since),
+    // A report the driver filed (unruly passenger, damage…) that support closed.
+    prisma.tripReport.findMany({
+      where: { driverId, resolvedAt: { gte: since } },
+      select: { id: true, tripId: true, type: true, resolvedAt: true },
+      take: 5,
+    }),
   ]);
 
+  const WALLET_KIND = { TIP: 'TIP_RECEIVED', QUEST_BONUS: 'BONUS_RECEIVED', WITHDRAWAL_REVERSAL: 'PAYOUT_FAILED', WITHDRAWAL: 'PAYOUT_COMPLETED' };
   const items = [];
   for (const t of ended) {
-    const kind = t.status === 'EXPIRED' ? 'TRIP_EXPIRED' : t.cancelledBy === 'RIDER' ? 'RIDER_CANCELLED' : 'TRIP_CANCELLED_BY_EYEGO';
+    const kind =
+      t.status === 'COMPLETED' ? 'TRIP_COMPLETED'
+      : t.status === 'EXPIRED' ? 'TRIP_EXPIRED'
+      : t.cancelledBy === 'RIDER' ? 'RIDER_CANCELLED'
+      : 'TRIP_CANCELLED_BY_EYEGO';
     items.push({
-      key: `${kind}:${t.id}`, kind, at: t.cancelledAt ?? t.updatedAt, tripId: t.id,
+      key: `${kind}:${t.id}`, kind, at: t.completedAt ?? t.cancelledAt ?? t.updatedAt, tripId: t.id,
       destination: t.route?.destinationName ?? t.dropoffAddress ?? null, departureTime: t.departureTime,
     });
   }
@@ -229,12 +294,16 @@ async function forDriver(driverId, sinceMs) {
   }
 
   for (const w of wallet) {
-    const kind = w.type === 'TIP' ? 'TIP_RECEIVED' : w.type === 'QUEST_BONUS' ? 'BONUS_RECEIVED' : 'PAYOUT_FAILED';
+    const kind = WALLET_KIND[w.type];
     items.push({ key: `${kind}:${w.id}`, kind, at: w.createdAt, tripId: w.tripId ?? null, amountPesewas: Math.abs(w.amountPesewas) });
   }
   for (const d of documents) {
     const kind = d.status === 'APPROVED' ? 'DOCUMENT_APPROVED' : 'DOCUMENT_REJECTED';
     items.push({ key: `${kind}:${d.id}`, kind, at: d.reviewedAt, documentType: d.type, reason: d.rejectionReason ?? null });
+  }
+  items.push(...replies);
+  for (const r of reports) {
+    items.push({ key: `REPORT_RESOLVED:${r.id}`, kind: 'REPORT_RESOLVED', at: r.resolvedAt, tripId: r.tripId, reason: r.type });
   }
   return sortNewestFirst(items);
 }

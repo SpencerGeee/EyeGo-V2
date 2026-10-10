@@ -1,6 +1,7 @@
 import React from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { formatGhs, shortDateTime } from '@eyego/utils';
+import type { AwayOutcome } from '@eyego/api';
 // Pressable-based, from @eyego/ui — see OutcomeSheet for the composition.
 import { OutcomeSheet, goDeeper } from '@eyego/ui';
 
@@ -118,13 +119,66 @@ function copyFor(n: RideEndedNotice): Copy {
       cta: n.tripId ? 'View receipt' : 'Done',
       tone: 'good',
     },
+    SUPPORT_REPLY: {
+      title: 'Support replied',
+      body: n.preview ?? 'There’s a new reply on your support request.',
+      icon: 'chatbubbles-outline',
+      cta: 'Read reply',
+      tone: 'neutral',
+    },
+    MONEY_RECEIVED: {
+      title: 'You received ride credits',
+      body:
+        n.amountPesewas != null
+          ? `${formatGhs(n.amountPesewas)} was added to your EyeGo wallet.`
+          : 'Ride credits were added to your EyeGo wallet.',
+      icon: 'wallet-outline',
+      cta: 'View wallet',
+      tone: 'good',
+    },
   };
   return COPY[n.reason];
 }
 
+/**
+ * The inbox's words for one away-outcome — the sheet's own copy, so the two
+ * can never describe the same fact differently. A completed ride in the inbox
+ * is history, not "while the app was closed".
+ */
+export function describeOutcome(o: AwayOutcome): Pick<Copy, 'title' | 'body' | 'icon' | 'tone'> {
+  if (o.kind === 'COMPLETED') {
+    return {
+      title: 'Trip completed',
+      body: o.destination ? `Your trip to ${o.destination} is complete.` : 'Your trip is complete.',
+      icon: 'checkmark-circle-outline',
+      tone: 'good',
+    };
+  }
+  const c = copyFor(noticeOf(o));
+  return c ? { title: c.title, body: c.body, icon: c.icon, tone: c.tone } : { title: 'Update', body: '', icon: 'notifications-outline', tone: 'neutral' };
+}
+
+/** An away-outcome as the notice the sheet presents. */
+export function noticeOf(o: AwayOutcome): RideEndedNotice {
+  return {
+    reason: o.kind as RideEndedReason,
+    refunded: o.money === 'REFUNDED',
+    money: o.money,
+    destinationLabel: o.destination ?? null,
+    journey: null,
+    tripId: o.tripId ?? null,
+    bookingId: o.bookingId ?? null,
+    amountPesewas: o.amountPesewas,
+    scheduledAt: o.scheduledAt ?? null,
+    ticketId: o.ticketId ?? null,
+    preview: o.preview ?? null,
+    atMs: Date.now(),
+  };
+}
+
 /** The money line — only where the ending touches money, and never guessed. */
 function moneyFor(n: RideEndedNotice): { icon: Icon; text: string; good?: boolean } | null {
-  if (['SCHEDULED_MATCHED', 'REFUND_ISSUED', 'COMPLETED'].includes(n.reason)) return null;
+  if (['SCHEDULED_MATCHED', 'REFUND_ISSUED', 'COMPLETED', 'SUPPORT_REPLY', 'MONEY_RECEIVED'].includes(n.reason)) return null;
   if (n.reason === 'RIDER_NO_SHOW' && n.money !== 'NOT_CHARGED') {
     return { icon: 'information-circle-outline', text: 'No-show seats aren’t refunded. If you were at the pickup, tell us and we’ll look into it.' };
   }
@@ -183,6 +237,10 @@ export function RideEndedSheet() {
       case 'REFUND_ISSUED':
         if (tripId) return goDeeper(`/ride/${tripId}/complete?viewOnly=1` as never);
         return;
+      case 'SUPPORT_REPLY':
+        return goDeeper(`/profile/help${notice.ticketId ? `?ticket=${notice.ticketId}` : ''}` as never);
+      case 'MONEY_RECEIVED':
+        return goDeeper('/profile/wallet' as never);
       default:
         return rebook();
     }

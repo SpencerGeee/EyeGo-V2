@@ -76,7 +76,7 @@ const getActiveTrip = async (req, res) => {
 
 /** Trips ended, seats moved and money that happened while the app was closed. See away-outcomes.service. */
 const getOutcomes = async (req, res) => {
-  const outcomes = await require('../../services/away-outcomes.service').forDriver(req.user.userId, req.query.since);
+  const outcomes = await require('../../services/away-outcomes.service').forDriver(req.user.userId, req.query.since, { days: req.query.days });
   ok(res, { outcomes });
 };
 
@@ -535,14 +535,17 @@ const emergencyAlert = async (req, res) => {
         include: { bookings: { where: { ...seatOccupyingWhere() }, include: { user: { select: { fcmToken: true } } } } },
       });
 
-      const ticket = await prisma.supportTicket.create({
+      const ticketUser = await driversService.ticketUserFor(driverId).catch(() => null);
+      const ticket = ticketUser && await prisma.supportTicket.create({
         data: {
-          userId: driverId,
+          userId: ticketUser.id,
           driverId,
           subject: `🚨 DRIVER EMERGENCY ALERT — Trip #${tripId.slice(0, 8)}`,
           status: 'URGENT',
+          priority: 'URGENT',
+          category: 'SAFETY',
         },
-      }).catch(() => null);
+      }).catch((e) => { logger.error('Driver SOS ticket not created', { driverId, tripId, error: e.message }); return null; });
       if (ticket) {
         await prisma.ticketMessage.create({
           data: {

@@ -374,9 +374,9 @@ export const driverApi = {
     apiClient.get<ApiResponse<{ trip: DriverTrip } | null>>('/driver/trips/active'),
 
   /** Trips ended, seats moved, money — while the app was closed. See away-outcomes.service. */
-  outcomes: (sinceMs?: number) =>
+  outcomes: (sinceMs?: number, days?: number) =>
     apiClient.get<ApiResponse<{ outcomes: AwayOutcome[] }>>('/driver/outcomes', {
-      params: sinceMs ? { since: sinceMs } : undefined,
+      params: { since: sinceMs || undefined, days },
     }),
 
   startTrip: (tripId: string) =>

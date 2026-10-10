@@ -2835,7 +2835,7 @@ module.exports = {
   setDestinationFilter, getDestinationFilter, deleteDestinationFilter,
   startShift, endShift, getCurrentShift, getShiftHistory,
   getEarningsBreakdown, getWalletTransactions,
-  getSupportTickets, createSupportTicket, replyToTicket,
+  getSupportTickets, createSupportTicket, replyToTicket, ticketUserFor,
   scheduleInspection, getInspections,
   deleteMe, reportTrip,
   getPendingTripRequests, getUpcomingScheduledTrips, claimReassignedTrip,
@@ -3571,6 +3571,21 @@ async function getWalletTransactions(driverId, page = 1, limit = 20) {
 
 const DRIVER_TICKET_CATEGORIES = ['GENERAL', 'PAYMENT', 'TRIP', 'ACCOUNT', 'TECHNICAL', 'LOST_ITEM'];
 
+/**
+ * SupportTicket.userId is a User FK, and a driver is not a User. Every driver
+ * ticket hangs off a User row with the driver's phone (found, or made here).
+ * The driver SOS path wrote `userId: driverId` instead — the FK refused it and
+ * a `.catch(() => null)` hid that, so no SOS ever reached the support queue.
+ */
+async function ticketUserFor(driverId) {
+  const driver = await prisma.driver.findUnique({ where: { id: driverId } });
+  if (!driver) throw new NotFoundError('Driver');
+  return (
+    (await prisma.user.findUnique({ where: { phone: driver.phone } })) ??
+    prisma.user.create({ data: { phone: driver.phone, name: driver.name || 'Driver' } })
+  );
+}
+
 async function createSupportTicket(driverId, { subject, category, description }) {
   if (!String(subject ?? '').trim() || !String(description ?? '').trim()) {
     throw new AppError('Subject and description are required', 400);
@@ -3578,20 +3593,7 @@ async function createSupportTicket(driverId, { subject, category, description })
   // Free text went straight into the column; the admin queue filters on it.
   category = DRIVER_TICKET_CATEGORIES.includes(category) ? category : 'GENERAL';
 
-  // Create a user entry for the driver if one doesn't exist
-  const driver = await prisma.driver.findUnique({ where: { id: driverId } });
-  if (!driver) throw new NotFoundError('Driver');
-
-  // Find or create a user record for this driver
-  let user = await prisma.user.findUnique({ where: { phone: driver.phone } });
-  if (!user) {
-    user = await prisma.user.create({
-      data: {
-        phone: driver.phone,
-        name: driver.name || 'Driver',
-      },
-    });
-  }
+  const user = await ticketUserFor(driverId);
 
   return prisma.$transaction(async (tx) => {
     const ticket = await tx.supportTicket.create({

@@ -2,13 +2,15 @@ import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   View,
   StyleSheet,
-  RefreshControl,} from 'react-native';
+  RefreshControl,
+} from 'react-native';
 import Animated from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TAB_BAR_BASE_HEIGHT } from './_layout';
 import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
-import { bookingsApi, notificationsApi, queryKeys } from '@eyego/api';
+import { bookingsApi, queryKeys } from '@eyego/api';
+import { useUnreadNotifications } from '../../hooks/useUnreadNotifications';
 import { relativeTime, formatGhs, shortDateTime } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
@@ -675,17 +677,14 @@ export default function ActivityScreen() {
     refetchOnMount: true,
   });
 
+  // The same inbox as the bell — one source, one read state (useUnreadNotifications).
   const {
-    data: notifications,
+    notifications,
     isLoading: notifsLoading,
     isError: notifsError,
     isRefetching: notifsRefetching,
     refetch: refetchNotifs,
-  } = useQuery({
-    queryKey: ['notifications', 'all'],
-    queryFn: () => notificationsApi.getAll({ limit: 50 }),
-    staleTime: 30_000,
-  });
+  } = useUnreadNotifications();
 
   const {
     data: scheduledData,
@@ -741,14 +740,7 @@ export default function ActivityScreen() {
       : [];
   }, [bookings]);
 
-  const rawNotifs: any[] = useMemo(() => {
-    const body = (notifications as any)?.data;
-    return Array.isArray(body?.data?.notifications)
-      ? body.data.notifications
-      : Array.isArray(body?.data)
-      ? body.data
-      : [];
-  }, [notifications]);
+  const rawNotifs: any[] = notifications;
 
   const tripSections = useMemo(() => {
     const items: FeedEntry[] = rawBookings
@@ -777,7 +769,7 @@ export default function ActivityScreen() {
   // A failed load is not an empty history — say so, with a retry.
   const loadFailed =
     filter === 'trips' ? bookingsError && !bookings :
-    filter === 'alerts' ? notifsError && !notifications :
+    filter === 'alerts' ? notifsError :
     scheduledError && !scheduledData;
 
   const onRefresh = useCallback(() => {

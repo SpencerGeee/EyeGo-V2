@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { useLocalSearchParams } from 'expo-router';
 import { View, StyleSheet, ScrollView, Linking, Modal, TextInput, KeyboardAvoidingView, Platform, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Animated, { FadeIn } from 'react-native-reanimated';
@@ -55,6 +56,14 @@ export default function HelpScreen() {
     select: (r) => r.data?.data?.tickets ?? [],
   });
   const tickets = ticketsQ.data ?? [];
+
+  // `?ticket=` — a support-reply push or notification opens its thread directly.
+  const { ticket: ticketParam } = useLocalSearchParams<{ ticket?: string }>();
+  useEffect(() => {
+    const t = ticketParam && tickets.find((x) => x.id === ticketParam);
+    if (t) setOpenTicket(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ticketParam, ticketsQ.data]);
 
   const FAQS = [
     {

@@ -45,7 +45,10 @@ export type RideEndedReason =
   | 'COMPLETED'
   | 'SCHEDULED_MATCHED'
   | 'SCHEDULED_EXPIRED'
-  | 'REFUND_ISSUED';
+  | 'REFUND_ISSUED'
+  // Not ride endings: support answered, credits arrived.
+  | 'SUPPORT_REPLY'
+  | 'MONEY_RECEIVED';
 
 /** Enough of a journey to re-request it without asking anything again. */
 export interface RideEndedJourney {
@@ -86,6 +89,9 @@ export interface RideEndedNotice {
   amountPesewas?: number;
   /** ISO time of a scheduled ride, for its copy. */
   scheduledAt?: string | null;
+  /** SUPPORT_REPLY: which thread, and the first words of the answer. */
+  ticketId?: string | null;
+  preview?: string | null;
   /** Set when raised, so a notice cannot outlive the session that made it. */
   atMs: number;
 }
@@ -165,16 +171,22 @@ export function shouldAnnounce(reason: RideEndedReason): boolean {
 
 const SEEN_KEY = 'eyego.awaySeen.v1';
 const SEEN_CAP = 300;
-type Seen = { keys: string[]; trips: string[]; lastAtMs: number };
+/**
+ * `liveFrom`–`liveTo`: the last stretch the app spent in the foreground. A fact
+ * from inside it happened while the rider was looking — told live (banner,
+ * push, the trip surface) — so it is not "while you were away" news.
+ */
+type Seen = { keys: string[]; trips: string[]; lastAtMs: number; liveFrom: number; liveTo: number };
+const EMPTY: Seen = { keys: [], trips: [], lastAtMs: 0, liveFrom: 0, liveTo: 0 };
 let seenCache: Seen | null = null;
 
 export async function loadSeen(): Promise<Seen> {
   if (seenCache) return seenCache;
   try {
     const raw = await AsyncStorage.getItem(SEEN_KEY);
-    seenCache = raw ? { keys: [], trips: [], lastAtMs: 0, ...JSON.parse(raw) } : { keys: [], trips: [], lastAtMs: 0 };
+    seenCache = raw ? { ...EMPTY, ...JSON.parse(raw) } : { ...EMPTY };
   } catch {
-    seenCache = { keys: [], trips: [], lastAtMs: 0 };
+    seenCache = { ...EMPTY };
   }
   return seenCache!;
 }
@@ -182,9 +194,10 @@ export async function loadSeen(): Promise<Seen> {
 export async function saveSeen(patch: Partial<Seen>): Promise<void> {
   const cur = await loadSeen();
   seenCache = {
+    ...cur,
+    ...patch,
     keys: (patch.keys ?? cur.keys).slice(-SEEN_CAP),
     trips: (patch.trips ?? cur.trips).slice(-SEEN_CAP),
-    lastAtMs: patch.lastAtMs ?? cur.lastAtMs,
   };
   await AsyncStorage.setItem(SEEN_KEY, JSON.stringify(seenCache)).catch(() => {});
 }

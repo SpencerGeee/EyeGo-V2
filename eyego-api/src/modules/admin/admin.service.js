@@ -1048,7 +1048,7 @@ async function respondToTicket(ticketId, { text, senderId, senderRole } = {}) {
     await prisma.supportTicket.update({ where: { id: ticketId }, data: { status: 'IN_PROGRESS' } });
   }
 
-  return prisma.ticketMessage.create({
+  const message = await prisma.ticketMessage.create({
     data: {
       ticketId,
       senderId: senderId || 'admin',
@@ -1056,6 +1056,21 @@ async function respondToTicket(ticketId, { text, senderId, senderRole } = {}) {
       text: body,
     },
   });
+
+  // The reply used to sit in the thread until the person happened to open Help.
+  // Driver tickets go to the driver app; the rest to the rider app. A killed
+  // app still learns of it from away-outcomes (SUPPORT_REPLY).
+  const owner = ticket.driverId
+    ? await prisma.driver.findUnique({ where: { id: ticket.driverId }, select: { fcmToken: true } })
+    : await prisma.user.findUnique({ where: { id: ticket.userId }, select: { fcmToken: true } });
+  pushService
+    .sendPush(owner?.fcmToken, 'Support replied', body.length > 120 ? `${body.slice(0, 117)}…` : body, {
+      type: 'SUPPORT_REPLY',
+      ticketId,
+    })
+    .catch(() => {});
+
+  return message;
 }
 
 async function closeTicket(ticketId) {
@@ -1825,10 +1840,19 @@ async function resolveTripReport(id) {
   if (!report) throw new NotFoundError('Trip report');
   if (report.status === 'RESOLVED') return report; // idempotent
   logger.info(`[ADMIN] Trip report ${id} resolved`);
-  return prisma.tripReport.update({
+  const resolved = await prisma.tripReport.update({
     where: { id },
     data: { status: 'RESOLVED', resolvedAt: new Date() },
   });
+  // The reporting driver was never told their report was looked at.
+  const driver = await prisma.driver.findUnique({ where: { id: report.driverId }, select: { fcmToken: true } });
+  pushService
+    .sendPush(driver?.fcmToken, 'Your report was reviewed', 'Support has reviewed the trip report you filed. Thanks for flagging it.', {
+      type: 'REPORT_RESOLVED',
+      tripId: report.tripId,
+    })
+    .catch(() => {});
+  return resolved;
 }
 
 /**

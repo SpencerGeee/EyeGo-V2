@@ -407,6 +407,10 @@ export default function RootLayout() {
         router.push('/(tabs)/earnings' as any);
       } else if (type === 'DRIVER_REJECTED') {
         router.push('/(profile)/documents' as any);
+      } else if (type === 'SUPPORT_REPLY') {
+        router.push({ pathname: '/(profile)/help', params: data.ticketId ? { ticket: String(data.ticketId) } : {} } as any);
+      } else if (type === 'REPORT_RESOLVED') {
+        router.push('/(tabs)/notifications' as any);
       } else if (type === 'DRIVER_RATING') {
         router.push('/(profile)/ratings' as any);
       } else if (type === 'SOS' && tripId) {

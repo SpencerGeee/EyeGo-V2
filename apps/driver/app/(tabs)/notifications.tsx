@@ -4,7 +4,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
-import { driverApi } from '@eyego/api';
+import { driverApi, type AwayOutcome } from '@eyego/api';
+import { present } from '../../components/AwayOutcomesSheet';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { Text, Entrance, GlassSurface, AnimatedList, LargeTitle, goDeeper } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../utils/useColors';
@@ -32,6 +33,16 @@ const TYPE_CONFIG: Record<NotificationType, { icon: keyof typeof Ionicons.glyphM
   COMPLETED:          { icon: 'checkmark-circle', color: '#60A5FA' },
   SEAT_UPDATE:        { icon: 'people', color: '#A78BFA' },
   INFO:               { icon: 'information-circle', color: '#94A3B8' },
+};
+
+/** Which inbox filter each away fact belongs under. */
+const OUTCOME_TYPE: Record<string, NotificationType> = {
+  TRIP_COMPLETED: 'COMPLETED',
+  SEATS_CHANGED: 'SEAT_UPDATE',
+  TIP_RECEIVED: 'PAYMENT_CONFIRMED',
+  BONUS_RECEIVED: 'PAYMENT_CONFIRMED',
+  PAYOUT_COMPLETED: 'PAYMENT_CONFIRMED',
+  PAYOUT_FAILED: 'PAYMENT_CONFIRMED',
 };
 
 function formatTimestamp(iso: string) {
@@ -70,29 +81,23 @@ export default function NotificationsScreen() {
   }, [activeCategory, resync]);
 
   // Backfills history the live socket-driven store missed while the app was
-  // fully killed (push arrived, but nothing was connected to call addNotification).
+  // fully killed: the same 30 days of facts as the away sheet
+  // (away-outcomes.service), in the sheet's own words (`present`).
   const { data: derivedNotifications = [] } = useQuery({
-    queryKey: ['driver', 'notifications', 'derived'],
-    queryFn: () => driverApi.getNotifications({ limit: 30 }),
-    select: (r) => r.data.data?.notifications ?? [],
+    queryKey: ['driver', 'notifications', 'outcomes'],
+    queryFn: () => driverApi.outcomes(undefined, 30),
+    select: (r) => ((r.data as any)?.data?.outcomes ?? []) as AwayOutcome[],
     staleTime: 60_000,
   });
 
-  const notifications = useMemo<DriverNotification[]>(() => {
-    const liveIds = new Set(liveNotifications.map((n) => n.id));
-    // Live entries carry the real read state — only add derived items the
-    // live store doesn't already know about, and treat backfilled history as read.
-    const backfilled: DriverNotification[] = derivedNotifications
-      .filter((n) => !liveIds.has(n.id))
-      .map((n) => ({
-        id: n.id,
-        type: (n.type as NotificationType) ?? 'INFO',
-        title: n.title,
-        body: n.body,
-        tripId: n.tripId,
-        timestamp: n.createdAt,
-        read: true,
-      }));
+  const notifications = useMemo<(DriverNotification & { go?: string })[]>(() => {
+    // Live entries carry the real read state; backfilled history was already
+    // told (banner, push or away sheet) and lands read.
+    const backfilled = derivedNotifications.flatMap((o) => {
+      const p = present(o);
+      if (!p) return [];
+      return [{ id: o.key, type: OUTCOME_TYPE[o.kind] ?? 'INFO', title: p.title, body: p.body, tripId: o.tripId ?? undefined, timestamp: o.at, read: true, go: p.go }];
+    });
     return [...liveNotifications, ...backfilled].sort(
       (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
     );
@@ -119,8 +124,9 @@ export default function NotificationsScreen() {
     ];
   }, [filtered]);
 
-  const handlePress = useCallback((n: DriverNotification) => {
+  const handlePress = useCallback((n: DriverNotification & { go?: string }) => {
     if (!n.read) markRead(n.id);
+    if (n.go) return goDeeper(n.go as any);
     if (!n.tripId) return;
     if (n.type === 'COMPLETED') {
       goDeeper(`/(trip)/complete/${n.tripId}` as any);
