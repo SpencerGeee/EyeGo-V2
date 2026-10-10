@@ -407,6 +407,8 @@ export default function RootLayout() {
         router.push('/(tabs)/earnings' as any);
       } else if (type === 'DRIVER_REJECTED') {
         router.push('/(profile)/documents' as any);
+      } else if (type === 'FATIGUE_BREAK' || type === 'FATIGUE_WARNING') {
+        router.push('/(tabs)/home' as any);
       } else if (type === 'DOCUMENT_EXPIRING') {
         router.push('/(profile)/documents' as any);
       } else if (type === 'SUPPORT_REPLY') {

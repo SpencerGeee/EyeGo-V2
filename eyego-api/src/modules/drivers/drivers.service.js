@@ -611,6 +611,9 @@ async function goOnline(driverId, lat, lng) {
     throw new AppError('Location outside of Ghana. Please check your GPS.', 400, 'INVALID_LOCATION');
   }
 
+  // Twelve hours online without a real break → rest first. See fatigue.service.
+  await require('../../services/fatigue.service').assertRested(driverId);
+
   const [updated] = await prisma.$transaction([
     prisma.driver.update({
       where: { id: driverId },

@@ -186,6 +186,12 @@ async function start() {
       } catch (err) {
         logger.warn('Departure reminder sweep failed (non-blocking):', err.message);
       }
+      try {
+        // Warn an hour before the fatigue cap; rest capped, idle drivers.
+        await require('./services/fatigue.service').runFatigueSweep();
+      } catch (err) {
+        logger.warn('Fatigue sweep failed (non-blocking):', err.message);
+      }
     };
     setImmediate(runTripExpiry);
     setInterval(runTripExpiry, 5 * 60 * 1000);
