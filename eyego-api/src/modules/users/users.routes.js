@@ -47,6 +47,14 @@ router.get('/me/wallet', controller.getWalletAndPromos);
 // Applied / available / already-used promotions for this rider, with expiry.
 router.get('/me/promotions', controller.getPromotions);
 
+// Rider-to-rider referrals — see services/referral.service.js.
+router.get('/me/referral', async (req, res) => {
+  res.json({ success: true, data: await require('../../services/referral.service').getReferral(req.user.userId) });
+});
+router.post('/me/referral/redeem', body('code').isString().isLength({ min: 4, max: 20 }), validate, async (req, res) => {
+  res.json({ success: true, data: await require('../../services/referral.service').redeem(req.user.userId, req.body.code) });
+});
+
 router.post(
   '/me/support-tickets',
   body('subject').notEmpty(),

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { View, StyleSheet, Alert, TextInput, RefreshControl } from 'react-native';
+import { View, StyleSheet, Alert, TextInput, RefreshControl, Share } from 'react-native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useShallow } from 'zustand/react/shallow';
 import { Ionicons } from '@expo/vector-icons';
@@ -27,9 +27,9 @@ function expiryLabel(iso: string | null | undefined): string {
  * PROMOTIONS (rival spec §12) — code field on top, what you're using, what
  * you can use, what you've used. One promo per ride, and swapping asks first.
  *
- * The "Refer & earn — get GHS 10" card is gone: no referral programme exists
- * on the server (nothing ever sets a referral code), so it was a promise of
- * money with a share button that could never be enabled.
+ * "Invite friends" is real now (services/referral.service.js): a code to
+ * share, and a field for a new rider to enter a friend's — both get ride
+ * credits after the new rider's first completed, paid ride.
  */
 export default function PromotionsScreen() {
   const colors = useColors();
@@ -38,6 +38,37 @@ export default function PromotionsScreen() {
   const [code, setCode] = useState('');
   const [busyCode, setBusyCode] = useState<string | null>(null);
   const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null);
+  const [friendCode, setFriendCode] = useState('');
+  const [redeeming, setRedeeming] = useState(false);
+
+  const referralQ = useQuery({ queryKey: ['user', 'referral'], queryFn: () => userApi.getReferral(), select: (r: any) => r?.data?.data ?? null });
+  const referral = referralQ.data as
+    | { code: string; rewardPesewas: number; invited: number; earnedPesewas: number; redeemed: { rewarded: boolean } | null }
+    | null;
+
+  const shareCode = () => {
+    if (!referral?.code) return;
+    void Share.share({
+      message: `Ride with me on EyeGo! Use my code ${referral.code} when you join and we both get ${formatGhs(referral.rewardPesewas, { showDecimals: false })} in ride credits after your first trip.`,
+    }).catch(() => {});
+  };
+
+  const redeemFriend = async () => {
+    const c = friendCode.trim().toUpperCase();
+    if (!c) return;
+    setRedeeming(true);
+    try {
+      const res = await userApi.redeemReferral(c);
+      const d = (res.data as any)?.data;
+      setFriendCode('');
+      qc.invalidateQueries({ queryKey: ['user', 'referral'] });
+      Alert.alert('Code added', `You and ${d?.inviterName ?? 'your friend'} each get ${formatGhs(d?.rewardPesewas ?? 0, { showDecimals: false })} after your first ride.`);
+    } catch (err) {
+      Alert.alert('That code didn’t work', describeError(err).message);
+    } finally {
+      setRedeeming(false);
+    }
+  };
 
   const { activeBooking, setPendingPromoCode, pendingPromoCode } = useRideStore(
     useShallow((s) => ({ activeBooking: s.activeBooking, setPendingPromoCode: s.setPendingPromoCode, pendingPromoCode: s.pendingPromoCode })),
@@ -122,6 +153,43 @@ export default function PromotionsScreen() {
       </View>
       {status ? (
         <Text style={[styles.status, { color: status.ok ? colors.primary : colors.error }]}>{status.text}</Text>
+      ) : null}
+
+      {referral && referral.rewardPesewas > 0 ? (
+        <ListSection
+          title="Invite friends"
+          footer={`Give ${formatGhs(referral.rewardPesewas, { showDecimals: false })}, get ${formatGhs(referral.rewardPesewas, { showDecimals: false })} — paid to you both after their first completed ride.`}
+        >
+          <ListRow
+            icon="gift-outline"
+            title={referral.code}
+            subtitle={
+              referral.invited
+                ? `${referral.invited} friend${referral.invited === 1 ? '' : 's'} joined · ${formatGhs(referral.earnedPesewas)} earned`
+                : 'Share your code'
+            }
+            onPress={shareCode}
+          />
+          {!referral.redeemed ? (
+            <View style={styles.codeRow}>
+              <View style={styles.codeBox}>
+                <Ionicons name="people-outline" size={20} color={colors.onSurfaceVariant} />
+                <TextInput
+                  maxFontSizeMultiplier={1.4}
+                  value={friendCode}
+                  onChangeText={setFriendCode}
+                  placeholder="Friend’s code"
+                  placeholderTextColor={colors.onSurfaceVariant}
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                  style={styles.codeInput}
+                  accessibilityLabel="Friend’s referral code"
+                />
+              </View>
+              <Button label="Add" onPress={() => void redeemFriend()} loading={redeeming} disabled={!friendCode.trim() || redeeming} fullWidth={false} size="sm" />
+            </View>
+          ) : null}
+        </ListSection>
       ) : null}
 
       <ListSection title="Your promo" footer="One promo per ride. Picking another offer replaces the one saved here.">

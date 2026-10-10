@@ -155,6 +155,20 @@ export const userApi = {
   getPromotions: () =>
     apiClient.get<ApiResponse<RiderPromotions>>('/user/me/promotions'),
 
+  /** This rider's referral code and how it is doing — see eyego-api referral.service. */
+  getReferral: () =>
+    apiClient.get<ApiResponse<{
+      code: string;
+      rewardPesewas: number;
+      invited: number;
+      earnedPesewas: number;
+      redeemed: { rewarded: boolean } | null;
+    }>>('/user/me/referral'),
+
+  /** A new rider enters a friend's code (before their first ride). */
+  redeemReferral: (code: string) =>
+    apiClient.post<ApiResponse<{ inviterName: string; rewardPesewas: number }>>('/user/me/referral/redeem', { code }),
+
   getAccountChecklist: () =>
     apiClient.get<ApiResponse<AccountChecklist>>('/user/me/account-checklist'),
 

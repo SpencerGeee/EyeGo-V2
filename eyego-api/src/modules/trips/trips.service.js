@@ -982,7 +982,16 @@ async function clearLiveActivityToken(bookingId) {
 async function completeTrip(tripId) {
   for (let attempt = 1; ; attempt += 1) {
     try {
-      return await completeTripOnce(tripId);
+      const result = await completeTripOnce(tripId);
+      // A referred rider's first completed, paid ride pays both of them. After
+      // the commit, never inside it; never able to fail a completion.
+      setImmediate(() => {
+        prisma.booking
+          .findMany({ where: { tripId, status: 'COMPLETED', userId: { not: null } }, select: { userId: true } })
+          .then((rows) => require('../../services/referral.service').rewardFirstRides(rows.map((r) => r.userId)))
+          .catch((err) => logger.warn(`Referral reward check failed for ${tripId}: ${err.message}`));
+      });
+      return result;
     } catch (err) {
       if (err?.code !== 'VERSION_CONFLICT' || attempt >= 3) throw err;
       await new Promise((r) => setTimeout(r, 60 * attempt));
