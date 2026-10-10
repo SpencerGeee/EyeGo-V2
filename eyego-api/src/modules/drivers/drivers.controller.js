@@ -112,6 +112,14 @@ const arriveTrip = async (req, res) => {
   ok(res, result, 'Trip completed');
 };
 
+/** Lost items riders reported on this driver's trips. */
+const lostItems = async (req, res) => {
+  ok(res, { items: await driversService.getLostItems(req.user.userId) });
+};
+const answerLostItem = async (req, res) => {
+  ok(res, await driversService.answerLostItem(req.user.userId, req.params.ticketId, { found: req.body?.found === true, note: req.body?.note }));
+};
+
 /** Reached a stop the rider added; the route moves on to the next place. */
 const nextStop = async (req, res) => {
   ok(res, await require('../rides/rides.service').continueToNextStop(req.user.userId, req.params.id), 'On to the next stop');
@@ -662,7 +670,7 @@ const clearDestinationMode = async (req, res) => {
 module.exports = {
   getMe, updateMe, updateFcmToken, completeVerification, addVehicle,
   goOnline, goOffline, getTripHistory, getActiveTrip, getOutcomes, getAllTrips, devActivate,
-  startTrip, departTrip, arriveAtPickup, arriveTrip, cancelTrip, presence, cashReceived, nextStop,
+  startTrip, departTrip, arriveAtPickup, arriveTrip, cancelTrip, presence, cashReceived, nextStop, lostItems, answerLostItem,
   getTripById, acceptDispatch, declineDispatch, claimReassignedTrip,
   acceptTripRequest, declineTripRequest, uploadDocument,
   addOfflinePassenger, addCashNoPhone, verifyOfflineOtp, releaseOfflineHold, boardPassenger, requestBoardingPin, setRequestsPaused,

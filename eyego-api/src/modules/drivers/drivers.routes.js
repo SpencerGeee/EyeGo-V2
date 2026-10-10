@@ -167,6 +167,8 @@ router.get('/earnings/transactions', controller.getWalletTransactions);
 router.get('/notifications', controller.getNotifications);
 
 // ── Support Tickets ───────────────────────────────────────────────
+router.get('/lost-items', controller.lostItems);
+router.post('/lost-items/:ticketId/answer', controller.answerLostItem);
 router.get('/support-tickets', controller.getSupportTickets);
 router.post('/support-tickets', controller.createSupportTicket);
 router.post('/support-tickets/:ticketId/reply', controller.replyToTicket);

@@ -321,6 +321,10 @@ const submitDispute = async (req, res) => {
   ok(res, { ticket: result }, 'Dispute submitted. We will review it within 24 hours.');
 };
 
+const reportLostItem = async (req, res) => {
+  ok(res, await bookingsService.reportLostItem(req.user.userId, req.params.tripId, req.body?.description), 'Your driver has been told');
+};
+
 const generateInvite = async (req, res) => {
   const result = await bookingsService.generateInvite(req.params.bookingId, req.user.userId);
   ok(res, result);
@@ -343,4 +347,4 @@ const joinGroup = async (req, res) => {
 
 module.exports = {
   previewSeatFare, bookSeat, createGroup, cancelBooking, getUserBookings, getBooking, rateBooking,
-  getMyRating, applyPromoCode, validatePromoCode, getActiveBooking, getOutcomes, tipDriver, submitDispute, generateInvite, regenerateInvite, getGroup, joinGroup, updatePickup, updateHeavyCargo };
+  getMyRating, applyPromoCode, validatePromoCode, getActiveBooking, getOutcomes, tipDriver, submitDispute, reportLostItem, generateInvite, regenerateInvite, getGroup, joinGroup, updatePickup, updateHeavyCargo };

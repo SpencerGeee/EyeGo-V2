@@ -1058,11 +1058,15 @@ async function respondToTicket(ticketId, { text, senderId, senderRole } = {}) {
   });
 
   // The reply used to sit in the thread until the person happened to open Help.
-  // Driver tickets go to the driver app; the rest to the rider app. A killed
-  // app still learns of it from away-outcomes (SUPPORT_REPLY).
-  const owner = ticket.driverId
-    ? await prisma.driver.findUnique({ where: { id: ticket.driverId }, select: { fcmToken: true } })
-    : await prisma.user.findUnique({ where: { id: ticket.userId }, select: { fcmToken: true } });
+  // A driver's OWN ticket hangs off a user with the driver's phone and goes to
+  // the driver app; everything else — including a rider's dispute that names a
+  // driver in `driverId` — goes to the rider who filed it. A killed app still
+  // learns of it from away-outcomes (SUPPORT_REPLY).
+  const [filer, driver] = await Promise.all([
+    prisma.user.findUnique({ where: { id: ticket.userId }, select: { phone: true, fcmToken: true } }),
+    ticket.driverId ? prisma.driver.findUnique({ where: { id: ticket.driverId }, select: { phone: true, fcmToken: true } }) : null,
+  ]);
+  const owner = driver && filer && driver.phone === filer.phone ? driver : filer;
   pushService
     .sendPush(owner?.fcmToken, 'Support replied', body.length > 120 ? `${body.slice(0, 117)}…` : body, {
       type: 'SUPPORT_REPLY',

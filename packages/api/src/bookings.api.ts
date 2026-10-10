@@ -135,6 +135,10 @@ export const bookingsApi = {
   getActive: () =>
     apiClient.get<ApiResponse<Booking | null>>('/bookings/active'),
 
+  /** "I left something in the car" — tells the trip's driver. Keyed on the TRIP. */
+  reportLostItem: (tripId: string, description: string) =>
+    apiClient.post<ApiResponse<{ ticketId: string }>>(`/bookings/trips/${tripId}/lost-item`, { description }),
+
   /** What ended or changed while the app was closed (48 h). See away-outcomes.service. */
   outcomes: (sinceMs?: number, days?: number) =>
     apiClient.get<ApiResponse<{ outcomes: AwayOutcome[] }>>('/bookings/outcomes', {

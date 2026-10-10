@@ -155,8 +155,9 @@ async function forRider(userId, sinceMs, { days } = {}) {
     }),
     // Not windowed: a ride rated before the window opened is still rated.
     prisma.driverRating.findMany({ where: { userId, createdAt: { gte: new Date(since.getTime() - 7 * 86_400_000) } }, select: { tripId: true } }),
-    // A driver's own tickets also carry a shadow userId — those are not the rider's.
-    supportReplies({ userId, driverId: null }, ['USER'], since),
+    // Every ticket this rider filed — including disputes and lost items, which
+    // carry the driver they are ABOUT in `driverId` (see ownTicketOfDriver).
+    supportReplies({ userId }, ['USER'], since),
     // Money that landed in the wallet without the rider doing anything: credits
     // from another rider, change from a cash ride, a referral reward.
     prisma.paymentTransaction.findMany({
@@ -202,9 +203,17 @@ async function forRider(userId, sinceMs, { days } = {}) {
 }
 
 /** The driver's side: their trips ending, their passengers moving, their money. */
+/**
+ * `SupportTicket.driverId` means two things: a driver's OWN ticket (filed from
+ * the driver app, hung off a User row with the driver's phone) and a RIDER's
+ * dispute or lost item ABOUT that driver. Only the first is the driver's mail.
+ */
+const ownTicketOfDriver = (driverId, phone) => ({ driverId, user: { phone } });
+
 async function forDriver(driverId, sinceMs, { days } = {}) {
   const since = sinceDate(sinceMs, days);
-  const [ended, seatChanges, wallet, documents, replies, reports, expiring] = await Promise.all([
+  const me = await prisma.driver.findUnique({ where: { id: driverId }, select: { phone: true } });
+  const [ended, seatChanges, wallet, documents, replies, lostItems, reports, expiring] = await Promise.all([
     prisma.trip.findMany({
       where: {
         driverId,
@@ -254,7 +263,13 @@ async function forDriver(driverId, sinceMs, { days } = {}) {
       select: { id: true, type: true, status: true, rejectionReason: true, reviewedAt: true },
       take: 10,
     }),
-    supportReplies({ driverId }, ['USER', 'DRIVER'], since),
+    supportReplies(ownTicketOfDriver(driverId, me?.phone ?? '-'), ['USER', 'DRIVER'], since),
+    // A rider says they left something in this driver's car.
+    prisma.supportTicket.findMany({
+      where: { driverId, category: 'LOST_ITEM', createdAt: { gte: since }, NOT: { user: { phone: me?.phone ?? '-' } } },
+      select: { id: true, tripId: true, createdAt: true, messages: { select: { text: true }, orderBy: { createdAt: 'asc' }, take: 1 } },
+      take: 5,
+    }),
     // A report the driver filed (unruly passenger, damage…) that support closed.
     prisma.tripReport.findMany({
       where: { driverId, resolvedAt: { gte: since } },
@@ -313,6 +328,13 @@ async function forDriver(driverId, sinceMs, { days } = {}) {
     items.push({ key: `${kind}:${d.id}`, kind, at: d.reviewedAt, documentType: d.type, reason: d.rejectionReason ?? null });
   }
   items.push(...replies);
+  for (const t of lostItems) {
+    const text = t.messages?.[0]?.text ?? '';
+    items.push({
+      key: `LOST_ITEM_REPORTED:${t.id}`, kind: 'LOST_ITEM_REPORTED', at: t.createdAt, tripId: t.tripId, ticketId: t.id,
+      preview: text.length > 140 ? `${text.slice(0, 137)}…` : text,
+    });
+  }
   for (const d of expiring) {
     // Keyed on the threshold, so 30 days and then 7 days are each news once.
     items.push({

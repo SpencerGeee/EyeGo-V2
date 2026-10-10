@@ -379,6 +379,17 @@ export const driverApi = {
       params: { since: sinceMs || undefined, days },
     }),
 
+  /** Lost items riders reported on this driver's trips. */
+  getLostItems: () =>
+    apiClient.get<ApiResponse<{ items: {
+      ticketId: string; tripId: string | null; status: string; reportedAt: string;
+      riderName: string; description: string; myAnswer: string | null;
+    }[] }>>('/driver/lost-items'),
+
+  /** Found it, or it is not in the car — the rider is told. */
+  answerLostItem: (ticketId: string, body: { found: boolean; note?: string }) =>
+    apiClient.post<ApiResponse<{ ticketId: string; found: boolean }>>(`/driver/lost-items/${ticketId}/answer`, body),
+
   /** Cash a passenger handed over; anything over the fare goes to their EyeGo wallet. */
   cashReceived: (tripId: string, bookingId: string, amountPesewas: number) =>
     apiClient.post<ApiResponse<{ changePesewas: number }>>(`/driver/trips/${tripId}/bookings/${bookingId}/cash-received`, { amountPesewas }),

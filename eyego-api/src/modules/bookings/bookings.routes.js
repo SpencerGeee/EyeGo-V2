@@ -44,6 +44,8 @@ router.post('/:bookingId/rating', controller.rateBooking);
 router.post('/:bookingId/tip', controller.tipDriver);
 router.post('/:bookingId/apply-promo', controller.applyPromoCode);
 router.post('/:bookingId/dispute', controller.submitDispute);
+// Left something in the car — keyed on the TRIP (a party shares one).
+router.post('/trips/:tripId/lost-item', controller.reportLostItem);
 // Group-hub joiner setting/changing their own pickup point — pre-payment only.
 // Validated: a malformed/missing lat or lng must 400 here, not flow through as
 // NaN into the booking's recomputed fareAmountPesewas/commissionAmountPesewas.

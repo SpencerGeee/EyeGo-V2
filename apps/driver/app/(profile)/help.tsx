@@ -7,7 +7,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi, type DriverSupportTicket } from '@eyego/api';
 import { formatGhs, describeError, dayMonth, dayMonthTime } from '@eyego/utils';
 import { fonts, radii } from '@eyego/config';
-import { Text, Button, Screen, ListSection, ListRow, SkeletonRows, notify } from '@eyego/ui';
+import { Text, Button, Screen, ListSection, ListRow, SkeletonRows, notify, goDeeper } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { usePlatformConfig } from '../../hooks/usePlatformConfig';
@@ -128,6 +128,7 @@ export default function HelpScreen() {
       <Screen title="Help">
         <ListSection title="Get help">
           <ListRow icon="chatbubbles-outline" title="Contact support" subtitle="Send a request — we reply in the app" onPress={() => setComposeOpen(true)} />
+          <ListRow icon="bag-handle-outline" title="Lost items" subtitle="Things riders left in your car" onPress={() => goDeeper('/(profile)/lost-items' as any)} />
           {supportPhone ? (
             <ListRow icon="call-outline" title="Call support" value={supportPhone} onPress={() => Linking.openURL(`tel:${supportPhone.replace(/\s/g, '')}`)} />
           ) : null}

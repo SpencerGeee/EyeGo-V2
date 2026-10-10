@@ -1591,9 +1591,16 @@ async function tipDriver(userId, bookingId, { amountPesewas, phone }) {
 }
 
 async function submitDispute(userId, bookingId, { type, description }) {
-  const booking = await prisma.booking.findUnique({
-    where: { id: bookingId },
+  /**
+   * EITHER ID. BUGFIX: every caller in the rider app is on `/ride/[id]/…`,
+   * where `[id]` is the TRIP id, and posts it here as `:bookingId`. Looked up
+   * as a booking id it matched nothing, so every dispute — "I was there",
+   * "incorrect fare", "unsafe driving" — answered 404 "Booking not found".
+   */
+  const booking = await prisma.booking.findFirst({
+    where: { OR: [{ id: bookingId }, { tripId: bookingId, userId }] },
     include: { trip: { select: { shortId: true, driverId: true, driver: { select: { fcmToken: true } } } } },
+    orderBy: { createdAt: 'desc' },
   });
   if (!booking) throw new NotFoundError('Booking');
   if (booking.userId !== userId) throw new ForbiddenError();
@@ -1644,6 +1651,54 @@ async function submitDispute(userId, bookingId, { type, description }) {
   }
 
   return ticket;
+}
+
+/**
+ * "I LEFT MY PHONE IN THE CAR."
+ *
+ * Lost item used to be a ticket category the driver never heard about — support
+ * had to ring round. Now (Uber's flow): from a finished trip, within
+ * LOST_ITEM_DAYS, the rider describes it; a LOST_ITEM ticket names the trip and
+ * its driver, the driver is pushed and sees it in their away sheet / Lost items
+ * list, answers Found / Not in my car (a ticket message the rider is told
+ * about), and the two can message on the trip chat, which stays open after a
+ * trip for exactly this.
+ */
+const LOST_ITEM_DAYS = 7;
+
+async function reportLostItem(userId, tripId, description) {
+  const text = String(description ?? '').replace(/\s+/g, ' ').trim().slice(0, 1000);
+  if (text.length < 3) throw new AppError('Say what you lost — colour, brand, where you sat.', 400, 'DESCRIPTION_REQUIRED');
+  const booking = await prisma.booking.findFirst({
+    where: { tripId, userId },
+    select: {
+      id: true,
+      trip: { select: { id: true, shortId: true, status: true, completedAt: true, driverId: true, driver: { select: { fcmToken: true } } } },
+    },
+  });
+  if (!booking) throw new NotFoundError('Trip');
+  const t = booking.trip;
+  if (t.status !== 'COMPLETED' || !t.driverId) throw new AppError('Lost items can be reported once a trip has finished.', 409, 'TRIP_NOT_FINISHED');
+  if (t.completedAt && Date.now() - new Date(t.completedAt).getTime() > LOST_ITEM_DAYS * 86_400_000) {
+    throw new AppError(`It’s been more than ${LOST_ITEM_DAYS} days — contact support from Help instead.`, 409, 'TOO_LATE');
+  }
+  const open = await prisma.supportTicket.findFirst({ where: { userId, tripId, category: 'LOST_ITEM', status: { not: 'CLOSED' } }, select: { id: true } });
+  if (open) throw new AppError('You’ve already reported a lost item on this trip — check Help for replies.', 409, 'ALREADY_REPORTED');
+
+  const ticket = await prisma.$transaction(async (tx) => {
+    const created = await tx.supportTicket.create({
+      data: { userId, driverId: t.driverId, tripId, subject: `Lost item — Trip #${t.shortId.slice(0, 8)}`, status: 'OPEN', priority: 'HIGH', category: 'LOST_ITEM' },
+    });
+    await tx.ticketMessage.create({ data: { ticketId: created.id, senderId: userId, senderRole: 'USER', text } });
+    return created;
+  });
+
+  require('../../services/push.service')
+    .sendPush(t.driver?.fcmToken, 'A rider left something in your car', text.length > 100 ? `${text.slice(0, 97)}…` : text, {
+      type: 'LOST_ITEM_REPORTED', ticketId: ticket.id, tripId,
+    })
+    .catch(() => {});
+  return { ticketId: ticket.id };
 }
 
 async function generateInvite(bookingId, userId) {
@@ -1770,4 +1825,4 @@ async function joinGroup(shareToken) {
 
 module.exports = {
   previewSeatFare,
-  priceSeat, bookSeat, normalizePaymentMethod, createRideGroup, generateInvite, regenerateInvite, getGroup, joinGroup, cancelBooking, getUserBookings, getBooking, rateBooking, getMyRating, applyPromoCode, getActiveBooking, tipDriver, submitDispute, recomputeBookingAddons, getTripFareForRider, cargoSurchargeFor };
+  priceSeat, bookSeat, normalizePaymentMethod, createRideGroup, generateInvite, regenerateInvite, getGroup, joinGroup, cancelBooking, getUserBookings, getBooking, rateBooking, getMyRating, applyPromoCode, getActiveBooking, tipDriver, submitDispute, reportLostItem, recomputeBookingAddons, getTripFareForRider, cargoSurchargeFor };

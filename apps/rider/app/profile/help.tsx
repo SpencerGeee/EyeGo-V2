@@ -32,7 +32,7 @@ const FAQS = [
   },
   {
     q: 'I left something in the car',
-    a: 'Choose the trip under “Get help with a trip” and pick Lost item. We’ll put you in touch with the driver.',
+    a: 'Open the trip from Activity and tap “Left something, or something went wrong?” → Left something in the car. Your driver is told straight away, answers in the app, and you can message them to arrange the return.',
   },
   {
     q: 'Is my payment secure?',

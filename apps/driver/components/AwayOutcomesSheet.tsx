@@ -147,6 +147,12 @@ export function present(o: AwayOutcome): Present | null {
         cta: 'Update it', go: '/(profile)/documents',
       };
     }
+    case 'LOST_ITEM_REPORTED':
+      return {
+        icon: 'bag-handle-outline', tone: 'neutral', title: 'A rider left something in your car',
+        body: o.preview ? `“${o.preview}” — check your car and let them know.` : 'Check your car and let them know.',
+        cta: 'Answer', go: '/(profile)/lost-items',
+      };
     case 'SUPPORT_REPLY':
       return {
         icon: 'chatbubbles-outline', tone: 'neutral', title: 'Support replied',

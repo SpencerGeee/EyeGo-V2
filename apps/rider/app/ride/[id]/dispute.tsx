@@ -8,14 +8,14 @@ import {
 import { KeyboardAwareScrollView, KeyboardStickyView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { MotiView, goBack, notify } from '@eyego/ui';
+import { MotiView, goBack, goDeeper, notify } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, radii, fonts, fontSizes, withOpacity, springs } from '@eyego/config';
 import { Text, Button, GlassSurface } from '@eyego/ui';
 import { useColors, Colors } from '../../../utils/useColors';
 import { useShallow } from 'zustand/react/shallow';
 import { useRideStore } from '../../../stores/ride.store';
-import { apiClient } from '@eyego/api';
+import { apiClient, bookingsApi } from '@eyego/api';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 /**
@@ -63,13 +63,17 @@ export default function DisputeScreen() {
   );
   const [description, setDescription] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  // A lost item goes to the DRIVER (lost-item flow), not into the review queue.
+  const isLostItem = selectedType === ISSUE_TYPES[0].label;
 
   const disputeMutation = useMutation({
     mutationFn: () =>
-      apiClient.post('/bookings/' + id + '/dispute', {
-        type: selectedType,
-        description,
-      }),
+      isLostItem
+        ? bookingsApi.reportLostItem(id, description)
+        : apiClient.post('/bookings/' + id + '/dispute', {
+            type: selectedType,
+            description,
+          }),
     onSuccess: () => {
       setSubmitted(true);
       // A submitted dispute IS a support ticket on the backend (submitDispute
@@ -80,13 +84,17 @@ export default function DisputeScreen() {
       queryClient.invalidateQueries({ queryKey: ['support', 'tickets'] });
     },
     onError: (err: any) => {
-      notify('Submission Failed', err?.message || 'Could not submit your report. Please try again.');
+      notify('Submission Failed', err?.response?.data?.message || err?.message || 'Could not submit your report. Please try again.');
     },
   });
 
   const handleSubmit = () => {
     if (!selectedType) {
       notify('Select Issue', 'Please select the type of issue before submitting.');
+      return;
+    }
+    if (isLostItem && description.trim().length < 3) {
+      notify('Describe the item', 'Say what you lost — colour, brand, where you sat — so your driver can look.');
       return;
     }
     disputeMutation.mutate();
@@ -119,14 +127,21 @@ export default function DisputeScreen() {
             <Ionicons name="checkmark-circle" size={64} color={colors.statusSuccess} />
           </View>
           <Text variant="titleMedium" style={{ color: colors.onSurface, marginTop: spacing['2xl'] }}>
-            Report Submitted
+            {isLostItem ? 'Your driver has been told' : 'Report Submitted'}
           </Text>
           <Text
             variant="bodyMedium"
             style={{ color: colors.onSurfaceVariant, marginTop: spacing.md, textAlign: 'center' }}
           >
-            We'll review your report within 24 hours.
+            {isLostItem
+              ? 'They’ll check the car and answer here — you’ll get a notification. You can also message them now.'
+              : "We'll review your report within 24 hours."}
           </Text>
+          {isLostItem ? (
+            <View style={{ marginTop: spacing.lg, width: '100%' }}>
+              <Button label="Message your driver" variant="secondary" onPress={() => goDeeper(`/ride/${id}/chat` as never)} />
+            </View>
+          ) : null}
           <View style={{ marginTop: spacing['3xl'], width: '100%' }}>
             <Button label="Done" onPress={() => goBack()} variant="primary" />
           </View>

@@ -2934,7 +2934,7 @@ module.exports = {
   setDestinationFilter, getDestinationFilter, deleteDestinationFilter,
   startShift, endShift, getCurrentShift, getShiftHistory,
   getEarningsBreakdown, getWalletTransactions,
-  getSupportTickets, createSupportTicket, replyToTicket, ticketUserFor,
+  getSupportTickets, createSupportTicket, replyToTicket, ticketUserFor, getLostItems, answerLostItem,
   scheduleInspection, getInspections,
   deleteMe, reportTrip,
   getPendingTripRequests, getUpcomingScheduledTrips, claimReassignedTrip,
@@ -3684,6 +3684,50 @@ async function ticketUserFor(driverId) {
     (await prisma.user.findUnique({ where: { phone: driver.phone } })) ??
     prisma.user.create({ data: { phone: driver.phone, name: driver.name || 'Driver' } })
   );
+}
+
+/** Lost items riders reported on this driver's trips (not the driver's own tickets). */
+async function getLostItems(driverId) {
+  const me = await prisma.driver.findUnique({ where: { id: driverId }, select: { phone: true } });
+  const tickets = await prisma.supportTicket.findMany({
+    where: { driverId, category: 'LOST_ITEM', createdAt: { gte: new Date(Date.now() - 30 * 86_400_000) }, NOT: { user: { phone: me?.phone ?? '-' } } },
+    select: {
+      id: true, tripId: true, status: true, createdAt: true,
+      user: { select: { name: true } },
+      messages: { select: { text: true, senderRole: true, createdAt: true }, orderBy: { createdAt: 'asc' } },
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 30,
+  });
+  return tickets.map((t) => ({
+    ticketId: t.id,
+    tripId: t.tripId,
+    status: t.status,
+    reportedAt: t.createdAt,
+    riderName: t.user?.name ?? 'Rider',
+    description: t.messages.find((m) => m.senderRole === 'USER')?.text ?? '',
+    myAnswer: t.messages.filter((m) => m.senderRole === 'DRIVER').pop()?.text ?? null,
+  }));
+}
+
+/** The driver answers: found it, or it is not in the car. The rider is told. */
+async function answerLostItem(driverId, ticketId, { found, note }) {
+  const me = await prisma.driver.findUnique({ where: { id: driverId }, select: { phone: true } });
+  const ticket = await prisma.supportTicket.findFirst({
+    where: { id: ticketId, driverId, category: 'LOST_ITEM', NOT: { user: { phone: me?.phone ?? '-' } } },
+    select: { id: true, user: { select: { fcmToken: true } } },
+  });
+  if (!ticket) throw new NotFoundError('Lost item');
+  const extra = String(note ?? '').trim().slice(0, 500);
+  const text = (found ? 'Your driver found it. ' : 'Your driver checked and it isn’t in the car. ') + extra;
+  await prisma.$transaction([
+    prisma.ticketMessage.create({ data: { ticketId, senderId: driverId, senderRole: 'DRIVER', text: text.trim() } }),
+    prisma.supportTicket.update({ where: { id: ticketId }, data: { status: found ? 'IN_PROGRESS' : 'OPEN' } }),
+  ]);
+  pushService
+    .sendPush(ticket.user?.fcmToken, found ? 'Your driver found your item' : 'Update on your lost item', text.trim(), { type: 'SUPPORT_REPLY', ticketId })
+    .catch(() => {});
+  return { ticketId, found: !!found };
 }
 
 async function createSupportTicket(driverId, { subject, category, description }) {
