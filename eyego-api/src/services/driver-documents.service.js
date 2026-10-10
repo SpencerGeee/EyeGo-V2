@@ -62,7 +62,7 @@ const LABELS = {
 };
 
 /** Warn at these thresholds, once each, before the document lapses. */
-const WARN_DAYS = [30, 7];
+const WARN_DAYS = [30, 7, 1];
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -134,18 +134,21 @@ async function documentsExpiringWithin(days, now = new Date()) {
       driverId: true,
       type: true,
       expiresAt: true,
+      expiryNoticeDays: true,
       driver: { select: { id: true, name: true, fcmToken: true } },
     },
   });
 }
 
 /**
- * Tell drivers their paperwork is about to lapse.
+ * Tell drivers their paperwork is about to lapse — ONCE PER THRESHOLD.
  *
- * Runs nightly. Idempotent enough to run more than once a day: a driver whose
- * document falls in the same bucket gets the same message, and push is
- * best-effort by nature, so the cost of a duplicate is one extra notification
- * rather than a corrupted state.
+ * BUGFIX. This said "runs nightly … the cost of a duplicate is one extra
+ * notification", but server.js runs it HOURLY: every document inside the
+ * 30-day window was pushed every hour for a month — ~720 identical pushes per
+ * document, which teaches a driver to mute EyeGo. `expiryNoticeDays` records the
+ * tightest threshold already told (30, 7, 1); a run only speaks when a document
+ * crosses into a tighter one. A new upload/approval clears it.
  */
 async function runExpiryWarnings(now = new Date()) {
   const pushService = require('./push.service');
@@ -160,6 +163,9 @@ async function runExpiryWarnings(now = new Date()) {
     for (const doc of due) {
       if (seen.has(doc.id)) continue;
       seen.add(doc.id);
+      // Already told at this threshold (or a tighter one).
+      if (doc.expiryNoticeDays != null && doc.expiryNoticeDays <= days) continue;
+      await prisma.driverDocument.update({ where: { id: doc.id }, data: { expiryNoticeDays: days } });
 
       const token = doc.driver?.fcmToken;
       if (!token) continue;

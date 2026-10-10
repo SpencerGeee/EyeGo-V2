@@ -29,6 +29,8 @@ export interface AwayOutcome {
   cancelled?: number;
   documentType?: string;
   reason?: string | null;
+  /** DOCUMENT_EXPIRING: when the paperwork lapses. */
+  expiresAt?: string;
   /** Rider COMPLETED: already rated — the inbox lists it, the away sheet skips it. */
   rated?: boolean;
   /** SUPPORT_REPLY */

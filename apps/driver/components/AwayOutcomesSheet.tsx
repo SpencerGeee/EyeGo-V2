@@ -139,6 +139,14 @@ export function present(o: AwayOutcome): Present | null {
         body: `Your ${docName(o.documentType)} was not accepted${o.reason ? `: ${o.reason}` : ''}. Upload a new one to stay on the road.`,
         cta: 'Fix it', go: '/(profile)/documents',
       };
+    case 'DOCUMENT_EXPIRING': {
+      const days = o.expiresAt ? Math.max(0, Math.ceil((Date.parse(o.expiresAt) - Date.now()) / 86_400_000)) : null;
+      return {
+        icon: 'alarm-outline', tone: 'bad', title: 'A document is expiring',
+        body: `Your ${docName(o.documentType)} expires ${days == null ? 'soon' : days === 0 ? 'today' : `in ${plural(days, 'day')}`}. Upload a current copy so you can keep going online.`,
+        cta: 'Update it', go: '/(profile)/documents',
+      };
+    }
     case 'SUPPORT_REPLY':
       return {
         icon: 'chatbubbles-outline', tone: 'neutral', title: 'Support replied',

@@ -180,6 +180,12 @@ async function start() {
       } catch (err) {
         logger.warn('Filling sweep failed (non-blocking):', err.message);
       }
+      try {
+        // "Your trip leaves at 08:30" — riders and driver, once per trip.
+        await tripLifecycle.runDepartureReminders();
+      } catch (err) {
+        logger.warn('Departure reminder sweep failed (non-blocking):', err.message);
+      }
     };
     setImmediate(runTripExpiry);
     setInterval(runTripExpiry, 5 * 60 * 1000);

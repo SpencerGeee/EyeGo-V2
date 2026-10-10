@@ -204,7 +204,7 @@ async function forRider(userId, sinceMs, { days } = {}) {
 /** The driver's side: their trips ending, their passengers moving, their money. */
 async function forDriver(driverId, sinceMs, { days } = {}) {
   const since = sinceDate(sinceMs, days);
-  const [ended, seatChanges, wallet, documents, replies, reports] = await Promise.all([
+  const [ended, seatChanges, wallet, documents, replies, reports, expiring] = await Promise.all([
     prisma.trip.findMany({
       where: {
         driverId,
@@ -261,6 +261,12 @@ async function forDriver(driverId, sinceMs, { days } = {}) {
       select: { id: true, tripId: true, type: true, resolvedAt: true },
       take: 5,
     }),
+    // Paperwork the expiry sweep has warned about (driver-documents.runExpiryWarnings).
+    prisma.driverDocument.findMany({
+      where: { driverId, expiryNoticeDays: { not: null }, expiresAt: { gte: new Date() }, updatedAt: { gte: since } },
+      select: { id: true, type: true, expiresAt: true, expiryNoticeDays: true, updatedAt: true },
+      take: 5,
+    }),
   ]);
 
   const WALLET_KIND = { TIP: 'TIP_RECEIVED', QUEST_BONUS: 'BONUS_RECEIVED', WITHDRAWAL_REVERSAL: 'PAYOUT_FAILED', WITHDRAWAL: 'PAYOUT_COMPLETED', CANCELLATION_FEE: 'CANCELLATION_FEE_EARNED' };
@@ -307,6 +313,13 @@ async function forDriver(driverId, sinceMs, { days } = {}) {
     items.push({ key: `${kind}:${d.id}`, kind, at: d.reviewedAt, documentType: d.type, reason: d.rejectionReason ?? null });
   }
   items.push(...replies);
+  for (const d of expiring) {
+    // Keyed on the threshold, so 30 days and then 7 days are each news once.
+    items.push({
+      key: `DOCUMENT_EXPIRING:${d.id}:${d.expiryNoticeDays}`, kind: 'DOCUMENT_EXPIRING', at: d.updatedAt,
+      documentType: d.type, expiresAt: d.expiresAt,
+    });
+  }
   for (const r of reports) {
     items.push({ key: `REPORT_RESOLVED:${r.id}`, kind: 'REPORT_RESOLVED', at: r.resolvedAt, tripId: r.tripId, reason: r.type });
   }

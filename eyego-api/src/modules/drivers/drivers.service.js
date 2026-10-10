@@ -3315,7 +3315,8 @@ async function reviewDocument(driverId, type, { approve, rejectionReason, expire
               rejectionReason: review[type].rejectionReason,
               reviewedAt,
               reviewedById: reviewedById ?? null,
-              ...(approve ? { expiresAt } : {}),
+              // A new date is a new countdown: the expiry reminders start over.
+              ...(approve ? { expiresAt, expiryNoticeDays: null } : {}),
             },
           }),
         ]),

@@ -353,7 +353,69 @@ async function promoteTripsToFilling() {
   return promoted;
 }
 
+/**
+ * "YOUR TRIP LEAVES AT 08:30" — THE RIDERS AND THE DRIVER, ONCE.
+ *
+ * Uber and Bolt remind before a reserved pickup. EyeGo told the driver only at
+ * the moment a scheduled rider was matched, and told the riders on a scheduled
+ * trip nothing at all — they had to remember a time they booked days ago.
+ * Every sweep (5 min): trips departing within REMIND_BEFORE_MINUTES, reminded
+ * once per trip (Redis SET NX). Ghana is UTC+0 all year, so the ISO clock is
+ * the local clock.
+ */
+const REMIND_BEFORE_MINUTES = numFromEnv('TRIP_DEPARTURE_REMINDER_MINUTES', 30);
+
+async function runDepartureReminders(now = new Date()) {
+  const redis = require('../config/redis');
+  const push = require('./push.service');
+  const { seatOccupyingWhere } = require('../utils/booking-status');
+  const trips = await prisma.trip.findMany({
+    where: {
+      status: { in: ['SCHEDULED', 'FILLING', 'CONFIRMED'] },
+      departureTime: { gt: now, lte: new Date(now.getTime() + REMIND_BEFORE_MINUTES * 60_000) },
+    },
+    select: {
+      id: true, departureTime: true, pickupAddress: true, dropoffAddress: true,
+      driver: { select: { fcmToken: true } },
+      route: { select: { originName: true, destinationName: true } },
+      bookings: {
+        where: seatOccupyingWhere(),
+        select: { seats: true, pickupAddress: true, user: { select: { fcmToken: true, notificationPrefs: true } } },
+      },
+    },
+    take: BATCH_SIZE,
+  });
+
+  let reminded = 0;
+  for (const t of trips) {
+    if (!t.bookings.length) continue; // nobody to remind, nothing for the driver to do yet
+    const fresh = await redis.set(`remind:depart:${t.id}`, '1', 'EX', 3 * 3600, 'NX').catch(() => null);
+    if (!fresh) continue;
+    const at = t.departureTime.toISOString().slice(11, 16);
+    const from = t.route?.originName ?? t.pickupAddress ?? 'your pickup';
+    const to = t.route?.destinationName ?? t.dropoffAddress ?? 'your destination';
+    for (const b of t.bookings) {
+      if (!b.user?.fcmToken || !push.prefAllows(b.user.notificationPrefs, 'driverArriving')) continue;
+      push
+        .sendPush(b.user.fcmToken, `Your trip leaves at ${at}`, `To ${to} — be at ${b.pickupAddress ?? from} a few minutes early.`, {
+          type: 'DEPARTURE_REMINDER', tripId: t.id,
+        })
+        .catch(() => {});
+    }
+    const seats = t.bookings.reduce((n, b) => n + Math.max(1, b.seats ?? 1), 0);
+    push
+      .sendPush(t.driver?.fcmToken, `Your trip departs at ${at}`, `${from} → ${to} · ${seats} seat${seats === 1 ? '' : 's'} booked.`, {
+        type: 'DEPARTURE_REMINDER', tripId: t.id,
+      })
+      .catch(() => {});
+    reminded += 1;
+  }
+  if (reminded) logger.info(`[lifecycle] departure reminders sent for ${reminded} trip(s)`);
+  return { reminded };
+}
+
 module.exports = {
+  runDepartureReminders,
   expireStaleTrips,
   releaseExpiredSeatHolds,
   promoteTripsToFilling,
