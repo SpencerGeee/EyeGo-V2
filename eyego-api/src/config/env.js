@@ -117,6 +117,9 @@ const envSchema = z.object({
 
   // ── Anonymized contact relay (Phase 3A — placeholder for sandbox) ──
   CONTACT_RELAY_NUMBER: z.string().optional(),
+  // Africa's Talking virtual voice number (+233…). Set it — and point the AT voice
+  // callback at POST /v1/contact/voice — to turn on number-masked calling.
+  AT_VOICE_NUMBER: z.string().optional(),
 
   // ── Ride-check / route-deviation safety (Phase 3B) ──
   DEVIATION_THRESHOLD_M: z.coerce.number().default(350),

@@ -916,6 +916,8 @@ function publicConfig() {
     bookingFeeRate: get('RIDE_BOOKING_FEE_RATE'),
     platformFeePesewas: get('RIDE_PLATFORM_FEE_PESEWAS'),
     /** Waiting at a hailed pickup: free minutes, then the tier's waitPerMinPesewas, capped. */
+    /** Calls go through EyeGo's number (contact.service); the apps stop dialling raw numbers. */
+    maskedCalling: !!require('./env').AT_VOICE_NUMBER,
     waitFreeMinutes: get('RIDE_WAIT_FREE_MINUTES'),
     waitFeeCapPesewas: get('RIDE_WAIT_FEE_CAP_PESEWAS'),
   };

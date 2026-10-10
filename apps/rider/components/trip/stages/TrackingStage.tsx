@@ -11,6 +11,7 @@ import { useTripStore } from '../../../stores/trip.store';
 import { useChatUnread } from '../../../stores/chatUnread.store';
 import { shareLiveTracking } from '../../../utils/safety';
 import { useRouteChange } from '../../../hooks/useRouteChange';
+import { useTripCall } from '../../../hooks/useTripCall';
 
 /**
  * The in-car stage (IN_PROGRESS): the rider is aboard and the only questions
@@ -52,13 +53,9 @@ function TrackingStageImpl() {
   // the leg has to be checked rather than assumed.
   const minutes = eta && eta.leg === 'toDropoff' ? eta.minutes : null;
 
-  const handleCall = () => {
-    if (!driver?.phone) {
-      notify('No number available', 'Use the in-app chat to reach your driver.');
-      return;
-    }
-    void Linking.openURL(`tel:${driver.phone}`);
-  };
+  // Masked through EyeGo's number when the server has it on — see useTripCall.
+  const tripCall = useTripCall();
+  const handleCall = () => void tripCall({ tripId: snapshot?.tripId, phone: driver?.phone, name: driver?.name });
 
   const handleShare = () =>
     shareLiveTracking(

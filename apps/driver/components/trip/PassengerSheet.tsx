@@ -9,6 +9,7 @@ import { Text, Pressable, Avatar, GlassSurface } from '@eyego/ui';
 import { formatGhs } from '@eyego/utils';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { RiderAsks } from '../RiderAsks';
+import { useTripCall } from '../../hooks/useTripCall';
 
 /**
  * ── THE PASSENGER, AS A DESIGNED SURFACE ─────────────────────────────────────
@@ -69,6 +70,8 @@ export interface PassengerSheetData {
 
 export interface PassengerSheetProps {
   passenger: PassengerSheetData | null;
+  /** The trip, so a call can be bridged through EyeGo's number (useTripCall). */
+  tripId?: string;
   onClose: () => void;
   onMessage?: (p: PassengerSheetData) => void;
   onBoard?: (p: PassengerSheetData) => void;
@@ -84,6 +87,7 @@ export function PassengerSheet({
   onBoard,
   onNoShow,
   onCashReceived,
+  tripId,
 }: PassengerSheetProps) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -92,6 +96,7 @@ export function PassengerSheet({
   // "No change?" — the cedis handed over, as typed. Hooks before the early return.
   const [cashText, setCashText] = useState<string | null>(null);
   const [cashBusy, setCashBusy] = useState(false);
+  const tripCall = useTripCall();
 
   if (!passenger) return null;
   const p = passenger;
@@ -100,7 +105,7 @@ export function PassengerSheet({
   const call = () => {
     if (!p.phone) return;
     void Haptics.selectionAsync().catch(() => {});
-    void Linking.openURL(`tel:${p.phone}`);
+    void tripCall({ tripId, bookingId: p.bookingId, phone: p.phone, name: p.name });
   };
 
   return (

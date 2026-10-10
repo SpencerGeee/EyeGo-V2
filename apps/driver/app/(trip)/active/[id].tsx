@@ -1846,6 +1846,7 @@ export default function ActiveTripScreen() {
       */}
       <PassengerSheet
         passenger={sheetPassenger}
+        tripId={id}
         onClose={() => setSheetPassenger(null)}
         onMessage={(p) => {
           setSheetPassenger(null);

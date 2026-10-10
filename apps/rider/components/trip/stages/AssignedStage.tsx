@@ -6,6 +6,7 @@ import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { Text, GlassSurface, DriverInfoCard, RollingDigits, GradientGlowBorder, WaitingMeter, goDeeper, notify } from '@eyego/ui';
 import { usePlatformConfig } from '../../../hooks/usePlatformConfig';
 import { useRouteChange } from '../../../hooks/useRouteChange';
+import { useTripCall } from '../../../hooks/useTripCall';
 import { formatGhs, clockTime } from '@eyego/utils';
 import { SheetContent } from '../sheetSlot';
 import { useColors, Colors } from '../../../utils/useColors';
@@ -124,13 +125,9 @@ function AssignedStageImpl() {
   const boarded = snapshot?.booking?.status === 'BOARDED';
   const seatNumber = snapshot?.booking?.seatNumber ?? null;
 
-  const handleCall = () => {
-    if (!driver?.phone) {
-      notify('No number available', 'Use the in-app chat to reach your driver.');
-      return;
-    }
-    void Linking.openURL(`tel:${driver.phone}`);
-  };
+  // Masked through EyeGo's number when the server has it on — see useTripCall.
+  const tripCall = useTripCall();
+  const handleCall = () => void tripCall({ tripId: snapshot?.tripId, phone: driver?.phone, name: driver?.name });
 
   const handleShare = () =>
     shareLiveTracking(

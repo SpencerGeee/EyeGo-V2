@@ -56,6 +56,8 @@ export interface PlatformConfig {
   tiers: Record<'ECO' | 'COMFORT' | 'PREMIUM', PlatformTier>;
   bookingFeeRate: number;
   platformFeePesewas: number;
+  /** Calls are bridged through EyeGo's number (Africa's Talking voice) — see useTripCall. */
+  maskedCalling: boolean;
   /** Waiting at a hailed pickup: free minutes, then tiers[t].waitPerMinPesewas, capped. */
   waitFreeMinutes: number;
   waitFeeCapPesewas: number;
@@ -94,6 +96,7 @@ export const PLATFORM_CONFIG_FALLBACK: PlatformConfig = {
   },
   bookingFeeRate: 0.061,
   platformFeePesewas: 100,
+  maskedCalling: false,
   waitFreeMinutes: 3,
   waitFeeCapPesewas: 1000,
 };

@@ -25,6 +25,7 @@ import { openExternalNavigation } from '../../utils/externalNav';
 import { useTripAdvance } from './useTripAdvance';
 import { usePlatformConfig } from '../../hooks/usePlatformConfig';
 import { RiderAsks } from '../RiderAsks';
+import { useTripCall } from '../../hooks/useTripCall';
 import type { DriverStage } from './driverStage';
 
 /**
@@ -364,6 +365,8 @@ function PassengerRow({
   styles: ReturnType<typeof makeStyles>;
   onPress?: () => void;
 }) {
+  // Masked through EyeGo's number when the server has it on — see useTripCall.
+  const tripCall = useTripCall();
   const seatsLabel =
     p.seats.length > 1 ? `Seats ${p.seats.join(', ')}` : p.seatNumber != null ? `Seat ${p.seatNumber}` : null;
   return (
@@ -413,7 +416,7 @@ function PassengerRow({
       </Pressable>
       {p.phone ? (
         <Pressable
-          onPress={() => callNumber(p.phone!)}
+          onPress={() => void tripCall({ tripId, bookingId: p.bookingId, phone: p.phone, name: p.name })}
           hitSlop={8}
           accessibilityRole="button"
           accessibilityLabel={`Call ${p.name}`}
