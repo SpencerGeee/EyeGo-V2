@@ -821,6 +821,216 @@ async function boostFare(userId, tripId, percent) {
   return { tripId, version: trip?.version ?? null, ...(event?.payload ?? {}) };
 }
 
+// ── mid-trip route changes ───────────────────────────────────────────────────
+
+/**
+ * CHANGE THE DESTINATION, OR ADD A STOP, ON THE WAY.
+ *
+ * Uber's model: the rider picks a new place, sees the new fare, confirms; the
+ * driver is told and the route redraws. No driver consent. Hailed rides only —
+ * a shared trip follows its route.
+ *
+ * What keeps routing, ETAs, maps and navigation untouched: the trip's
+ * `dropoff*` is always WHERE THE CAR GOES NEXT, and `onwardStops` is the queue
+ * after it (the last entry being the final destination). Adding a stop puts it
+ * in front of the final destination; the driver's "next stop" pops the queue.
+ * Every existing consumer of `dropoff*` therefore heads to the right place.
+ *
+ * Priced as a delta over the remaining path (from the driver when under way,
+ * else from the pickup) — see `routeChangeDelta`.
+ */
+const ROUTE_CHANGE_STATUSES = [S.DRIVER_ASSIGNED, S.DRIVER_EN_ROUTE, S.ARRIVED_AT_PICKUP, S.IN_PROGRESS];
+const MAX_MID_TRIP_STOPS = 2;
+
+function placeOf({ lat, lng, address }) {
+  const p = {
+    lat: Number(lat),
+    lng: Number(lng),
+    address: typeof address === 'string' && address.trim() ? address.trim().slice(0, 240) : null,
+  };
+  if (!Number.isFinite(p.lat) || !Number.isFinite(p.lng)) {
+    throw new AppError('Pick a place on the map.', 400, 'INVALID_PLACE');
+  }
+  if (!require('../../services/mapbox.service').isWithinGhana(p.lat, p.lng)) {
+    throw new AppError('That place is outside our service area.', 422, 'OUT_OF_AREA');
+  }
+  return p;
+}
+
+async function routeChangeTrip(db, tripId, userId) {
+  const trip = await db.trip.findUnique({
+    where: { id: tripId },
+    select: {
+      id: true, status: true, requesterId: true, routeId: true, driverId: true, tier: true,
+      perKmRatePesewas: true, surgeMultiplier: true, bookingFeeRate: true, commissionRate: true,
+      pickupLat: true, pickupLng: true, dropoffLat: true, dropoffLng: true, dropoffAddress: true, onwardStops: true,
+      bookings: {
+        where: livePassengerWhere(),
+        select: { id: true, paymentMethod: true, status: true, fareAmountPesewas: true },
+      },
+    },
+  });
+  if (!trip) throw new NotFoundError('Trip');
+  if (trip.requesterId !== userId) throw new AppError('Only the rider who booked can change the route.', 403, 'FORBIDDEN');
+  if (trip.routeId) throw new AppError('A shared trip follows its route — choose your drop-off stop instead.', 409, 'SHARED_TRIP');
+  if (!ROUTE_CHANGE_STATUSES.includes(trip.status)) {
+    throw new AppError('The route can be changed once a driver is on the way, until you arrive.', 409, 'ROUTE_LOCKED');
+  }
+  if (!trip.bookings.length) throw new AppError('This ride has no booking to reprice.', 409, 'NO_BOOKING');
+  return trip;
+}
+
+const pathOf = (trip) => [
+  { lat: trip.dropoffLat, lng: trip.dropoffLng, address: trip.dropoffAddress },
+  ...(Array.isArray(trip.onwardStops) ? trip.onwardStops : []),
+];
+
+async function pathCost(anchor, path) {
+  const { roadDistanceKm } = require('../../services/mapbox.service');
+  const legs = await Promise.all(
+    path.map((p, i) => {
+      const from = i === 0 ? anchor : path[i - 1];
+      return roadDistanceKm(from.lat, from.lng, p.lat, p.lng);
+    }),
+  );
+  return legs.reduce((s, l) => ({ km: s.km + (l?.distanceKm ?? 0), min: s.min + (l?.durationMin ?? 0) }), { km: 0, min: 0 });
+}
+
+async function priceRouteChange(userId, tripId, { kind, ...place }) {
+  if (!['destination', 'stop'].includes(kind)) {
+    throw new AppError('Say whether this is a new destination or a stop.', 400, 'INVALID_KIND');
+  }
+  const trip = await routeChangeTrip(prisma, tripId, userId);
+  const target = placeOf(place);
+  const before = pathOf(trip);
+  if (kind === 'stop' && before.length - 1 >= MAX_MID_TRIP_STOPS) {
+    throw new AppError(`You can add up to ${MAX_MID_TRIP_STOPS} stops.`, 409, 'TOO_MANY_STOPS');
+  }
+  const final = before[before.length - 1];
+  const after = kind === 'destination' ? [...before.slice(0, -1), target] : [...before.slice(0, -1), target, final];
+
+  // From the car once it is moving with the rider in it; from the pickup before.
+  let anchor = { lat: trip.pickupLat, lng: trip.pickupLng };
+  if (trip.status === S.IN_PROGRESS && trip.driverId) {
+    anchor = (await supply.driverPosition(trip.driverId).catch(() => null)) ?? anchor;
+  }
+  const [a, b] = await Promise.all([pathCost(anchor, before), pathCost(anchor, after)]);
+  const { routeChangeDelta } = require('../trips/fare.calculator');
+  const delta = routeChangeDelta(trip, b.km - a.km, b.min - a.min);
+  const booking = trip.bookings[0];
+  const current = booking.fareAmountPesewas;
+  const fare = Math.max(current + delta.totalPesewas, delta.minFarePesewas ?? 0);
+  // Commission moves with the RIDE part of what actually changed (fees carry none).
+  const changed = fare - current;
+  const rideChange = delta.totalPesewas ? Math.round(changed * (delta.ridePesewas / delta.totalPesewas)) : 0;
+  return { trip, booking, after, kind, target, current, fare, changed, rideChange };
+}
+
+/** The price of a route change, without making it. */
+async function quoteRouteChange(userId, tripId, change) {
+  const p = await priceRouteChange(userId, tripId, change);
+  return {
+    farePesewas: p.fare,
+    deltaPesewas: p.changed,
+    stops: p.after.slice(0, -1),
+    destination: p.after[p.after.length - 1],
+  };
+}
+
+async function applyRouteChange(userId, tripId, { expectedFarePesewas, ...change }) {
+  const p = await priceRouteChange(userId, tripId, change);
+  const expected = Number(expectedFarePesewas);
+  // The rider confirmed a price seconds ago; traffic may have moved it a little.
+  if (!Number.isFinite(expected) || Math.abs(p.fare - expected) > Math.max(100, Math.round(expected * 0.05))) {
+    const err = new AppError('The fare for this change has moved — check the new price.', 409, 'FARE_CHANGED');
+    err.details = { farePesewas: p.fare };
+    throw err;
+  }
+  const { percentOf, formatGhs } = require('../../utils/money');
+  const { commissionRateFor } = require('../trips/fare.calculator');
+
+  const { trip } = await tripState.recordEvent(tripId, p.kind === 'stop' ? 'STOP_ADDED' : 'DESTINATION_CHANGED', {
+    actor: ACTOR.RIDER,
+    actorId: userId,
+    sideEffects: async (tx) => {
+      const t = await routeChangeTrip(tx, tripId, userId); // still changeable inside the write
+      const [next, ...onward] = p.after;
+      const final = p.after[p.after.length - 1];
+      await tx.trip.update({
+        where: { id: tripId },
+        data: { dropoffLat: next.lat, dropoffLng: next.lng, dropoffAddress: next.address, onwardStops: onward },
+      });
+      const commission = percentOf(p.rideChange, commissionRateFor(t));
+      await tx.booking.update({
+        where: { id: p.booking.id },
+        data: {
+          dropoffLat: final.lat,
+          dropoffLng: final.lng,
+          dropoffAddress: final.address,
+          fareAmountPesewas: p.fare,
+          commissionAmountPesewas: { increment: commission },
+        },
+      });
+      // A boarded cash rider's commission was settled at boarding — settle the change too.
+      if (p.booking.paymentMethod === 'CASH' && p.booking.status === 'BOARDED' && commission !== 0 && t.driverId) {
+        await require('../wallet/wallet.service').moveDriverBalance(tx, {
+          driverId: t.driverId,
+          deltaPesewas: -commission,
+          tripId,
+          type: commission > 0 ? 'COMMISSION_DEDUCTION' : 'COMMISSION_REFUND',
+          description: 'Commission on a route change',
+        });
+      }
+      return { kind: p.kind, place: p.target, farePesewas: p.fare, deltaPesewas: p.changed, stops: p.after.length - 1 };
+    },
+  });
+
+  // Same as a departure: the live leg's end moved, so redraw it now.
+  await routeGeometry.clearRouteForTrip(tripId).catch(() => {});
+  require('../../services/trip-events.publisher').publishRouteForTrip(tripId, await routeGeometry.warmRouteForTrip(tripId));
+
+  if (p.trip.driverId) {
+    const d = await prisma.driver.findUnique({ where: { id: p.trip.driverId }, select: { fcmToken: true } });
+    require('../../services/push.service')
+      .sendPush(
+        d?.fcmToken,
+        p.kind === 'stop' ? 'Your rider added a stop' : 'Your rider changed the destination',
+        `${p.target.address ?? 'A new place on the map'} · fare now ${formatGhs(p.fare)}`,
+        { type: 'ROUTE_CHANGED', tripId },
+      )
+      .catch(() => {});
+  }
+  return { tripId, version: trip?.version ?? null, farePesewas: p.fare, deltaPesewas: p.changed };
+}
+
+/** The driver reached a mid-trip stop: head for the next place in the queue. */
+async function continueToNextStop(driverId, tripId) {
+  const { trip } = await tripState.recordEvent(tripId, 'STOP_REACHED', {
+    actor: ACTOR.DRIVER,
+    actorId: driverId,
+    sideEffects: async (tx) => {
+      const t = await tx.trip.findUnique({
+        where: { id: tripId },
+        select: { driverId: true, status: true, dropoffAddress: true, onwardStops: true },
+      });
+      if (!t || t.driverId !== driverId) throw new AppError('Not your trip.', 403, 'FORBIDDEN');
+      const queue = Array.isArray(t.onwardStops) ? t.onwardStops : [];
+      if (t.status !== S.IN_PROGRESS || !queue.length) {
+        throw new AppError('There is no next stop — this is the final destination.', 409, 'NO_NEXT_STOP');
+      }
+      const [next, ...rest] = queue;
+      await tx.trip.update({
+        where: { id: tripId },
+        data: { dropoffLat: next.lat, dropoffLng: next.lng, dropoffAddress: next.address, onwardStops: rest },
+      });
+      return { reached: t.dropoffAddress, next: next.address, remaining: rest.length };
+    },
+  });
+  await routeGeometry.clearRouteForTrip(tripId).catch(() => {});
+  require('../../services/trip-events.publisher').publishRouteForTrip(tripId, await routeGeometry.warmRouteForTrip(tripId));
+  return { tripId, version: trip?.version ?? null };
+}
+
 /**
  * NUDGE THE PICKUP WITHOUT STARTING AGAIN.
  *
@@ -1535,6 +1745,9 @@ module.exports = {
   getRideEvents,
   boostFare,
   movePickup,
+  quoteRouteChange,
+  applyRouteChange,
+  continueToNextStop,
   cancelRide,
   acceptRide,
   declineRide,

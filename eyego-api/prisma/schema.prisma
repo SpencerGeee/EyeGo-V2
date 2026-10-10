@@ -524,6 +524,8 @@ model Trip {
   dropoffLat      Float?
   dropoffLng      Float?
   dropoffAddress  String?
+  /// Mid-trip stops (hailed): dropoff* is where the car goes NEXT; these come after it, the last being the final destination. [{lat,lng,address}]
+  onwardStops    Json     @default("[]")
   departureTime   DateTime   @default(now())
   requestedAt     DateTime?
   assignedAt      DateTime?

@@ -112,6 +112,11 @@ const arriveTrip = async (req, res) => {
   ok(res, result, 'Trip completed');
 };
 
+/** Reached a stop the rider added; the route moves on to the next place. */
+const nextStop = async (req, res) => {
+  ok(res, await require('../rides/rides.service').continueToNextStop(req.user.userId, req.params.id), 'On to the next stop');
+};
+
 /** Cash handed over by a passenger; anything over the fare goes to their wallet. */
 const cashReceived = async (req, res) => {
   const result = await driversService.recordCashReceived(
@@ -657,7 +662,7 @@ const clearDestinationMode = async (req, res) => {
 module.exports = {
   getMe, updateMe, updateFcmToken, completeVerification, addVehicle,
   goOnline, goOffline, getTripHistory, getActiveTrip, getOutcomes, getAllTrips, devActivate,
-  startTrip, departTrip, arriveAtPickup, arriveTrip, cancelTrip, presence, cashReceived,
+  startTrip, departTrip, arriveAtPickup, arriveTrip, cancelTrip, presence, cashReceived, nextStop,
   getTripById, acceptDispatch, declineDispatch, claimReassignedTrip,
   acceptTripRequest, declineTripRequest, uploadDocument,
   addOfflinePassenger, addCashNoPhone, verifyOfflineOtp, releaseOfflineHold, boardPassenger, requestBoardingPin, setRequestsPaused,

@@ -15,3 +15,6 @@ ALTER TABLE "SupportTicket" ADD COLUMN "tripId" TEXT;
 CREATE INDEX "SupportTicket_tripId_idx" ON "SupportTicket"("tripId");
 -- Last passed selfie identity check (provider-gated; null = never checked).
 ALTER TABLE "Driver" ADD COLUMN "selfieVerifiedAt" TIMESTAMP(3);
+-- Mid-trip stops (hailed rides): Trip.dropoff* is always where the car goes NEXT;
+-- this is the queue of places after it, the last being the final destination.
+ALTER TABLE "Trip" ADD COLUMN "onwardStops" JSONB NOT NULL DEFAULT '[]';

@@ -274,6 +274,18 @@ export function DriverTripStatusListener() {
      * which ends in a payment and therefore got the payment push. The banner is
      * suppressed on the screens that already show the passenger arriving.
      */
+    // The rider changed where they are going — refetch the trip and say so.
+    const unsubRoute = driverSocketEvents.onRouteChanged((e) => {
+      queryClient.invalidateQueries({ queryKey: ['driver', 'trip', 'active', e.tripId] });
+      queryClient.invalidateQueries({ queryKey: ['driver', 'trip', 'tracking', e.tripId] });
+      if (e.type === 'STOP_REACHED') return; // the driver did that themselves
+      const where = e.payload?.place?.address ?? 'a new place';
+      showBanner(
+        e.type === 'STOP_ADDED' ? `Your rider added a stop: ${where}` : `New destination: ${where}`,
+        'navigate-circle',
+      );
+    });
+
     const unsubPassengerJoined = driverSocketEvents.onPassengerJoined((data) => {
       queryClient.invalidateQueries({ queryKey: ['driver', 'trips'] });
       const tId = safeRead(data, 'tripId');
@@ -329,6 +341,7 @@ export function DriverTripStatusListener() {
       // the socket, so a driver who logged out and back in got the same
       // "X took seat N" banner two and three times over.
       unsubPassengerJoined();
+      unsubRoute();
       unsubChat();
       unsubPrivateChat();
     };

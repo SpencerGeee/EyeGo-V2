@@ -346,6 +346,21 @@ export const ridesApi = {
       .post(`/rides/${tripId}/pickup`, { ...pickup, address: pickup.address ?? undefined })
       .then(unwrap<{ tripId: string; version: number | null }>),
 
+  /** Price a mid-ride destination change or added stop (hailed rides). */
+  quoteRouteChange: (tripId: string, change: { kind: 'destination' | 'stop'; lat: number; lng: number; address?: string }) =>
+    apiClient
+      .post(`/rides/${tripId}/route/quote`, change)
+      .then(unwrap<{ farePesewas: number; deltaPesewas: number }>),
+
+  /** Make it, against the fare the rider was shown (409 FARE_CHANGED if it moved). */
+  applyRouteChange: (
+    tripId: string,
+    change: { kind: 'destination' | 'stop'; lat: number; lng: number; address?: string; expectedFarePesewas: number },
+  ) =>
+    apiClient
+      .post(`/rides/${tripId}/route`, change)
+      .then(unwrap<{ tripId: string; version: number | null; farePesewas: number; deltaPesewas: number }>),
+
   // ── driver ────────────────────────────────────────────────────────────────
   driverState: () =>
     apiClient.get('/rides/driver/state').then(unwrap<DriverStateResponse>).then(checkDriverStateMoney),

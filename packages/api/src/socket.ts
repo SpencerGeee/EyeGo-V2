@@ -715,6 +715,21 @@ export const driverSocketEvents = {
   },
 
   /**
+   * The rider changed the destination or added a stop, or the driver moved on
+   * from one (rides.applyRouteChange / continueToNextStop). Filtered out of the
+   * trip-room envelopes so a screen can refetch the trip and say what changed.
+   */
+  onRouteChanged: (
+    cb: (e: { tripId: string; type: 'DESTINATION_CHANGED' | 'STOP_ADDED' | 'STOP_REACHED'; payload: any }) => void,
+  ) => {
+    const handler = (e: any) => {
+      if (e && ['DESTINATION_CHANGED', 'STOP_ADDED', 'STOP_REACHED'].includes(e.type)) cb(e);
+    };
+    getDriverSocket().on('trip:event', handler);
+    return () => getDriverSocket().off('trip:event', handler);
+  },
+
+  /**
    * A passenger moved where they want to be collected.
    *
    * Separate from `onSeatUpdate` for the same reason `onPassengerJoined` is: the

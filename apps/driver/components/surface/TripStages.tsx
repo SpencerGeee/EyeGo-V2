@@ -1,4 +1,6 @@
-import React, { useCallback, useMemo, useRef } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { driverApi } from '@eyego/api';
 import { View, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
@@ -15,6 +17,7 @@ import {
   Avatar,
   callNumber,
   goDeeper,
+  notify,
 } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useTripStops, type StopPassenger } from '../trip/useTripStops';
@@ -113,6 +116,24 @@ export function TripStages({
 
   const isDriving = stage === 'enroute' || stage === 'arrived' || stage === 'intrip';
   const platform = usePlatformConfig();
+  // Stops the rider added mid-trip: `dropoff` is where we go NOW, these come after.
+  const onward: { address?: string | null }[] = Array.isArray((trip as { onwardStops?: unknown })?.onwardStops)
+    ? ((trip as { onwardStops: { address?: string | null }[] }).onwardStops)
+    : [];
+  const qc = useQueryClient();
+  const [stopBusy, setStopBusy] = useState(false);
+  const nextStop = async () => {
+    if (!trip?.id || stopBusy) return;
+    setStopBusy(true);
+    try {
+      await driverApi.nextStop(trip.id);
+      qc.invalidateQueries({ queryKey: ['driver', 'trip', 'active', trip.id] });
+    } catch (err: any) {
+      notify('Could not move to the next stop', err?.response?.data?.message ?? 'Please try again.');
+    } finally {
+      setStopBusy(false);
+    }
+  };
   const isHailed = (trip as { isOnDemand?: boolean })?.isOnDemand === true || !(trip as { routeId?: string | null })?.routeId;
   if (!isDriving || !trip) return null;
 
@@ -261,6 +282,25 @@ export function TripStages({
               <Text variant="caption" color={colors.statusWarning}>· {formatGhs(cashOwed)} cash to collect</Text>
             ) : null}
           </GradientGlowBorder>
+        ) : null}
+
+        {/* A stop the rider added: drop them here, then carry on. */}
+        {stage === 'intrip' && onward.length > 0 ? (
+          <View style={{ gap: spacing.sm }}>
+            <Text variant="bodySmall" color={colors.onSurfaceVariant} numberOfLines={2}>
+              Stop on the way · then {onward.map((s) => s.address ?? 'pinned place').join(' → ')}
+            </Text>
+            <Pressable
+              onPress={nextStop}
+              disabled={stopBusy}
+              style={[styles.action, { backgroundColor: colors.primary, opacity: stopBusy ? 0.6 : 1 }]}
+              accessibilityRole="button"
+              accessibilityLabel="At the stop — continue to the next place"
+            >
+              <Ionicons name="play-forward" size={18} color={colors.onPrimary} />
+              <Text style={[styles.actionLabel, { color: colors.onPrimary }]}>{stopBusy ? 'Updating…' : 'At the stop — continue'}</Text>
+            </Pressable>
+          </View>
         ) : null}
 
         <View style={styles.actions}>

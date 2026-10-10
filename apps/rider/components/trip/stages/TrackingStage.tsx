@@ -10,6 +10,7 @@ import { useColors, Colors } from '../../../utils/useColors';
 import { useTripStore } from '../../../stores/trip.store';
 import { useChatUnread } from '../../../stores/chatUnread.store';
 import { shareLiveTracking } from '../../../utils/safety';
+import { useRouteChange } from '../../../hooks/useRouteChange';
 
 /**
  * The in-car stage (IN_PROGRESS): the rider is aboard and the only questions
@@ -39,6 +40,10 @@ function TrackingStageImpl() {
   const driverLinkLostSinceMs = useTripStore((s) => s.driverLinkLostSinceMs);
 
   const tripId = snapshot?.tripId ?? null;
+  // Change destination / add a stop — hailed rides only (a bus follows its route).
+  const routeChange = useRouteChange(tripId);
+  const isHailed = !!(snapshot as { isOnDemand?: boolean } | null)?.isOnDemand;
+  const stops = ((snapshot as { stops?: { address?: string | null }[] } | null)?.stops ?? []);
   const unreadChats = useChatUnread((s) => (tripId ? s.counts[tripId] ?? 0 : 0));
   const driver = snapshot?.driver ?? null;
   const vehicle = snapshot?.vehicle ?? null;
@@ -272,6 +277,28 @@ function TrackingStageImpl() {
             </GradientGlowBorder>
           )}
 
+          {stops.length > 0 && (
+            <View style={styles.stopsRow}>
+              <Ionicons name="flag-outline" size={15} color={colors.onSurfaceVariant} />
+              <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ flex: 1 }} numberOfLines={2}>
+                {stops.length === 1 ? 'Stop' : 'Stops'}: {stops.map((s) => s.address ?? 'Pinned place').join(' → ')}, then your destination
+              </Text>
+            </View>
+          )}
+
+          {isHailed && (
+            <View style={styles.actions}>
+              <Pressable onPress={routeChange.changeDestination} style={styles.action} accessibilityRole="button" accessibilityLabel="Change destination">
+                <Ionicons name="navigate-outline" size={18} color={colors.onSurface} />
+                <Text style={[styles.actionLabel, { color: colors.onSurface }]}>Change destination</Text>
+              </Pressable>
+              <Pressable onPress={routeChange.addStop} style={styles.action} accessibilityRole="button" accessibilityLabel="Add a stop">
+                <Ionicons name="add-circle-outline" size={18} color={colors.onSurface} />
+                <Text style={[styles.actionLabel, { color: colors.onSurface }]}>Add a stop</Text>
+              </Pressable>
+            </View>
+          )}
+
           <View style={styles.actions}>
             <Pressable onPress={handleShare} style={styles.action} accessibilityRole="button" accessibilityLabel="Share trip">
               <Ionicons name="share-outline" size={18} color={colors.onSurface} />
@@ -386,4 +413,5 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     backgroundColor: colors.surfaceContainer,
   },
   actionLabel: { fontFamily: fonts.medium, fontSize: fontSizes.bodySmall },
+  stopsRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
 });

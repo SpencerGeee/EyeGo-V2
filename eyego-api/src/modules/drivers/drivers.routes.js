@@ -67,6 +67,8 @@ router.post('/trips/:id/start', requireActiveDriver, controller.startTrip);
 router.post('/trips/:id/arrive-at-pickup', requireActiveDriver, controller.arriveAtPickup);
 router.post('/trips/:id/depart', requireActiveDriver, controller.departTrip);
 router.post('/trips/:id/arrive', requireActiveDriver, controller.arriveTrip);
+// A mid-trip stop reached: head for the next place in the rider's queue.
+router.post('/trips/:id/next-stop', requireActiveDriver, controller.nextStop);
 router.post('/trips/:id/bookings/:bookingId/cash-received', controller.cashReceived);
 router.post('/accept-terms', controller.acceptTerms);
 router.post('/trips/:id/emergency', controller.emergencyAlert);

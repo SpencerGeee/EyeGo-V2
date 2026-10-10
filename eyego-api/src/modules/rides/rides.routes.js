@@ -200,6 +200,50 @@ router.post(
   }),
 );
 
+/**
+ * Change the destination or add a stop, mid-ride (hailed only). `quote` prices
+ * it; the plain POST makes it, against the fare the rider was shown.
+ */
+const routeChangeRules = [
+  param('id').isString(),
+  body('kind').isIn(['destination', 'stop']),
+  body('lat').isFloat({ min: -90, max: 90 }),
+  body('lng').isFloat({ min: -180, max: 180 }),
+  body('address').optional().isString().isLength({ max: 240 }),
+];
+const changeOf = (req) => ({
+  kind: req.body.kind,
+  lat: Number(req.body.lat),
+  lng: Number(req.body.lng),
+  address: req.body.address,
+});
+
+router.post(
+  '/:id/route/quote',
+  authenticate,
+  routeChangeRules,
+  validate,
+  h(async (req, res) => {
+    res.json({ success: true, data: await rides.quoteRouteChange(actorId(req), req.params.id, changeOf(req)) });
+  }),
+);
+
+router.post(
+  '/:id/route',
+  authenticate,
+  [...routeChangeRules, body('expectedFarePesewas').isInt({ min: 0 })],
+  validate,
+  h(async (req, res) => {
+    res.json({
+      success: true,
+      data: await rides.applyRouteChange(actorId(req), req.params.id, {
+        ...changeOf(req),
+        expectedFarePesewas: Number(req.body.expectedFarePesewas),
+      }),
+    });
+  }),
+);
+
 router.post(
   '/:id/cancel',
   authenticate,

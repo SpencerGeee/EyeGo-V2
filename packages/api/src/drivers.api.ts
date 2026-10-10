@@ -383,6 +383,10 @@ export const driverApi = {
   cashReceived: (tripId: string, bookingId: string, amountPesewas: number) =>
     apiClient.post<ApiResponse<{ changePesewas: number }>>(`/driver/trips/${tripId}/bookings/${bookingId}/cash-received`, { amountPesewas }),
 
+  /** Reached a stop the rider added mid-trip; the route moves on to the next place. */
+  nextStop: (tripId: string) =>
+    apiClient.post<ApiResponse<{ tripId: string }>>(`/driver/trips/${tripId}/next-stop`),
+
   startTrip: (tripId: string) =>
     apiClient.post<ApiResponse<DriverTrip>>(`/driver/trips/${tripId}/start`),
 

@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { Text, GlassSurface, DriverInfoCard, RollingDigits, GradientGlowBorder, WaitingMeter, goDeeper, notify } from '@eyego/ui';
 import { usePlatformConfig } from '../../../hooks/usePlatformConfig';
+import { useRouteChange } from '../../../hooks/useRouteChange';
 import { formatGhs, clockTime } from '@eyego/utils';
 import { SheetContent } from '../sheetSlot';
 import { useColors, Colors } from '../../../utils/useColors';
@@ -97,6 +98,7 @@ function AssignedStageImpl() {
 
   const status = snapshot?.status ?? null;
   const tripId = snapshot?.tripId ?? null;
+  const routeChange = useRouteChange(tripId);
   const unreadChats = useChatUnread((s) => (tripId ? s.counts[tripId] ?? 0 : 0));
   const driver = snapshot?.driver ?? null;
   const vehicle = snapshot?.vehicle ?? null;
@@ -319,6 +321,14 @@ function AssignedStageImpl() {
                   · {snapshot.fare.paymentMethod === 'CASH' ? 'Cash' : 'Card'}
                 </Text>
               )}
+            </View>
+          )}
+
+          {/* Hailed rides: the destination can change before pickup too. */}
+          {(snapshot as any)?.isOnDemand && (
+            <View style={styles.actions}>
+              <Action icon="navigate-outline" label="Change destination" onPress={routeChange.changeDestination} colors={colors} />
+              <Action icon="add-circle-outline" label="Add a stop" onPress={routeChange.addStop} colors={colors} />
             </View>
           )}
 

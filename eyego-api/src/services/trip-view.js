@@ -319,6 +319,16 @@ function buildTripSnapshot(trip, viewer = {}) {
             address: trip.dropoffAddress ?? trip.route?.destinationName ?? null,
           },
 
+    // Stops still ahead on a hailed ride (rider added them mid-trip). The trip's
+    // own dropoff is the NEXT place the car goes and `onwardStops` the queue
+    // after it, ending at the final destination — see rides.applyRouteChange.
+    stops: (() => {
+      const onward = Array.isArray(trip.onwardStops) ? trip.onwardStops : [];
+      return onward.length
+        ? [{ lat: trip.dropoffLat, lng: trip.dropoffLng, address: trip.dropoffAddress }, ...onward.slice(0, -1)]
+        : [];
+    })(),
+
     driver: trip.driver
       ? {
           id: trip.driver.id,

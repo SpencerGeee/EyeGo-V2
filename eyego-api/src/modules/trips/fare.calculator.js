@@ -710,12 +710,28 @@ function waitFeeFor(arrivedAt, tier, startedAt = new Date()) {
   return { minutes, feePesewas: cap > 0 ? Math.min(cap, minutes * perMin) : minutes * perMin };
 }
 
+/**
+ * What a mid-trip route change adds to (or takes off) a hailed fare: the extra
+ * road distance and time at the trip's own card, surged and fee'd like the
+ * original ride. Priced as a DELTA so everything else the rider was quoted
+ * (doorstep, boost, loyalty) stands untouched. Negative when the new route is
+ * shorter; the caller floors the total at the tier minimum.
+ */
+function routeChangeDelta(trip, deltaKm, deltaMin) {
+  const card = RIDE_CARD[normalizeTier(trip.tier)];
+  const perKm = trip.perKmRatePesewas != null ? trip.perKmRatePesewas : cfg(card.perKm);
+  const ride = Math.round((perKm * deltaKm + cfg(card.perMin) * deltaMin) * (trip.surgeMultiplier ?? 1));
+  const feeRate = trip.bookingFeeRate != null ? trip.bookingFeeRate : cfg('RIDE_BOOKING_FEE_RATE');
+  return { ridePesewas: ride, totalPesewas: ride + percentOf(ride, feeRate), minFarePesewas: cfg(card.min) };
+}
+
 function commissionRateFor(trip) {
   return trip?.commissionRate != null ? trip.commissionRate : cfg('PLATFORM_COMMISSION');
 }
 
 module.exports = {
   waitFeeFor,
+  routeChangeDelta,
   calculateSegmentFareByRatio,
   pinnedRatesFor,
   commissionRateFor,
