@@ -144,12 +144,20 @@ function attachFarePerSeat(trip) {
  */
 function scrubBookingSecrets(trip) {
   if (!trip || !Array.isArray(trip.bookings)) return trip;
+  const { ridePrefsOf } = require('../../utils/ride-prefs');
   return {
     ...trip,
-    bookings: trip.bookings.map(({ boardingPin, ...b }) => ({
-      ...b,
-      requiresBoardingPin: !!boardingPin && !b.pinVerifiedAt,
-    })),
+    bookings: trip.bookings.map(({ boardingPin, ...b }) => {
+      // The rider's ride switches (quiet / AC / luggage) — never their whole
+      // preferences blob, which also carries app settings.
+      const { preferences, ...user } = b.user ?? {};
+      return {
+        ...b,
+        ...(b.user ? { user } : {}),
+        ridePrefs: ridePrefsOf(preferences),
+        requiresBoardingPin: !!boardingPin && !b.pinVerifiedAt,
+      };
+    }),
   };
 }
 
@@ -698,7 +706,7 @@ async function getActiveTrip(driverId) {
       group: { include: { leadPassenger: { select: { id: true, name: true } } } },
       bookings: {
         where: { ...seatOccupyingWhere() },
-        include: { user: { select: { id: true, name: true, phone: true, profilePhoto: true } } },
+        include: { user: { select: { id: true, name: true, phone: true, profilePhoto: true, preferences: true } } },
       },
     },
     orderBy: { createdAt: 'desc' },
@@ -964,7 +972,7 @@ async function getTripById(driverId, tripId) {
           // "No passengers to rate" after a completed trip with two passengers.
           // rate-passengers also posts the rating against this id, so the screen
           // could not have worked even if it had rendered.
-          user: { select: { id: true, name: true, phone: true, profilePhoto: true } },
+          user: { select: { id: true, name: true, phone: true, profilePhoto: true, preferences: true } },
         },
       },
     },

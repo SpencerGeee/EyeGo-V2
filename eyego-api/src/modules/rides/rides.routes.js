@@ -123,6 +123,8 @@ router.post(
     // the kerb, which is the whole point of the feature.
     body('passenger.name').optional().isString().isLength({ min: 1, max: 80 }),
     body('passenger.phone').optional().isString().isLength({ min: 5, max: 20 }),
+    // "Blue gate, opposite the pharmacy" — shown to the driver. See utils/ride-prefs.
+    body('pickupNote').optional({ nullable: true }).isString().isLength({ max: 280 }),
   ],
   validate,
   h(async (req, res) => {

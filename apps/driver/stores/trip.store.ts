@@ -45,6 +45,8 @@ export interface DispatchOffer {
   driverEarningsPesewas: number | null;
   /** Wallet balance needed to BOARD this ride — see PendingOffer in @eyego/api. */
   walletRequiredPesewas: number | null;
+  pickupNote?: string | null;
+  ridePrefs?: string[];
   /** The rider's raise, already inside both figures above — see PendingOffer. */
   boostPesewas: number | null;
   /** How many people are waiting at the pickup. */
@@ -92,6 +94,8 @@ function offerFromPayload(p: any): DispatchOffer {
     farePesewas: p.farePesewas ?? null,
     driverEarningsPesewas: p.driverEarningsPesewas ?? null,
     walletRequiredPesewas: p.walletRequiredPesewas ?? null,
+    pickupNote: p.pickupNote ?? null,
+    ridePrefs: Array.isArray(p.ridePrefs) ? p.ridePrefs : [],
     boostPesewas: p.boostPesewas ?? null,
     partySize: p.partySize ?? null,
     tier: p.tier ?? null,
@@ -496,6 +500,8 @@ export const useDriverTripStore = create<DriverTripState>((set, get) => ({
               farePesewas: p.farePesewas ?? null,
               driverEarningsPesewas: p.driverEarningsPesewas ?? null,
               walletRequiredPesewas: p.walletRequiredPesewas ?? null,
+              pickupNote: p.pickupNote ?? null,
+              ridePrefs: Array.isArray(p.ridePrefs) ? p.ridePrefs : [],
               offeredToMe: true,
               expiresAtServerMs: p.expiresAtServerMs,
               heldByAnother: false,

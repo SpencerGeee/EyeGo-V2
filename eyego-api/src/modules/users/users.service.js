@@ -644,7 +644,12 @@ const updateSafetySettings = (userId, patch) => updateSettingsBlob(userId, 'safe
 // or new device silently reset it to the default instead of following the
 // account like every other setting on this screen does.
 const getPreferences = (userId) => getSettingsBlob(userId, 'preferences');
-const updatePreferences = (userId, patch) => updateSettingsBlob(userId, 'preferences', patch);
+// `ride` (quiet / AC / luggage) is read by the driver's offer card — only the
+// known switches, only as booleans. See utils/ride-prefs.
+const updatePreferences = (userId, patch) =>
+  updateSettingsBlob(userId, 'preferences', patch?.ride !== undefined
+    ? { ...patch, ride: require('../../utils/ride-prefs').sanitizeRidePrefs(patch.ride) }
+    : patch);
 
 async function updateInsuranceCard(userId, fileBuffer) {
   const url = await cloudinary.uploadBuffer(fileBuffer, {

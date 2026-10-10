@@ -562,7 +562,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
         // parameters of the quote; nothing sent them, so every ride was priced
         // and dispatched as a plain ECO with no extras regardless of what the
         // rider asked for.
-        const { rideTier, doorstepPickup, heavyLoad } = useRideStore.getState();
+        const { rideTier, doorstepPickup, heavyLoad, pickupNote } = useRideStore.getState();
 
         /**
          * ONE PARTY SIZE, QUOTED AND REQUESTED.
@@ -629,6 +629,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
             // learns how many people to expect.
             // THE SAME value the quote above was signed for. See `chosenSeats`.
             seatCount: chosenSeats,
+            ...(pickupNote.trim() ? { pickupNote: pickupNote.trim() } : {}),
             ...(opts?.allowConcurrent ? { allowConcurrent: true } : {}),
             ...(opts?.passenger ? { passenger: opts.passenger } : {}),
           } as any,

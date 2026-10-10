@@ -8,6 +8,7 @@ import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { Text, Pressable, Avatar, GlassSurface } from '@eyego/ui';
 import { formatGhs } from '@eyego/utils';
 import { useColors, type DriverColors } from '../../utils/useColors';
+import { RiderAsks } from '../RiderAsks';
 
 /**
  * ── THE PASSENGER, AS A DESIGNED SURFACE ─────────────────────────────────────
@@ -61,6 +62,9 @@ export interface PassengerSheetData {
   needsPin?: boolean;
   /** Cash already recorded for this passenger (change was settled once). */
   cashRecorded?: boolean;
+  /** What they asked of the driver — see RiderAsks. */
+  pickupNote?: string | null;
+  ridePrefs?: string[];
 }
 
 export interface PassengerSheetProps {
@@ -190,6 +194,8 @@ export function PassengerSheet({
               styles={styles}
             />
           </View>
+
+          <RiderAsks note={p.pickupNote} prefs={p.ridePrefs} />
 
           {p.needsPin && !p.boarded ? (
             <View style={styles.pinNote}>

@@ -97,6 +97,8 @@ interface RideState {
    */
   doorstepPickup: boolean | null;
   heavyLoad: boolean;
+  /** "Blue gate, opposite the pharmacy" — sent with the request, shown to the driver. */
+  pickupNote: string;
 
   // Actions
   setOrigin: (loc: Location | null) => void;
@@ -113,7 +115,7 @@ interface RideState {
   setComputedFare: (fare: number | null) => void;
   setPendingPromoCode: (code: string | null) => void;
   setRequestSeats: (count: number, coverAll: boolean) => void;
-  setRideOptions: (o: Partial<{ rideTier: 'ECO' | 'COMFORT' | 'PREMIUM'; doorstepPickup: boolean | null; heavyLoad: boolean }>) => void;
+  setRideOptions: (o: Partial<{ rideTier: 'ECO' | 'COMFORT' | 'PREMIUM'; doorstepPickup: boolean | null; heavyLoad: boolean; pickupNote: string }>) => void;
   clearRideState: () => void;
 }
 
@@ -139,6 +141,7 @@ export const useRideStore = create<RideState>()(
       rideTier: 'ECO',
       doorstepPickup: null,
       heavyLoad: false,
+      pickupNote: '',
 
       setOrigin: (loc) => set({ origin: loc }),
       setDestination: (loc) => set({ destination: loc }),
@@ -178,6 +181,7 @@ export const useRideStore = create<RideState>()(
           rideTier: 'ECO',
           doorstepPickup: null,
           heavyLoad: false,
+          pickupNote: '',
         }),
     }),
     {

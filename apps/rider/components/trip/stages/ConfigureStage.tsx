@@ -5,6 +5,7 @@ import {
   Pressable,
   BackHandler,
   ScrollView,
+  TextInput,
   useWindowDimensions,
   type LayoutChangeEvent,
 } from 'react-native';
@@ -146,6 +147,7 @@ function ConfigureStageImpl() {
   const rideTier = useRideStore((s) => s.rideTier);
   const doorstepPickup = useRideStore((s) => s.doorstepPickup);
   const heavyLoad = useRideStore((s) => s.heavyLoad);
+  const pickupNote = useRideStore((s) => s.pickupNote);
   const seats = useRideStore((s) => s.requestSeatCount);
   const setRideOptions = useRideStore((s) => s.setRideOptions);
   const setRequestSeats = useRideStore((s) => s.setRequestSeats);
@@ -788,6 +790,21 @@ function ConfigureStageImpl() {
                 colors={colors}
                 styles={styles}
               />
+              {/* Bolt/Uber "note for driver": the gate, the landmark, the colour of the shirt. */}
+              <View style={[styles.option, { alignItems: 'flex-start' }]}>
+                <Ionicons name="chatbox-ellipses-outline" size={18} color={colors.onSurfaceVariant} style={{ marginTop: 2 }} />
+                <TextInput
+                  value={pickupNote}
+                  onChangeText={(t) => setRideOptions({ pickupNote: t.slice(0, 140) })}
+                  placeholder="Note for your driver (optional) — e.g. blue gate, opposite the pharmacy"
+                  placeholderTextColor={colors.onSurfaceVariant}
+                  maxLength={140}
+                  multiline
+                  maxFontSizeMultiplier={1.4}
+                  style={[styles.optionLabel, { flex: 1, fontFamily: fonts.regular, minHeight: 40 }]}
+                  accessibilityLabel="Note for your driver"
+                />
+              </View>
             </Entrance>
           )}
 

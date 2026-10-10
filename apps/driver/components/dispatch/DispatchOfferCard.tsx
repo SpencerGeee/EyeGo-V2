@@ -42,6 +42,7 @@ import type { Coord } from '@eyego/maps';
 import Svg, { Rect } from 'react-native-svg';
 import { useAnimatedProps } from 'react-native-reanimated';
 
+import { RiderAsks } from '../RiderAsks';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { DispatchMiniMap } from './DispatchMiniMap';
 import { CountdownRing } from './CountdownRing';
@@ -106,6 +107,9 @@ export interface DispatchOfferView {
    * Computed by the server in `dispatch-cascade.cashFloatPesewas`.
    */
   walletRequiredPesewas?: number | null;
+  /** The rider's note for the driver and ride switches — see RiderAsks. */
+  pickupNote?: string | null;
+  ridePrefs?: string[];
   /** The rider raised the fare to find a driver faster; all of it is in the earnings. */
   boostPesewas?: number | null;
   /** How many people are waiting at the pickup. */
@@ -751,6 +755,8 @@ export function DispatchOfferCard({
             </View>
           </View>
         </View>
+
+        <RiderAsks note={offer.pickupNote} prefs={offer.ridePrefs} />
 
         {isReassignment || isRequest ? (
           <Text variant="caption" color={colors.onSurfaceVariant} style={styles.rule}>

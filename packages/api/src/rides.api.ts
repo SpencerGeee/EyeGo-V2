@@ -118,6 +118,9 @@ export interface PendingOffer {
    */
   walletRequiredPesewas?: number | null;
   commissionPesewas?: number | null;
+  /** What the rider asked: their note for the driver and ride switches. See utils/ride-prefs. */
+  pickupNote?: string | null;
+  ridePrefs?: string[];
   /** What the rider added to find a driver faster — already inside both figures above, all of it the driver's. */
   boostPesewas?: number | null;
   /** How many people are waiting at the pickup. */
@@ -150,6 +153,9 @@ export interface PendingDispatch {
   /** See `PendingOffer.walletRequiredPesewas`. */
   walletRequiredPesewas?: number | null;
   commissionPesewas?: number | null;
+  /** What the rider asked: their note for the driver and ride switches. See utils/ride-prefs. */
+  pickupNote?: string | null;
+  ridePrefs?: string[];
   /** See `PendingOffer.boostPesewas`. */
   boostPesewas?: number | null;
   /** See `PendingOffer.partySize`. */

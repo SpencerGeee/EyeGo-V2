@@ -4,7 +4,7 @@ export { userApi } from './user.api';
 // "Improve maps" — corrections riders and drivers file about the real world.
 export { mapReportsApi } from './mapReports.api';
 export type { MapReport, MapReportDraft, MapReportType, MapReportStatus } from './mapReports.api';
-export type { EmergencyContact, SafetySettings, PrivacySettings, NotificationPrefs, SavedPlace, SavedPlaceSlot, RiderPromotion, RiderPromotions } from './user.api';
+export type { EmergencyContact, SafetySettings, PrivacySettings, NotificationPrefs, SavedPlace, SavedPlaceSlot, RiderPromotion, RiderPromotions, RidePrefs } from './user.api';
 export { tripsApi } from './trips.api';
 export type { TripAlert } from './trips.api';
 // On-demand rides + the one realtime channel. See tripChannel.ts for why the

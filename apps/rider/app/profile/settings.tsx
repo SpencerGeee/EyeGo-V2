@@ -1,5 +1,7 @@
 import React from 'react';
 import { Switch } from 'react-native';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { userApi, type RidePrefs } from '@eyego/api';
 import { Screen, ListSection, ListRow, goDeeper } from '@eyego/ui';
 import { formatPhone } from '@eyego/utils';
 import { useColors } from '../../utils/useColors';
@@ -15,6 +17,29 @@ export default function SettingsScreen() {
   const colors = useColors();
   const { isDark, setDark } = useThemeStore();
   const user = useAuthStore((s) => s.user);
+  const qc = useQueryClient();
+
+  // What every driver sees on the offer card. Optimistic: the switch flips now.
+  const prefsQ = useQuery({ queryKey: ['user', 'preferences'], queryFn: () => userApi.getPreferences() });
+  const ride: RidePrefs = (prefsQ.data as any)?.data?.data?.preferences?.ride ?? {};
+  const saveRide = useMutation({
+    mutationFn: (next: RidePrefs) => userApi.updatePreferences({ ride: next }),
+    onMutate: (next) =>
+      qc.setQueryData(['user', 'preferences'], (old: any) =>
+        old ? { ...old, data: { ...old.data, data: { preferences: { ...old.data?.data?.preferences, ride: next } } } } : old,
+      ),
+    onSettled: () => qc.invalidateQueries({ queryKey: ['user', 'preferences'] }),
+  });
+  const rideSwitch = (key: keyof RidePrefs, label: string) => (
+    <Switch
+      value={!!ride[key]}
+      onValueChange={(v) => saveRide.mutate({ ...ride, [key]: v })}
+      trackColor={{ false: colors.surfaceContainerHighest, true: colors.primary }}
+      thumbColor="#fff"
+      ios_backgroundColor={colors.surfaceContainerHighest}
+      accessibilityLabel={label}
+    />
+  );
 
   return (
     <Screen title="Settings">
@@ -46,6 +71,12 @@ export default function SettingsScreen() {
             />
           }
         />
+      </ListSection>
+
+      <ListSection title="Ride preferences" footer="Your driver sees these when they get your request.">
+        <ListRow icon="volume-mute-outline" title="Quiet ride" subtitle="Little or no conversation" right={rideSwitch('quiet', 'Quiet ride')} />
+        <ListRow icon="snow-outline" title="Air conditioning on" right={rideSwitch('ac', 'Air conditioning on')} />
+        <ListRow icon="briefcase-outline" title="Help with luggage" right={rideSwitch('luggage', 'Help with luggage')} />
       </ListSection>
 
       <ListSection title="Preferences">

@@ -134,6 +134,13 @@ export interface RiderPromotions {
   serverNowMs: number;
 }
 
+/** What the rider asks of every driver — shown on the offer card. See eyego-api utils/ride-prefs. */
+export interface RidePrefs {
+  quiet?: boolean;
+  ac?: boolean;
+  luggage?: boolean;
+}
+
 export const userApi = {
   getProfile: () =>
     apiClient.get<ApiResponse<User>>('/user/me').then(unwrapUser),
@@ -207,10 +214,10 @@ export const userApi = {
   // a reinstall or new device silently reset it. Same JSON-blob pattern the
   // driver app already uses for its preferences.
   getPreferences: () =>
-    apiClient.get<ApiResponse<{ preferences: { theme?: 'dark' | 'light' } }>>('/user/me/preferences'),
+    apiClient.get<ApiResponse<{ preferences: { theme?: 'dark' | 'light'; ride?: RidePrefs } }>>('/user/me/preferences'),
 
-  updatePreferences: (patch: { theme?: 'dark' | 'light' }) =>
-    apiClient.patch<ApiResponse<{ preferences: { theme?: 'dark' | 'light' } }>>('/user/me/preferences', patch),
+  updatePreferences: (patch: { theme?: 'dark' | 'light'; ride?: RidePrefs }) =>
+    apiClient.patch<ApiResponse<{ preferences: { theme?: 'dark' | 'light'; ride?: RidePrefs } }>>('/user/me/preferences', patch),
 
   getSafetySettings: () =>
     apiClient.get<ApiResponse<{ settings: SafetySettings }>>('/user/me/safety-settings'),

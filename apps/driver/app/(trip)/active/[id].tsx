@@ -1551,6 +1551,8 @@ export default function ActiveTripScreen() {
       boarded: b.status === 'BOARDED',
       pinVerified: !!b.pinVerifiedAt,
       cashRecorded: b.cashReceivedPesewas != null,
+      pickupNote: b.pickupNote ?? null,
+      ridePrefs: b.ridePrefs ?? [],
       // The server sends this boolean, never the code itself — a driver who
       // could read the PIN would not have to be told it. See
       // scrubBookingSecrets in drivers.service.js.
@@ -1587,6 +1589,8 @@ export default function ActiveTripScreen() {
       held: seat?.status === 'HELD',
       needsPin: seat?.needsPin ?? false,
       cashRecorded: seat?.cashRecorded ?? false,
+      pickupNote: seat?.pickupNote ?? null,
+      ridePrefs: seat?.ridePrefs ?? [],
     });
   };
 

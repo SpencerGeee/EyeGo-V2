@@ -21,6 +21,7 @@ import { useTripStops, type StopPassenger } from '../trip/useTripStops';
 import { openExternalNavigation } from '../../utils/externalNav';
 import { useTripAdvance } from './useTripAdvance';
 import { usePlatformConfig } from '../../hooks/usePlatformConfig';
+import { RiderAsks } from '../RiderAsks';
 import type { DriverStage } from './driverStage';
 
 /**
@@ -190,6 +191,11 @@ export function TripStages({
             </View>
           ) : null}
         </View>
+
+        {/* What the rider asked — the gate, the quiet ride — while there is a pickup to make. */}
+        {(stage === 'enroute' || stage === 'arrived') && isHailed && (
+          <RiderAsks note={(trip as any)?.bookings?.[0]?.pickupNote} prefs={(trip as any)?.bookings?.[0]?.ridePrefs} />
+        )}
 
         {/* The journey, both ends of it — the rider's dot → connector → pin. */}
         <View style={styles.journey}>

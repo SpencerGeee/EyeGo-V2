@@ -1,5 +1,6 @@
 'use strict';
 
+const { cleanNote } = require('../../utils/ride-prefs');
 const prisma = require('../../config/database');
 const redis = require('../../config/redis');
 const logger = require('../../utils/logger');
@@ -271,6 +272,7 @@ async function requestRide(userId, body) {
      * they are who cancellation and support act on.
      */
     passenger = null,
+    pickupNote = null,
   } = body;
 
   // Clamped server-side as well as validated at the route: this becomes the
@@ -510,6 +512,7 @@ async function requestRide(userId, body) {
           // Null for the ordinary case; set when booking on someone's behalf.
           guestName,
           guestPhone,
+          pickupNote: cleanNote(pickupNote),
         },
       });
 

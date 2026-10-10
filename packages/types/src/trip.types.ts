@@ -253,6 +253,8 @@ export interface Trip {
     waitFeePesewas?: number;
     /** The rider's note for the driver — gate colour, landmark. */
     pickupNote?: string | null;
+    /** The rider's ride switches that are on: 'quiet' | 'ac' | 'luggage'. */
+    ridePrefs?: string[];
   }>;
   route?: {
     id: string;

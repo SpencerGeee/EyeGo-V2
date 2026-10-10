@@ -383,6 +383,19 @@ async function boostsFor(tripIds) {
 }
 
 /** Park an offer where `GET /rides/driver/state` can find it. */
+/**
+ * What the rider asked of the driver — their pickup note and ride switches
+ * (quiet / AC / luggage) — on the card, so the driver decides knowing them and
+ * arrives knowing which gate. See utils/ride-prefs.
+ */
+function riderAsks(trip) {
+  const { ridePrefsOf } = require('../utils/ride-prefs');
+  return {
+    pickupNote: trip.bookings?.find((b) => b.pickupNote)?.pickupNote ?? null,
+    ridePrefs: ridePrefsOf(trip.requester?.preferences),
+  };
+}
+
 async function rememberOffer(driverId, payload, expiresAtMs) {
   const ms = Math.max(1000, expiresAtMs - Date.now());
   await redis.set(driverOfferKey(driverId), JSON.stringify(payload), 'PX', ms).catch(() => {});
@@ -628,8 +641,10 @@ async function offerNext(tripId) {
             // .boardPassenger: a CASH seat debits its commission at boarding.
             paymentMethod: true,
             paymentStatus: true,
+            pickupNote: true,
           },
         },
+        requester: { select: { preferences: true } },
       },
     }), boostsFor([tripId])]);
     // The trip may have been accepted, cancelled or expired out from under us.
@@ -697,6 +712,7 @@ async function offerNext(tripId) {
          * for a card/MoMo trip. See `cashFloatPesewas`.
          */
         walletRequiredPesewas: cashFloatPesewas(trip),
+        ...riderAsks(trip),
         tier: trip.tier,
         // Server-authoritative countdown. The driver app renders
         // (expiresAtServerMs - serverNowMs), never its own clock, so a phone
@@ -1282,8 +1298,10 @@ async function listSearchesForDriver(driverId, { limit = 10 } = {}) {
             // .boardPassenger: a CASH seat debits its commission at boarding.
             paymentMethod: true,
             paymentStatus: true,
+            pickupNote: true,
           },
         },
+        requester: { select: { preferences: true } },
       },
     });
     if (trips.length === 0) return [];
@@ -1416,6 +1434,7 @@ async function listSearchesForDriver(driverId, { limit = 10 } = {}) {
         ...money,
         /** Wallet balance needed to board this one — see `cashFloatPesewas`. */
         walletRequiredPesewas: cashFloatPesewas(trip),
+        ...riderAsks(trip),
         /** True when THIS driver is the one the cascade is currently asking. */
         offeredToMe: mine,
         expiresAtServerMs: holder === driverId ? state.expiresAtMs ?? null : null,
