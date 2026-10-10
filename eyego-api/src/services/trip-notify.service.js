@@ -309,7 +309,9 @@ async function syncLiveActivity(trip, status) {
  */
 async function sendReceipts(trip) {
   const smsService = require('./sms.service');
-  if (!smsService.isConfigured?.()) return;
+  const emailService = require('./email.service');
+  const smsOn = !!smsService.isConfigured?.();
+  if (!smsOn && !emailService.isConfigured()) return;
 
   const bookings = await prisma.booking.findMany({
     where: { tripId: trip.id, ...seatOccupyingWhere() },
@@ -319,13 +321,53 @@ async function sendReceipts(trip) {
       // this schema: money is stored in pesewas everywhere and the name is what
       // stops a read site treating it as cedis.
       fareAmountPesewas: true,
+      waitFeePesewas: true,
       paymentMethod: true,
-      user: { select: { phone: true, notificationPrefs: true } },
+      receipts: { select: { receiptNumber: true }, orderBy: { createdAt: 'desc' }, take: 1 },
+      user: {
+        select: {
+          phone: true, email: true, notificationPrefs: true,
+          businessMode: true, businessExpenseEmail: true, businessCompanyName: true,
+        },
+      },
     },
   });
 
-  const { destinationName } = namesFor(trip);
+  const { originName, destinationName } = namesFor(trip);
   const shortId = String(trip.id).slice(0, 8).toUpperCase();
+
+  /**
+   * THE EMAIL COPY (Resend; off until RESEND_API_KEY is set). To the rider's
+   * email, and — for a business profile — to the expense address as well,
+   * which is what `businessExpenseEmail` was collected for and never used.
+   */
+  if (emailService.isConfigured()) {
+    const { formatGhs } = require('../utils/money');
+    const driverName = trip.driver?.name ?? null;
+    await Promise.all(
+      bookings.map((b) => {
+        const u = b.user;
+        if (!u || !pushService.prefAllows(u.notificationPrefs, 'tripCompleted')) return null;
+        const to = [u.email, u.businessMode ? u.businessExpenseEmail : null].filter(Boolean);
+        if (!to.length) return null;
+        const wait = Number(b.waitFeePesewas ?? 0);
+        const fare = Number(b.fareAmountPesewas ?? 0);
+        const mail = emailService.receiptEmail({
+          receiptNumber: b.receipts?.[0]?.receiptNumber ?? `TRIP-${shortId}`,
+          dateText: new Date(trip.completedAt ?? Date.now()).toISOString().slice(0, 16).replace('T', ' ') + ' GMT',
+          from: originName ?? 'Pickup',
+          to: destinationName ?? 'Destination',
+          driverName,
+          lines: [['Ride', formatGhs(fare - wait)], ...(wait ? [['Waiting time', formatGhs(wait)]] : [])],
+          total: formatGhs(fare),
+          paymentMethod: b.paymentMethod ? String(b.paymentMethod).toLowerCase() : 'cash',
+          company: u.businessMode ? u.businessCompanyName : null,
+        });
+        return emailService.send({ to: [...new Set(to)], ...mail });
+      }),
+    );
+  }
+  if (!smsOn) return;
 
   await Promise.all(
     bookings.map((b) => {

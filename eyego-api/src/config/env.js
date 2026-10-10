@@ -37,6 +37,11 @@ const envSchema = z.object({
   AT_USERNAME: z.string().min(1),
   AT_SENDER_ID: z.string().default('EyeGo'),
 
+  // Email (Resend) — optional. Receipts and business expense copies are sent
+  // only when a key is set; without one nothing changes. See email.service.js.
+  RESEND_API_KEY: z.string().optional(),
+  EMAIL_FROM: z.string().default('EyeGo <receipts@eyego.app>'),
+
   // Firebase is optional — push notifications gracefully degrade when unset.
   // Set these only if you need push notification functionality.
   FIREBASE_PROJECT_ID: z.string().optional(),
