@@ -159,6 +159,8 @@ model User {
   referredBy        Referral?         @relation("Invitee")
   supportTickets    SupportTicket[]
   referralsEarned   ReferralBonus[]
+  /// Shareable code for rider-to-rider referrals (minted on first read).
+  referralCode      String?          @unique
   receipts          Receipt[]
   emergencyContacts EmergencyContact[]
   savedCards            SavedCard[]
@@ -351,6 +353,8 @@ model Driver {
   /// account stops them earning while a payout hold lets a driver keep working
   /// while their money is looked at.
   payoutHold      Boolean      @default(false)
+  /// Last passed selfie identity check (provider-gated; null = never checked).
+  selfieVerifiedAt DateTime?
   payoutHoldReason String?
 
   currentLat      Float?
@@ -781,6 +785,12 @@ model Booking {
   // calculateDeviationSurcharge(). Zero for anyone boarding at the trip's
   // main pickup.
   deviationSurchargePesewas Int      @default(0)
+  /// Waiting at the pickup past the free minutes (hailed only). Included in fareAmountPesewas.
+  waitFeePesewas            Int      @default(0)
+  /// Cash actually handed over; what exceeded the fare went to the rider's wallet.
+  cashReceivedPesewas       Int?
+  /// The rider's note for the driver — gate colour, landmark.
+  pickupNote                String?
   // Group-wide heavy-cargo/luggage surcharge, toggled by any member post-booking
   // (invite.tsx) — was previously a client-only UI toggle that changed the
   // displayed price but never actually charged anything.
@@ -1217,6 +1227,8 @@ model DriverDocument {
   /// is treated as NOT expired: a missing date must never strand a driver whose
   /// paperwork predates the column.
   expiresAt DateTime?
+  /// The smallest expiry reminder already sent: 30, 7, 1, then 0 (= expired).
+  expiryNoticeDays Int?
 
   /// PENDING | VERIFIED | REJECTED
   status          String    @default("PENDING")
@@ -1395,7 +1407,9 @@ model SupportTicket {
   subject     String
   status      String   @default("OPEN")
   priority    String   @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
-  category    String   @default("GENERAL") // GENERAL, PAYMENT, TRIP, ACCOUNT, TECHNICAL
+  category    String   @default("GENERAL") // GENERAL, PAYMENT, TRIP, ACCOUNT, TECHNICAL, LOST_ITEM, SAFETY
+  /// The trip this is about (lost item) — lets the driver see and answer it.
+  tripId      String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -1404,6 +1418,7 @@ model SupportTicket {
   @@index([userId])
   @@index([driverId])
   @@index([status])
+  @@index([tripId])
 }
 
 model TicketMessage {

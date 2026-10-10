@@ -12,7 +12,7 @@ export interface WalletTransaction {
   id: string;
   // Matches the literal values actually written by drivers.service.js /
   // wallet.service.js walletTransaction.create calls — not a generic CREDIT/DEBIT.
-  type: 'TRIP_EARNING' | 'EARNINGS_CREDIT' | 'QUEST_BONUS' | 'COMMISSION_DEDUCTION' | 'TOP_UP' | 'WITHDRAWAL' | 'WITHDRAWAL_REVERSAL';
+  type: 'TRIP_EARNING' | 'EARNINGS_CREDIT' | 'QUEST_BONUS' | 'COMMISSION_DEDUCTION' | 'TOP_UP' | 'WITHDRAWAL' | 'WITHDRAWAL_REVERSAL' | 'CANCELLATION_FEE' | 'CASH_CHANGE';
   amountPesewas: number;
   description: string;
   reference?: string;

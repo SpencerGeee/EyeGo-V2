@@ -3,7 +3,8 @@ import { View, StyleSheet, Pressable, Linking } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, GlassSurface, DriverInfoCard, RollingDigits, GradientGlowBorder, goDeeper, notify } from '@eyego/ui';
+import { Text, GlassSurface, DriverInfoCard, RollingDigits, GradientGlowBorder, WaitingMeter, goDeeper, notify } from '@eyego/ui';
+import { usePlatformConfig } from '../../../hooks/usePlatformConfig';
 import { formatGhs, clockTime } from '@eyego/utils';
 import { SheetContent } from '../sheetSlot';
 import { useColors, Colors } from '../../../utils/useColors';
@@ -112,6 +113,7 @@ function AssignedStageImpl() {
   const copy = phaseCopy(status, etaMinutes, (snapshot as any)?.departureTime ?? null);
 
   const arrived = status === 'ARRIVED_AT_PICKUP';
+  const platform = usePlatformConfig();
   /**
    * The driver has put this rider in the vehicle. See the row below for why
    * this cannot be derived from `status`: boarding leaves the TRIP where it is
@@ -235,6 +237,16 @@ function AssignedStageImpl() {
               <Text variant="bodySmall" color={colors.onSurfaceVariant}>
                 {boarded ? 'Sit tight — the trip starts when the driver sets off.' : copy.sub}
               </Text>
+              {/* The clock is visible before it costs anything (hailed rides only). */}
+              {arrived && !boarded && (snapshot as any)?.isOnDemand && (
+                <WaitingMeter
+                  who="rider"
+                  arrivedAt={(snapshot as any)?.timestamps?.arrivedAt ?? null}
+                  freeMinutes={platform.waitFreeMinutes}
+                  perMinPesewas={platform.tiers[(snapshot?.tier ?? 'ECO') as 'ECO']?.waitPerMinPesewas ?? 0}
+                  capPesewas={platform.waitFeeCapPesewas}
+                />
+              )}
             </View>
             {/* Digits roll rather than swap so a countdown ticking down reads as
                 one number changing, not as the panel re-rendering. */}

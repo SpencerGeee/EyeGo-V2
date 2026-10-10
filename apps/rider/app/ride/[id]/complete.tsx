@@ -250,8 +250,11 @@ export default function TripCompleteScreen() {
     const deviation = n(snapFare.deviationSurchargePesewas);
     if (deviation) rows.push({ label: 'Pickup detour', value: formatGhs(deviation) });
 
+    const waiting = n((snapFare as { waitFeePesewas?: number }).waitFeePesewas);
+    if (waiting) rows.push({ label: 'Waiting time', value: formatGhs(waiting) });
+
     const surcharges = n(fareBreakdown?.surcharges);
-    if (surcharges && !cargo && !deviation) {
+    if (surcharges && !cargo && !deviation && !waiting) {
       rows.push({ label: 'Surcharges', value: formatGhs(surcharges) });
     }
 

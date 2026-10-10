@@ -167,3 +167,5 @@ export function getInitials(name: string | null | undefined): string {
     .map((n) => n[0]?.toUpperCase() ?? '')
     .join('');
 }
+
+export * from './wait-fee';

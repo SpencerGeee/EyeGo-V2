@@ -695,11 +695,27 @@ function pinnedRatesFor(trip) {
  * changed the rate, seat commissions disagreed with the trip's pinned rate and
  * with what the fare card had told the driver.
  */
+/**
+ * Waiting at the pickup: whole minutes past the free window, at the tier
+ * card's own waiting rate (`RIDE_<TIER>_WAIT_PER_MIN_PESEWAS` — published to the
+ * apps and never charged until now), capped. Hailed rides only — the caller
+ * decides that (a shared trip leaves on its timetable). Zero rate = no fee.
+ */
+function waitFeeFor(arrivedAt, tier, startedAt = new Date()) {
+  const perMin = cfg(RIDE_CARD[normalizeTier(tier)].waitPerMin) ?? 0;
+  if (!arrivedAt || !(perMin > 0)) return { minutes: 0, feePesewas: 0 };
+  const waited = Math.floor((new Date(startedAt).getTime() - new Date(arrivedAt).getTime()) / 60_000);
+  const minutes = Math.max(0, waited - (cfg('RIDE_WAIT_FREE_MINUTES') ?? 3));
+  const cap = cfg('RIDE_WAIT_FEE_CAP_PESEWAS') ?? 0;
+  return { minutes, feePesewas: cap > 0 ? Math.min(cap, minutes * perMin) : minutes * perMin };
+}
+
 function commissionRateFor(trip) {
   return trip?.commissionRate != null ? trip.commissionRate : cfg('PLATFORM_COMMISSION');
 }
 
 module.exports = {
+  waitFeeFor,
   calculateSegmentFareByRatio,
   pinnedRatesFor,
   commissionRateFor,

@@ -77,7 +77,7 @@ const dispatchCascade = require('../../services/dispatch-cascade.service');
  * it was never in this aggregation either — so which code path finished the trip
  * silently decided whether it showed up in the driver's earnings at all.
  */
-const EARNING_TYPES = ['EARNINGS_CREDIT', 'TRIP_EARNING', 'CASH_EARNING', 'PROMO_SUBSIDY'];
+const EARNING_TYPES = ['EARNINGS_CREDIT', 'TRIP_EARNING', 'CASH_EARNING', 'PROMO_SUBSIDY', 'CANCELLATION_FEE'];
 
 /**
  * Idempotency gate in front of the real state machine.
@@ -1573,11 +1573,43 @@ async function departTrip(driverId, tripId, { acknowledgeUnderMinimum = false } 
     err.details = { confirmedSeats: occupancy, minOccupancy: minToDepart, maxSeats: trip.maxSeats };
     throw err;
   }
+  /**
+   * WAITING AT THE PICKUP IS PAID FOR.
+   *
+   * A hailed driver who reached the pickup and waited out the free minutes was
+   * paid nothing for the rest (Uber/Bolt charge it). Measured from `arrivedAt`
+   * (the ARRIVED_AT_PICKUP stamp) to now, added to the fare the driver collects
+   * — on-demand rides are cash — with its commission, which for a boarded cash
+   * rider was already settled at boarding, so the extra is settled here.
+   */
+  const { waitFeeFor, commissionRateFor } = require('../trips/fare.calculator');
+  const wait = isPrivateHire && trip.routeId == null ? waitFeeFor(trip.arrivedAt, trip.tier) : { minutes: 0, feePesewas: 0 };
+  const addWaitFee = async (tx) => {
+    const booking = await tx.booking.findFirst({ where: { tripId, ...livePassengerWhere() }, select: { id: true, paymentMethod: true } });
+    if (!booking) return;
+    const commission = percentOf(wait.feePesewas, commissionRateFor(trip));
+    await tx.booking.update({
+      where: { id: booking.id },
+      data: {
+        waitFeePesewas: wait.feePesewas,
+        fareAmountPesewas: { increment: wait.feePesewas },
+        commissionAmountPesewas: { increment: commission },
+      },
+    });
+    if (booking.paymentMethod === 'CASH' && commission > 0) {
+      await require('../wallet/wallet.service').moveDriverBalance(tx, {
+        driverId, deltaPesewas: -commission, type: 'COMMISSION_DEDUCTION', tripId,
+        description: `Commission on waiting time — ${wait.minutes} min`,
+      });
+    }
+  };
+
   // `departedAt` is stamped by the state machine's own timestampsFor(), so the
   // clock that records a milestone is the same one that records the event.
   const { trip: updated } = await tripState.applyTransition(tripId, 'IN_PROGRESS', {
     actor: tripState.ACTOR.DRIVER,
     actorId: driverId,
+    sideEffects: wait.feePesewas > 0 ? addWaitFee : undefined,
     // No pinned version: boarding fires its PASSENGER_BOARDED event a beat
     // AFTER it returns, so a driver tapping Depart right after boarding lost the
     // swap and was told the trip had 'moved on'. Status legality still guards a
@@ -1587,7 +1619,9 @@ async function departTrip(driverId, tripId, { acknowledgeUnderMinimum = false } 
     payload:
       isGroupTrip && occupancy < minToDepart
         ? { departedUnderMinimum: true, confirmedSeats: occupancy, minOccupancy: minToDepart }
-        : undefined,
+        : wait.feePesewas > 0
+          ? { waitFeePesewas: wait.feePesewas, waitedMinutes: wait.minutes }
+          : undefined,
   });
 
   // Departing switches the live leg from `toPickup` to `toDropoff`, whose cache

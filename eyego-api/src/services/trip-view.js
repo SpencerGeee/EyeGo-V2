@@ -108,6 +108,8 @@ const TRIP_INCLUDE = Object.freeze({
       // are missing is a total the rider cannot check.
       heavyCargo: true,
       deviationSurchargePesewas: true,
+      waitFeePesewas: true,
+      pickupNote: true,
       guestName: true,
       guestPhone: true,
       pickupLat: true,
@@ -229,6 +231,8 @@ function buildTripSnapshot(trip, viewer = {}) {
     (n, b) => n + (b.deviationSurchargePesewas || 0),
     0,
   );
+  // Waiting at the pickup — already inside the fare, shown as its own line.
+  const myWaitFeePesewas = myBookings.reduce((n, b) => n + (b.waitFeePesewas || 0), 0);
 
   /** A seat with money behind it: paid outright, or a confirmed cash seat. */
   const isSettled = (b) =>
@@ -465,12 +469,13 @@ function buildTripSnapshot(trip, viewer = {}) {
       perSeatPesewas:
         mySeatsPaidFor > 0
           ? Math.round(
-              (myFarePesewas - myCargoSurchargePesewas - myDeviationSurchargePesewas) /
+              (myFarePesewas - myCargoSurchargePesewas - myDeviationSurchargePesewas - myWaitFeePesewas) /
                 mySeatsPaidFor,
             )
           : null,
       cargoSurchargePesewas: myCargoSurchargePesewas,
       deviationSurchargePesewas: myDeviationSurchargePesewas,
+      waitFeePesewas: myWaitFeePesewas,
       paymentMethod: myBooking ? myBooking.paymentMethod : null,
       paymentStatus: myBooking ? myBooking.paymentStatus : null,
     },

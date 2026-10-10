@@ -56,6 +56,9 @@ export interface PlatformConfig {
   tiers: Record<'ECO' | 'COMFORT' | 'PREMIUM', PlatformTier>;
   bookingFeeRate: number;
   platformFeePesewas: number;
+  /** Waiting at a hailed pickup: free minutes, then tiers[t].waitPerMinPesewas, capped. */
+  waitFreeMinutes: number;
+  waitFeeCapPesewas: number;
 }
 
 /**
@@ -91,6 +94,8 @@ export const PLATFORM_CONFIG_FALLBACK: PlatformConfig = {
   },
   bookingFeeRate: 0.061,
   platformFeePesewas: 100,
+  waitFreeMinutes: 3,
+  waitFeeCapPesewas: 1000,
 };
 
 /**

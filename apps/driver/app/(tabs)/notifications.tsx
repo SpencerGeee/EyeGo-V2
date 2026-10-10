@@ -43,6 +43,7 @@ const OUTCOME_TYPE: Record<string, NotificationType> = {
   BONUS_RECEIVED: 'PAYMENT_CONFIRMED',
   PAYOUT_COMPLETED: 'PAYMENT_CONFIRMED',
   PAYOUT_FAILED: 'PAYMENT_CONFIRMED',
+  CANCELLATION_FEE_EARNED: 'PAYMENT_CONFIRMED',
 };
 
 function formatTimestamp(iso: string) {

@@ -242,7 +242,7 @@ export default function HomeScreen() {
   });
 
   // Driver earnings credit types (see earnings.tsx). Filtering only 'CREDIT' showed 0.
-  const CREDIT_TYPES = ['CREDIT', 'TRIP_EARNING', 'EARNINGS_CREDIT', 'QUEST_BONUS'];
+  const CREDIT_TYPES = ['CREDIT', 'TRIP_EARNING', 'EARNINGS_CREDIT', 'QUEST_BONUS', 'CANCELLATION_FEE'];
 
   const todayEarnings = useMemo(() => {
     if (!txData) return 0;

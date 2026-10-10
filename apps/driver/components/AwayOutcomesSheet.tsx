@@ -111,6 +111,12 @@ export function present(o: AwayOutcome): Present | null {
         icon: 'trophy-outline', tone: 'good', title: 'Bonus earned',
         body: `${amount ?? 'A quest bonus'} was added to your wallet.`, cta: 'View earnings', go: '/(tabs)/earnings',
       };
+    case 'CANCELLATION_FEE_EARNED':
+      return {
+        icon: 'cash-outline', tone: 'good', title: 'Cancellation fee earned',
+        body: `${amount ?? 'A fee'} is in your wallet for a rider who cancelled late or didn’t show.`,
+        cta: 'View earnings', go: '/(tabs)/earnings',
+      };
     case 'PAYOUT_COMPLETED':
       return {
         icon: 'cash-outline', tone: 'good', title: 'Cash-out complete',

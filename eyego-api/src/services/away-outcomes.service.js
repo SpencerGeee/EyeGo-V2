@@ -235,7 +235,7 @@ async function forDriver(driverId, sinceMs, { days } = {}) {
         driverId,
         createdAt: { gte: since },
         OR: [
-          { type: { in: ['TIP', 'WITHDRAWAL_REVERSAL', 'QUEST_BONUS'] } },
+          { type: { in: ['TIP', 'WITHDRAWAL_REVERSAL', 'QUEST_BONUS', 'CANCELLATION_FEE'] } },
           // payouts.service rewrites the description on `transfer.success`.
           { type: 'WITHDRAWAL', description: 'Withdrawal completed' },
         ],
@@ -258,7 +258,7 @@ async function forDriver(driverId, sinceMs, { days } = {}) {
     }),
   ]);
 
-  const WALLET_KIND = { TIP: 'TIP_RECEIVED', QUEST_BONUS: 'BONUS_RECEIVED', WITHDRAWAL_REVERSAL: 'PAYOUT_FAILED', WITHDRAWAL: 'PAYOUT_COMPLETED' };
+  const WALLET_KIND = { TIP: 'TIP_RECEIVED', QUEST_BONUS: 'BONUS_RECEIVED', WITHDRAWAL_REVERSAL: 'PAYOUT_FAILED', WITHDRAWAL: 'PAYOUT_COMPLETED', CANCELLATION_FEE: 'CANCELLATION_FEE_EARNED' };
   const items = [];
   for (const t of ended) {
     const kind =

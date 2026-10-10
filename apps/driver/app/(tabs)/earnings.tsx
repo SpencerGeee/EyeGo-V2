@@ -33,7 +33,7 @@ type Period = 'today' | 'week' | 'month';
  * breakdown so the hourly "Today" bars and the week/month bars mean the same.
  * `CASH_EARNING` is ledger-only (cash is handed over in person) but is income.
  */
-const CREDIT_TYPES = ['TRIP_EARNING', 'EARNINGS_CREDIT', 'CASH_EARNING', 'PROMO_SUBSIDY', 'QUEST_BONUS', 'TIP'];
+const CREDIT_TYPES = ['TRIP_EARNING', 'EARNINGS_CREDIT', 'CASH_EARNING', 'PROMO_SUBSIDY', 'QUEST_BONUS', 'TIP', 'CANCELLATION_FEE'];
 
 /** Mirrors the server's own top-up bounds (wallet.routes.js / wallet.service.js). */
 const MIN_TOPUP_PESEWAS = 100; // ₵1

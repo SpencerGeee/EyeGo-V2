@@ -189,3 +189,5 @@ export type { MapSheetHostProps, SheetChrome } from './shell/MapSheetHost';
 export { SheetContent, useSheetSlots } from './shell/sheetSlot';
 export type { SheetContentProps } from './shell/sheetSlot';
 export { useBiometricGate, BiometricLock } from './security/BiometricGate';
+export { WaitingMeter } from './WaitingMeter';
+export type { WaitingMeterProps } from './WaitingMeter';

@@ -1595,7 +1595,7 @@ async function driverNoShow(tripId, reportingUserId) {
  */
 async function riderNoShow(tripId, bookingId, reportingUserId) {
   const result = await prisma.$transaction(async (tx) => {
-    const trip = await tx.trip.findUnique({ where: { id: tripId }, select: { driverId: true } });
+    const trip = await tx.trip.findUnique({ where: { id: tripId }, select: { id: true, driverId: true, commissionRate: true } });
     if (!trip) throw new NotFoundError('Trip');
     if (trip.driverId !== reportingUserId) {
       throw new ForbiddenError('You are not the driver assigned to this trip');
@@ -1656,6 +1656,13 @@ async function riderNoShow(tripId, bookingId, reportingUserId) {
         where: { id: tripId, confirmedSeats: { gt: 0 } },
         data: { confirmedSeats: { decrement: 1 } },
       });
+    }
+
+    // The no-show seat's fare is kept (no refund): the driver's, less commission.
+    if (booking.paymentStatus === 'PAID') {
+      await require('../cancellation/cancellation.service').payDriverCancellationFee(
+        tx, trip, booking.fareAmountPesewas, 'No-show fee — a passenger didn’t turn up',
+      );
     }
 
     logger.info('Rider no-show recorded', { tripId, bookingId });

@@ -244,6 +244,26 @@ async function calculateCancellationFee(id, userId) {
 /**
  * Cancel a booking with cancellation fee calculation and receipt generation.
  */
+/**
+ * THE FEE IS THE DRIVER'S COMPENSATION.
+ *
+ * A late cancellation or a no-show costs the driver who drove to the pickup or
+ * held the seat — the rider paid the fee for exactly that, and it used to stay
+ * with the platform in full. Paid to the driver less the trip's commission, the
+ * way every fare is (Uber/Bolt). `grossPesewas` is what was actually kept from
+ * the rider; nothing collected, nothing paid.
+ */
+async function payDriverCancellationFee(tx, trip, grossPesewas, description) {
+  if (!trip?.driverId || !(grossPesewas > 0)) return 0;
+  const { commissionRateFor } = require('../trips/fare.calculator');
+  const net = grossPesewas - percentOf(grossPesewas, commissionRateFor(trip));
+  if (net <= 0) return 0;
+  await require('../wallet/wallet.service').moveDriverBalance(tx, {
+    driverId: trip.driverId, deltaPesewas: net, type: 'CANCELLATION_FEE', description, tripId: trip.id,
+  });
+  return net;
+}
+
 async function cancelBookingWithFee(id, userId, { reason, note } = {}) {
   // Same either-id resolution as the fee quote above — the two endpoints are
   // reached from the same screen and must accept the same thing.
@@ -365,6 +385,11 @@ async function cancelBookingWithFee(id, userId, { reason, note } = {}) {
           });
         }
       }
+    }
+
+    // What the rider did not get back is the driver's, less commission.
+    if (paidSeats.length > 0 && cancellationFeePesewas) {
+      await payDriverCancellationFee(tx, booking.trip, paidFarePesewas - refundAmountPesewas, 'Cancellation fee — a rider cancelled late');
     }
 
     // Cancel every seat in the set. The fee is stamped on the named booking
@@ -798,6 +823,7 @@ async function getUserReceipts(userId, page = 1, limit = 20) {
 module.exports = {
   calculateCancellationFee,
   cancelBookingWithFee,
+  payDriverCancellationFee,
   refundBookingForDriverCancellation,
   payerOf,
   getReceipt,

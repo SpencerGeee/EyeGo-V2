@@ -257,6 +257,30 @@ const REGISTRY = [
     label: 'Driver wallet warning level', envKey: 'DRIVER_MIN_WALLET_BALANCE_PESEWAS', min: 0, max: 1000_00,
   },
   {
+    key: 'CASH_CHANGE_MAX_PESEWAS', group: 'driver_economics', type: TYPES.MONEY,
+    label: 'Most cash change to a wallet', envDefault: 50_00,
+    help: 'When a cash rider overpays because the driver has no change, the extra goes to the rider’s EyeGo wallet and comes off the driver’s. This caps one ride. Zero turns it off.',
+    min: 0, max: 500_00,
+  },
+  {
+    key: 'DRIVER_MAX_ONLINE_HOURS', group: 'driver_economics', type: TYPES.INT,
+    label: 'Online hours before a break', envDefault: 12, unit: 'hours',
+    help: 'After this many hours online (in any 24 h, counted from online sessions) a driver finishes their current trip and must rest. Zero turns the fatigue cap off.',
+    min: 0, max: 24,
+  },
+  {
+    key: 'DRIVER_REQUIRED_BREAK_HOURS', group: 'driver_economics', type: TYPES.INT,
+    label: 'Required break', envDefault: 6, unit: 'hours',
+    help: 'How long a driver who hit the cap stays offline before they can go online again.',
+    min: 1, max: 24,
+  },
+  {
+    key: 'REFERRAL_REWARD_PESEWAS', group: 'booking', type: TYPES.MONEY,
+    label: 'Referral reward (each)', envDefault: 10_00,
+    help: 'Ride credits for BOTH the inviting rider and the new rider, paid after the new rider’s first completed, paid ride. Zero turns referrals off.',
+    min: 0, max: 200_00,
+  },
+  {
     key: 'DRIVER_REQUIRED_WALLET_TO_GO_ONLINE_PESEWAS', group: 'driver_economics', type: TYPES.MONEY,
     label: 'Wallet required to go online', envKey: 'DRIVER_REQUIRED_WALLET_TO_GO_ONLINE_PESEWAS',
     help: 'A driver below this cannot go online. Raising it takes drivers offline the moment they next try.',
@@ -385,6 +409,22 @@ const REGISTRY = [
     label: 'Late-cancellation fee', envDefault: 0,
     help: 'Flat amount charged when a rider cancels a hailed ride after the free window. Zero by default: cancelling costs the rider their standing (which decides their loyalty discount and how quickly they are matched), not a charge. Never more than the fare itself.',
     min: 0, max: 50_00,
+  },
+  // Waiting at the pickup (hailed rides only — a shared trip leaves on time).
+  // Charged from the moment the driver marks "arrived" to the moment the ride
+  // starts, after the free minutes, at each tier's "waiting per minute" rate;
+  // added to the fare the driver collects.
+  {
+    key: 'RIDE_WAIT_FREE_MINUTES', group: 'ride_pricing_fees', type: TYPES.INT,
+    label: 'Free waiting at pickup', envDefault: 3, unit: 'minutes',
+    help: 'How long a driver waits at the pickup before the waiting fee starts.',
+    min: 0, max: 30,
+  },
+  {
+    key: 'RIDE_WAIT_FEE_CAP_PESEWAS', group: 'ride_pricing_fees', type: TYPES.MONEY,
+    label: 'Waiting fee cap', envDefault: 10_00,
+    help: 'The most waiting can add to one ride.',
+    min: 0, max: 100_00,
   },
 
   // ── Rider & driver standing ───────────────────────────────────
@@ -875,6 +915,9 @@ function publicConfig() {
     ),
     bookingFeeRate: get('RIDE_BOOKING_FEE_RATE'),
     platformFeePesewas: get('RIDE_PLATFORM_FEE_PESEWAS'),
+    /** Waiting at a hailed pickup: free minutes, then the tier's waitPerMinPesewas, capped. */
+    waitFreeMinutes: get('RIDE_WAIT_FREE_MINUTES'),
+    waitFeeCapPesewas: get('RIDE_WAIT_FEE_CAP_PESEWAS'),
   };
 }
 

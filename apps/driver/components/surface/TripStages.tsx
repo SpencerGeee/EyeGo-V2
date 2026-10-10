@@ -11,6 +11,7 @@ import {
   GlassSurface,
   GradientGlowBorder,
   RollingDigits,
+  WaitingMeter,
   Avatar,
   callNumber,
   goDeeper,
@@ -19,6 +20,7 @@ import { useColors, type DriverColors } from '../../utils/useColors';
 import { useTripStops, type StopPassenger } from '../trip/useTripStops';
 import { openExternalNavigation } from '../../utils/externalNav';
 import { useTripAdvance } from './useTripAdvance';
+import { usePlatformConfig } from '../../hooks/usePlatformConfig';
 import type { DriverStage } from './driverStage';
 
 /**
@@ -109,6 +111,8 @@ export function TripStages({
   }, [stops, currentIndex]);
 
   const isDriving = stage === 'enroute' || stage === 'arrived' || stage === 'intrip';
+  const platform = usePlatformConfig();
+  const isHailed = (trip as { isOnDemand?: boolean })?.isOnDemand === true || !(trip as { routeId?: string | null })?.routeId;
   if (!isDriving || !trip) return null;
 
   const status = String(trip.status ?? '').toUpperCase();
@@ -162,6 +166,16 @@ export function TripStages({
             <Text variant="bodySmall" color={colors.onSurfaceVariant} numberOfLines={1}>
               {headline.sub}
             </Text>
+            {/* Waiting at a hailed pickup is paid — show the clock it runs on. */}
+            {stage === 'arrived' && isHailed && (
+              <WaitingMeter
+                who="driver"
+                arrivedAt={(trip as { arrivedAt?: string | null })?.arrivedAt ?? null}
+                freeMinutes={platform.waitFreeMinutes}
+                perMinPesewas={platform.tiers[((trip as { tier?: string })?.tier ?? 'ECO') as 'ECO']?.waitPerMinPesewas ?? 0}
+                capPesewas={platform.waitFeeCapPesewas}
+              />
+            )}
           </View>
           {minutes != null ? (
             <View style={styles.etaBadge}>

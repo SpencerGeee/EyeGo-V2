@@ -407,7 +407,33 @@ async function updatePayoutAccount(driverId, data) {
   return payout;
 }
 
+/**
+ * Move a driver's balance by `deltaPesewas` (+ credit, − debit) inside the
+ * caller's transaction and write the ledger row. The row stores the unsigned
+ * magnitude — direction is the `type` (see the WalletTransaction model note).
+ * Before/after come from the post-update value, so the ledger still chains
+ * when another movement lands concurrently.
+ */
+async function moveDriverBalance(tx, { driverId, deltaPesewas, type, description, tripId = null }) {
+  assertPesewas(deltaPesewas, 'deltaPesewas', { allowNegative: true });
+  if (!deltaPesewas) return null;
+  const { walletBalancePesewas: after } = await tx.driver.update({
+    where: { id: driverId },
+    data: { walletBalancePesewas: { increment: deltaPesewas } },
+    select: { walletBalancePesewas: true },
+  });
+  return tx.walletTransaction.create({
+    data: {
+      driverId, type, description, tripId,
+      amountPesewas: Math.abs(deltaPesewas),
+      balanceBeforePesewas: after - deltaPesewas,
+      balanceAfterPesewas: after,
+    },
+  });
+}
+
 module.exports = {
+  moveDriverBalance,
   getWallet,
   topUp,
   creditTopUp,
