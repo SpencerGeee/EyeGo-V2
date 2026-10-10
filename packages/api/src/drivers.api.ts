@@ -379,6 +379,10 @@ export const driverApi = {
       params: { since: sinceMs || undefined, days },
     }),
 
+  /** Cash a passenger handed over; anything over the fare goes to their EyeGo wallet. */
+  cashReceived: (tripId: string, bookingId: string, amountPesewas: number) =>
+    apiClient.post<ApiResponse<{ changePesewas: number }>>(`/driver/trips/${tripId}/bookings/${bookingId}/cash-received`, { amountPesewas }),
+
   startTrip: (tripId: string) =>
     apiClient.post<ApiResponse<DriverTrip>>(`/driver/trips/${tripId}/start`),
 

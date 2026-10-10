@@ -95,6 +95,8 @@ router.get('/transactions', async (req, res) => {
     }
     if (gw.startsWith('P2P_SEND')) return { type: 'DEBIT', description: 'Money sent' };
     if (gw.startsWith('P2P_RECEIVE')) return { type: 'CREDIT', description: 'Money received' };
+    if (gw === 'CASH_CHANGE') return { type: 'CREDIT', description: 'Change from a cash ride' };
+    if (gw === 'REFERRAL_BONUS') return { type: 'CREDIT', description: 'Referral reward' };
     if (gw === 'TIP') {
       return t.status === 'SUCCESS'
         ? { type: 'EXTERNAL', description: 'Tip for your driver (paid by MoMo)' }

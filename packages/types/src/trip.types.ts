@@ -247,6 +247,12 @@ export interface Trip {
     pinVerifiedAt?: string | null;
     /** The server sends this boolean, never the code itself. */
     requiresBoardingPin?: boolean;
+    /** Cash the passenger handed over; set once, change went to their wallet. */
+    cashReceivedPesewas?: number | null;
+    /** Waiting at a hailed pickup, already inside fareAmountPesewas. */
+    waitFeePesewas?: number;
+    /** The rider's note for the driver — gate colour, landmark. */
+    pickupNote?: string | null;
   }>;
   route?: {
     id: string;

@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { View, StyleSheet, Modal, Linking } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { View, StyleSheet, Modal, Linking, TextInput } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -59,6 +59,8 @@ export interface PassengerSheetData {
   held?: boolean;
   /** Rider has verification on — a code will be asked for. */
   needsPin?: boolean;
+  /** Cash already recorded for this passenger (change was settled once). */
+  cashRecorded?: boolean;
 }
 
 export interface PassengerSheetProps {
@@ -67,6 +69,8 @@ export interface PassengerSheetProps {
   onMessage?: (p: PassengerSheetData) => void;
   onBoard?: (p: PassengerSheetData) => void;
   onNoShow?: (p: PassengerSheetData) => void;
+  /** Cash handed over; resolves once recorded. Over the fare → their wallet. */
+  onCashReceived?: (p: PassengerSheetData, amountPesewas: number) => Promise<void>;
 }
 
 export function PassengerSheet({
@@ -75,11 +79,15 @@ export function PassengerSheet({
   onMessage,
   onBoard,
   onNoShow,
+  onCashReceived,
 }: PassengerSheetProps) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
   const reduced = useReducedMotion();
+  // "No change?" — the cedis handed over, as typed. Hooks before the early return.
+  const [cashText, setCashText] = useState<string | null>(null);
+  const [cashBusy, setCashBusy] = useState(false);
 
   if (!passenger) return null;
   const p = passenger;
@@ -215,6 +223,68 @@ export function PassengerSheet({
               <Text style={styles.reachText}>Message</Text>
             </Pressable>
           </View>
+
+          {/* ── NO CHANGE? ── a boarded cash rider overpaid; the extra goes to their wallet. */}
+          {onCashReceived && p.boarded && !p.cashRecorded && String(p.paymentMethod ?? '').toUpperCase() === 'CASH' ? (
+            cashText == null ? (
+              <Pressable
+                onPress={() => setCashText('')}
+                style={styles.reachBtn}
+                accessibilityRole="button"
+                accessibilityLabel="No change? Send the change to their wallet"
+              >
+                <Ionicons name="wallet-outline" size={17} color={colors.onSurface} />
+                <Text style={styles.reachText}>No change? Send it to their wallet</Text>
+              </Pressable>
+            ) : (
+              (() => {
+                const pesewas = Math.round(parseFloat(cashText.replace(',', '.')) * 100);
+                const change = Number.isFinite(pesewas) && p.farePesewas != null ? pesewas - p.farePesewas : null;
+                return (
+                  <View style={{ gap: spacing.sm }}>
+                    <Text style={styles.sub}>Cash received (GH₵)</Text>
+                    <TextInput
+                      value={cashText}
+                      onChangeText={(t) => setCashText(t.replace(/[^\d.,]/g, '').slice(0, 7))}
+                      keyboardType="decimal-pad"
+                      autoFocus
+                      placeholder={p.farePesewas != null ? (p.farePesewas / 100).toFixed(2) : '0.00'}
+                      placeholderTextColor={colors.onSurfaceVariant}
+                      maxFontSizeMultiplier={1.4}
+                      style={styles.cashInput}
+                      accessibilityLabel="Cash received in cedis"
+                    />
+                    <Text style={styles.sub}>
+                      {change == null
+                        ? 'Enter what they handed you.'
+                        : change < 0
+                          ? `That’s less than the fare (${formatGhs(p.farePesewas ?? 0)}).`
+                          : change === 0
+                            ? 'Exact fare — no change.'
+                            : `${formatGhs(change)} goes to their EyeGo wallet and comes off yours.`}
+                    </Text>
+                    <Pressable
+                      disabled={cashBusy || change == null || change < 0}
+                      onPress={async () => {
+                        setCashBusy(true);
+                        try {
+                          await onCashReceived(p, pesewas);
+                          setCashText(null);
+                        } finally {
+                          setCashBusy(false);
+                        }
+                      }}
+                      style={[styles.primary, (cashBusy || change == null || change < 0) && { opacity: 0.5 }]}
+                      accessibilityRole="button"
+                      accessibilityLabel="Confirm cash received"
+                    >
+                      <Text style={styles.primaryText}>{cashBusy ? 'Saving…' : 'Confirm cash'}</Text>
+                    </Pressable>
+                  </View>
+                );
+              })()
+            )
+          ) : null}
 
           {/* ── THE DECISION ── */}
           {!p.boarded && !p.noShow && onBoard ? (
@@ -392,6 +462,18 @@ const makeStyles = (colors: DriverColors) =>
       color: colors.onPrimary ?? '#0A0D14',
     },
 
+    cashInput: {
+      minHeight: 52,
+      borderRadius: radii.lg,
+      borderWidth: 1,
+      borderColor: colors.outlineVariant,
+      backgroundColor: colors.surfaceContainer,
+      paddingHorizontal: spacing.md,
+      fontFamily: fonts.semiBold,
+      fontSize: fontSizes.titleMedium,
+      color: colors.onSurface,
+      fontVariant: ['tabular-nums'],
+    },
     rule: { height: 1, backgroundColor: colors.outlineVariant, marginTop: spacing.xs },
     danger: {
       flexDirection: 'row',

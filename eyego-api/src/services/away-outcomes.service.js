@@ -157,10 +157,14 @@ async function forRider(userId, sinceMs, { days } = {}) {
     prisma.driverRating.findMany({ where: { userId, createdAt: { gte: new Date(since.getTime() - 7 * 86_400_000) } }, select: { tripId: true } }),
     // A driver's own tickets also carry a shadow userId — those are not the rider's.
     supportReplies({ userId, driverId: null }, ['USER'], since),
-    // Ride credits sent by another rider (send-money). The push is pref-gated.
+    // Money that landed in the wallet without the rider doing anything: credits
+    // from another rider, change from a cash ride, a referral reward.
     prisma.paymentTransaction.findMany({
-      where: { userId, status: 'SUCCESS', createdAt: { gte: since }, gatewayResponse: { startsWith: 'P2P_RECEIVE' } },
-      select: { id: true, amountPesewas: true, createdAt: true },
+      where: {
+        userId, status: 'SUCCESS', createdAt: { gte: since },
+        OR: [{ gatewayResponse: { startsWith: 'P2P_RECEIVE' } }, { gatewayResponse: { in: ['CASH_CHANGE', 'REFERRAL_BONUS'] } }],
+      },
+      select: { id: true, amountPesewas: true, createdAt: true, gatewayResponse: true, booking: { select: { tripId: true } } },
       orderBy: { createdAt: 'desc' },
       take: 5,
     }),
@@ -191,7 +195,8 @@ async function forRider(userId, sinceMs, { days } = {}) {
   }
   items.push(...replies);
   for (const p of received) {
-    items.push({ key: `MONEY_RECEIVED:${p.id}`, kind: 'MONEY_RECEIVED', at: p.createdAt, amountPesewas: p.amountPesewas });
+    const kind = p.gatewayResponse === 'CASH_CHANGE' ? 'CASH_CHANGE' : p.gatewayResponse === 'REFERRAL_BONUS' ? 'REFERRAL_REWARD' : 'MONEY_RECEIVED';
+    items.push({ key: `${kind}:${p.id}`, kind, at: p.createdAt, amountPesewas: p.amountPesewas, tripId: p.booking?.tripId ?? null });
   }
   return sortNewestFirst(items);
 }

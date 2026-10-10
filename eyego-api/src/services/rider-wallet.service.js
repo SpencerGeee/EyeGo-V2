@@ -36,6 +36,10 @@ const TYPES = {
   RECEIVE: 'RECEIVE',
   ADMIN_CREDIT: 'ADMIN_CREDIT',
   ADMIN_DEBIT: 'ADMIN_DEBIT',
+  /** A cash rider overpaid and the driver had no change. */
+  CASH_CHANGE: 'CASH_CHANGE',
+  /** Rider-to-rider referral reward. */
+  REFERRAL: 'REFERRAL',
 };
 
 /**

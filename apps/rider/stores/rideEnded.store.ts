@@ -48,7 +48,9 @@ export type RideEndedReason =
   | 'REFUND_ISSUED'
   // Not ride endings: support answered, credits arrived.
   | 'SUPPORT_REPLY'
-  | 'MONEY_RECEIVED';
+  | 'MONEY_RECEIVED'
+  | 'CASH_CHANGE'
+  | 'REFERRAL_REWARD';
 
 /** Enough of a journey to re-request it without asking anything again. */
 export interface RideEndedJourney {

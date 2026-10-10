@@ -1636,6 +1636,60 @@ async function departTrip(driverId, tripId, { acknowledgeUnderMinimum = false } 
   return updated;
 }
 
+/**
+ * NO CHANGE? IT GOES TO THEIR WALLET.
+ *
+ * A cash rider hands over GH₵50 for a GH₵37 ride and the driver has no change
+ * — common enough in Ghana that Bolt built "change to balance" for it. The
+ * driver says what they received; the extra is credited to the rider's EyeGo
+ * wallet and debited from the driver's, in one transaction. Once per booking,
+ * capped by CASH_CHANGE_MAX_PESEWAS, only for a passenger who is aboard (or
+ * done) and has an account to receive it.
+ */
+async function recordCashReceived(driverId, tripId, bookingId, amountPesewas) {
+  const received = assertPesewas(amountPesewas, 'amountPesewas', { client: true });
+  const cap = require('../../config/settings').get('CASH_CHANGE_MAX_PESEWAS') ?? 0;
+  const result = await prisma.$transaction(async (tx) => {
+    const b = await tx.booking.findFirst({
+      where: { id: bookingId, tripId, trip: { driverId } },
+      select: { id: true, userId: true, paymentMethod: true, fareAmountPesewas: true, cashReceivedPesewas: true, status: true },
+    });
+    if (!b) throw new NotFoundError('Booking');
+    if (b.paymentMethod !== 'CASH') throw new AppError('Only a cash fare can have change.', 400, 'NOT_CASH');
+    if (b.cashReceivedPesewas != null) throw new AppError('Cash for this passenger is already recorded.', 409, 'CASH_ALREADY_RECORDED');
+    if (!['BOARDED', 'COMPLETED'].includes(b.status)) throw new AppError('Board the passenger first.', 409, 'NOT_BOARDED');
+    const change = received - b.fareAmountPesewas;
+    if (change < 0) throw new AppError(`That is less than the fare (${formatGhs(b.fareAmountPesewas)}).`, 400, 'UNDERPAID');
+    if (change > 0 && !b.userId) throw new AppError('This passenger has no EyeGo account to receive change.', 400, 'NO_ACCOUNT');
+    if (change > cap) throw new AppError(`Change to a wallet is limited to ${formatGhs(cap)} a ride.`, 400, 'CHANGE_TOO_LARGE');
+
+    await tx.booking.update({ where: { id: b.id }, data: { cashReceivedPesewas: received } });
+    if (change > 0) {
+      await require('../../services/rider-wallet.service').record({
+        userId: b.userId, type: 'CASH_CHANGE', amountPesewas: change, description: 'Change from a cash ride', bookingId: b.id, tx,
+      });
+      // The rider's statement is built from PaymentTransaction rows.
+      await tx.paymentTransaction.create({
+        data: { bookingId: b.id, userId: b.userId, amountPesewas: change, status: 'SUCCESS', gatewayResponse: 'CASH_CHANGE' },
+      });
+      await require('../wallet/wallet.service').moveDriverBalance(tx, {
+        driverId, deltaPesewas: -change, type: 'CASH_CHANGE', tripId, description: 'Change sent to a rider’s wallet',
+      });
+    }
+    return { changePesewas: change, userId: b.userId };
+  });
+
+  if (result.changePesewas > 0) {
+    const user = await prisma.user.findUnique({ where: { id: result.userId }, select: { fcmToken: true } });
+    pushService
+      .sendPush(user?.fcmToken, 'Change added to your wallet', `${formatGhs(result.changePesewas)} from your cash ride is in your EyeGo wallet.`, {
+        type: 'CASH_CHANGE', tripId,
+      })
+      .catch(() => {});
+  }
+  return result;
+}
+
 async function arriveTrip(driverId, tripId) {
   /**
    * ONE SETTLEMENT, NOT TWO.
@@ -2861,7 +2915,7 @@ module.exports = {
   getMe, updateProfile, updateFcmToken, completeVerification, addVehicle,
   goOnline, goOffline, getActiveTrip, getTripHistory, getAllTrips, devActivate,
   getNotifications,
-  startTrip, departTrip, arriveAtPickup, arriveTrip, cancelTrip, recordPresence,
+  startTrip, departTrip, arriveAtPickup, arriveTrip, cancelTrip, recordPresence, recordCashReceived,
   getTripById, acceptDispatch, claimTrip, declineDispatch, declineTrip, uploadDocument, reviewDocument,
   walletRequiredForTrip, assertCanAffordTrip,
   addOfflinePassenger, addCashNoPhone, verifyOfflineOtp, releaseOfflineHold, boardPassenger, requestBoardingPin, setRequestsPaused,

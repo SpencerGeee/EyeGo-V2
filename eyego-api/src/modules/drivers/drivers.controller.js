@@ -112,6 +112,14 @@ const arriveTrip = async (req, res) => {
   ok(res, result, 'Trip completed');
 };
 
+/** Cash handed over by a passenger; anything over the fare goes to their wallet. */
+const cashReceived = async (req, res) => {
+  const result = await driversService.recordCashReceived(
+    req.user.userId, req.params.id, req.params.bookingId, Number(req.body?.amountPesewas),
+  );
+  ok(res, result, result.changePesewas > 0 ? 'Change sent to their wallet' : 'Cash recorded');
+};
+
 const addOfflinePassenger = async (req, res) => {
   const result = await driversService.addOfflinePassenger(req.user.userId, req.params.id, req.body);
   created(res, result, 'OTP sent to passenger');
@@ -649,7 +657,7 @@ const clearDestinationMode = async (req, res) => {
 module.exports = {
   getMe, updateMe, updateFcmToken, completeVerification, addVehicle,
   goOnline, goOffline, getTripHistory, getActiveTrip, getOutcomes, getAllTrips, devActivate,
-  startTrip, departTrip, arriveAtPickup, arriveTrip, cancelTrip, presence,
+  startTrip, departTrip, arriveAtPickup, arriveTrip, cancelTrip, presence, cashReceived,
   getTripById, acceptDispatch, declineDispatch, claimReassignedTrip,
   acceptTripRequest, declineTripRequest, uploadDocument,
   addOfflinePassenger, addCashNoPhone, verifyOfflineOtp, releaseOfflineHold, boardPassenger, requestBoardingPin, setRequestsPaused,

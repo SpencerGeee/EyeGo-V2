@@ -20,7 +20,7 @@ import { loadSeen } from '../stores/rideEnded.store';
  */
 export const NOTIFICATIONS_READ_KEY = 'eyego_read_notifications';
 
-const MONEY = new Set(['REFUND_ISSUED', 'MONEY_RECEIVED']);
+const MONEY = new Set(['REFUND_ISSUED', 'MONEY_RECEIVED', 'CASH_CHANGE', 'REFERRAL_REWARD']);
 const typeOf = (o: AwayOutcome): AppNotification['type'] =>
   MONEY.has(o.kind) ? 'payment' : o.kind === 'SUPPORT_REPLY' ? 'system' : o.kind.startsWith('DRIVER') ? 'driver' : 'booking';
 

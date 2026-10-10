@@ -126,6 +126,26 @@ function copyFor(n: RideEndedNotice): Copy {
       cta: 'Read reply',
       tone: 'neutral',
     },
+    CASH_CHANGE: {
+      title: 'Change added to your wallet',
+      body:
+        n.amountPesewas != null
+          ? `Your driver had no change, so ${formatGhs(n.amountPesewas)} went to your EyeGo wallet.`
+          : 'Your driver had no change, so it went to your EyeGo wallet.',
+      icon: 'wallet-outline',
+      cta: 'View wallet',
+      tone: 'good',
+    },
+    REFERRAL_REWARD: {
+      title: 'Referral reward',
+      body:
+        n.amountPesewas != null
+          ? `${formatGhs(n.amountPesewas)} in ride credits — thanks for bringing a friend to EyeGo.`
+          : 'Ride credits for bringing a friend to EyeGo.',
+      icon: 'gift-outline',
+      cta: 'View wallet',
+      tone: 'good',
+    },
     MONEY_RECEIVED: {
       title: 'You received ride credits',
       body:
@@ -178,7 +198,7 @@ export function noticeOf(o: AwayOutcome): RideEndedNotice {
 
 /** The money line — only where the ending touches money, and never guessed. */
 function moneyFor(n: RideEndedNotice): { icon: Icon; text: string; good?: boolean } | null {
-  if (['SCHEDULED_MATCHED', 'REFUND_ISSUED', 'COMPLETED', 'SUPPORT_REPLY', 'MONEY_RECEIVED'].includes(n.reason)) return null;
+  if (['SCHEDULED_MATCHED', 'REFUND_ISSUED', 'COMPLETED', 'SUPPORT_REPLY', 'MONEY_RECEIVED', 'CASH_CHANGE', 'REFERRAL_REWARD'].includes(n.reason)) return null;
   if (n.reason === 'RIDER_NO_SHOW' && n.money !== 'NOT_CHARGED') {
     return { icon: 'information-circle-outline', text: 'No-show seats aren’t refunded. If you were at the pickup, tell us and we’ll look into it.' };
   }
@@ -240,6 +260,8 @@ export function RideEndedSheet() {
       case 'SUPPORT_REPLY':
         return goDeeper(`/profile/help${notice.ticketId ? `?ticket=${notice.ticketId}` : ''}` as never);
       case 'MONEY_RECEIVED':
+      case 'CASH_CHANGE':
+      case 'REFERRAL_REWARD':
         return goDeeper('/profile/wallet' as never);
       default:
         return rebook();

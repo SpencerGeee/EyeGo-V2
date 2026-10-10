@@ -159,7 +159,7 @@ export default function NotificationsScreen() {
     if (!item.read) markRead(item.id);
     const kind = (item as { outcome?: { kind: string; ticketId?: string } }).outcome;
     if (kind?.kind === 'SUPPORT_REPLY') return goDeeper(`/profile/help${kind.ticketId ? `?ticket=${kind.ticketId}` : ''}` as Href);
-    if (kind?.kind === 'MONEY_RECEIVED') return goDeeper('/profile/wallet' as Href);
+    if (kind && ['MONEY_RECEIVED', 'CASH_CHANGE', 'REFERRAL_REWARD'].includes(kind.kind)) return goDeeper('/profile/wallet' as Href);
     // Trip/payment notifications carry a real tripId to jump back into —
     // without this, tapping a notification did nothing but mark it read.
     if (item.tripId) goDeeper(`/ride/${item.tripId}` as Href);

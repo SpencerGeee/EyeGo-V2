@@ -1550,6 +1550,7 @@ export default function ActiveTripScreen() {
       paymentStatus: b.paymentStatus ?? null,
       boarded: b.status === 'BOARDED',
       pinVerified: !!b.pinVerifiedAt,
+      cashRecorded: b.cashReceivedPesewas != null,
       // The server sends this boolean, never the code itself — a driver who
       // could read the PIN would not have to be told it. See
       // scrubBookingSecrets in drivers.service.js.
@@ -1585,6 +1586,7 @@ export default function ActiveTripScreen() {
       noShow: p.noShow,
       held: seat?.status === 'HELD',
       needsPin: seat?.needsPin ?? false,
+      cashRecorded: seat?.cashRecorded ?? false,
     });
   };
 
@@ -1852,6 +1854,23 @@ export default function ActiveTripScreen() {
               riderName: encodeURIComponent(p.name),
             },
           } as any);
+        }}
+        onCashReceived={async (p, amountPesewas) => {
+          if (!p.bookingId) return;
+          try {
+            const res = await driverApi.cashReceived(id, p.bookingId, amountPesewas);
+            const change = (res.data as any)?.data?.changePesewas ?? 0;
+            qc.invalidateQueries({ queryKey: ['driver', 'trip', 'active', id] });
+            qc.invalidateQueries({ queryKey: ['driver', 'wallet', 'transactions'] });
+            setSheetPassenger(null);
+            notify(
+              change > 0 ? 'Change sent' : 'Cash recorded',
+              change > 0 ? `${formatGhs(change)} is in ${p.name}’s EyeGo wallet.` : 'Exact fare received.',
+              { tone: 'success' },
+            );
+          } catch (err: any) {
+            notify('Could not record the cash', err?.response?.data?.message ?? (err as Error).message);
+          }
         }}
         onBoard={(p) => {
           setSheetPassenger(null);
