@@ -1540,12 +1540,14 @@ const markArrived = (d, t) => driverAdvance(d, t, S.ARRIVED_AT_PICKUP);
  * Neither was checked here; `boardPassenger` held the PIN rule and nothing at
  * all held the boarding rule, so both were steps a driver could swipe past.
  *
- * `drivers.departTrip` runs the identical guard — see the note on
- * `assertReadyToDepart`.
+ * And it is the SAME start: delegated to `drivers.departTrip`, as `complete`
+ * delegates to settlement. This path had the boarding guard but not the rest
+ * of departure — a hailed ride started here never charged the rider's wait
+ * at the pickup (`waitFeeFor`), so the two start buttons billed differently.
  */
 const startTrip = async (d, t) => {
-  await boardingPin.assertReadyToDepart(prisma, t);
-  return driverAdvance(d, t, S.IN_PROGRESS);
+  const trip = await require('../drivers/drivers.service').departTrip(d, t);
+  return { tripId: t, status: trip.status, version: trip.version ?? null };
 };
 
 /**

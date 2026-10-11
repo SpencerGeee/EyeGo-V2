@@ -65,6 +65,7 @@ const SUITES = [
   ['lifecycle-edges.mjs', 'cancellations, races, no-shows, terminal states'],
   ['silent-failures.mjs', 'writes that do not write, and 200s that mean nothing'],
   ['completion-pass.mjs', 'the 2026-09-07 two-device findings: multi-seat, walking route, dispatch board'],
+  ['parity-features.mjs', 'prefs, calls, wait fee, stops, cash change, referral, inbox, lost item — and the ownership class'],
 ];
 
 const filters = process.argv.slice(2).filter((a) => !a.startsWith('-'));
