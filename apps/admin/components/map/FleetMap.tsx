@@ -175,7 +175,7 @@ export function FleetMap({
           '<span class="map-pin-dot"></span>' +
           (d.heading === null
             ? ''
-            : `<span class="map-pin-arrow" data-arrow style="transform:rotate(${d.heading}deg)"></span>`);
+            : `<span class="map-pin-arrow" data-arrow style="transform:rotate(${Number(d.heading) || 0}deg)"></span>`);
         el.addEventListener('click', () => setSelected((cur) => (cur === d.id ? null : d.id)));
 
         markers.current.set(
