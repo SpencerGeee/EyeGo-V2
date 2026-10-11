@@ -538,3 +538,14 @@ Decisions:
 - SupportTicket.driverId is ambiguous; a driver's OWN ticket = filer user's phone equals driver phone.
 Rejected: a persisted Notification table (35 push sites, migration) — derived inbox chosen; true multi-waypoint routing.
 Open: run prisma migrate deploy (20261010120000_parity_pass); 3 pre-existing stale-mock jest failures in payments/wallet tests.
+
+## 2026-10-11 03:00 [saved]
+Goal: pre-push hidden-bug hunt by bug class across API + both apps.
+Decisions:
+- Hunt by CLASS with scratch audit scripts, verify each hit by hand; clean classes noted in state.md.
+- Ledger dedupe must be atomic (conditional updateMany claim or SELECT … FOR UPDATE), never read-then-insert.
+- Passenger chat lives in trip:<id>:chat (booked riders only); trip:<id> stays open to browsers.
+- Console-tunable knobs are read via settings.get at every site; env is only the boot default.
+- TripRequest engine is dead: scheduled intents with no bus go through rides.requestRide.
+Rejected: unique index on WalletTransaction.paystackRef (existing data risk) — row lock instead.
+Open: migration 20261010120000_parity_pass still to apply; driver commission report doesn't net COMMISSION_REFUND.
