@@ -1,6 +1,6 @@
 'use strict';
 
-jest.mock('../../config/database', () => ({ driverDocument: { findMany: jest.fn(), update: jest.fn() } }));
+jest.mock('../../config/database', () => ({ driverDocument: { findMany: jest.fn(), updateMany: jest.fn(async () => ({ count: 1 })) } }));
 jest.mock('../push.service', () => ({ sendPush: jest.fn(async () => 'ok') }));
 
 const prisma = require('../../config/database');
@@ -25,7 +25,9 @@ describe('document expiry warnings — once per threshold, not every hour', () =
     serve([doc(20)]);
     await runExpiryWarnings(now);
     expect(push.sendPush).toHaveBeenCalledTimes(1);
-    expect(prisma.driverDocument.update).toHaveBeenCalledWith({ where: { id: 'd20' }, data: { expiryNoticeDays: 30 } });
+    expect(prisma.driverDocument.updateMany).toHaveBeenCalledWith({
+      where: { id: 'd20', OR: [{ expiryNoticeDays: null }, { expiryNoticeDays: { gt: 30 } }] }, data: { expiryNoticeDays: 30 },
+    });
 
     jest.clearAllMocks();
     serve([doc(20, 30)]); // the next hourly run
@@ -37,6 +39,15 @@ describe('document expiry warnings — once per threshold, not every hour', () =
     serve([doc(5, 30)]);
     await runExpiryWarnings(now);
     expect(push.sendPush).toHaveBeenCalledTimes(1);
-    expect(prisma.driverDocument.update).toHaveBeenCalledWith({ where: { id: 'd5' }, data: { expiryNoticeDays: 7 } });
+    expect(prisma.driverDocument.updateMany).toHaveBeenCalledWith({
+      where: { id: 'd5', OR: [{ expiryNoticeDays: null }, { expiryNoticeDays: { gt: 7 } }] }, data: { expiryNoticeDays: 7 },
+    });
+  });
+
+  it('the instance that loses the claim stays quiet', async () => {
+    serve([doc(20)]);
+    prisma.driverDocument.updateMany.mockResolvedValueOnce({ count: 0 });
+    await runExpiryWarnings(now);
+    expect(push.sendPush).not.toHaveBeenCalled();
   });
 });

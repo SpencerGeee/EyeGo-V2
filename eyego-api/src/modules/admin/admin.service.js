@@ -2112,28 +2112,29 @@ async function getAnalyticsOverview({ from, to } = {}) {
 async function getAnalyticsDrivers() {
   const round2 = (n) => Math.round((n || 0) * 100) / 100;
 
-  const [drivers, onlineCount, activeCount, suspendedCount, offlineCount] = await Promise.all([
-    prisma.driver.findMany({
-      select: {
-        id: true, name: true, status: true, isOnline: true,
-        _count: { select: { trips: { where: { status: 'COMPLETED' } } } },
-        ratings: { select: { stars: true } },
-        walletTxs: { where: { type: { in: ['EARNINGS_CREDIT', 'TIP'] } }, select: { amountPesewas: true } },
-      },
-    }),
+  // Aggregated in the database. This loaded every rating row and every earnings
+  // row of every driver into memory to sum them — a dashboard that got slower
+  // with every trip ever driven.
+  const [drivers, tripCounts, earnings, ratings, onlineCount, activeCount, suspendedCount, offlineCount] = await Promise.all([
+    prisma.driver.findMany({ select: { id: true, name: true, status: true, isOnline: true } }),
+    prisma.trip.groupBy({ by: ['driverId'], where: { status: 'COMPLETED', driverId: { not: null } }, _count: { _all: true } }),
+    prisma.walletTransaction.groupBy({ by: ['driverId'], where: { type: { in: ['EARNINGS_CREDIT', 'TIP'] } }, _sum: { amountPesewas: true } }),
+    prisma.driverRating.groupBy({ by: ['driverId'], _avg: { stars: true }, _count: { _all: true } }),
     prisma.driver.count({ where: { isOnline: true } }),
     prisma.driver.count({ where: { status: 'ACTIVE' } }),
     prisma.driver.count({ where: { status: 'SUSPENDED' } }),
     prisma.driver.count({ where: { isOnline: false } }),
   ]);
+  const byDriver = (rows) => new Map(rows.map((r) => [r.driverId, r]));
+  const tripsOf = byDriver(tripCounts);
+  const earningsOf = byDriver(earnings);
+  const ratingsOf = byDriver(ratings);
 
   const enriched = drivers.map((d) => {
-    const trips = d._count.trips;
-    const earningsPesewas = wholePesewas(d.walletTxs.reduce((s, t) => s + (t.amountPesewas || 0), 0));
-    const ratingCount = d.ratings.length;
-    const avgRating = ratingCount > 0
-      ? round2(d.ratings.reduce((s, r) => s + (r.stars || 0), 0) / ratingCount)
-      : null;
+    const trips = tripsOf.get(d.id)?._count._all ?? 0;
+    const earningsPesewas = wholePesewas(earningsOf.get(d.id)?._sum.amountPesewas ?? 0);
+    const ratingCount = ratingsOf.get(d.id)?._count._all ?? 0;
+    const avgRating = ratingCount > 0 ? round2(ratingsOf.get(d.id)._avg.stars) : null;
     return { id: d.id, name: d.name, status: d.status, isOnline: d.isOnline, trips, earningsPesewas, avgRating, ratingCount };
   });
 

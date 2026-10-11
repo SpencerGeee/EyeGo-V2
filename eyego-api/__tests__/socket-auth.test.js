@@ -199,6 +199,8 @@ describe('Driver socket — chat authorization', () => {
     mockRedis = {
       publish: jest.fn(),
       geoadd: jest.fn(),
+      set: jest.fn(async () => 'OK'),
+      get: jest.fn(async () => null),
       duplicate: jest.fn(() => ({ on: jest.fn() })),
     };
 

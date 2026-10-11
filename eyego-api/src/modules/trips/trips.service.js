@@ -1806,6 +1806,7 @@ async function getScheduledRides(userId) {
       },
     },
     orderBy: { scheduledAt: 'desc' },
+    take: 50,
   });
 
   // The list screen only had a route name + seat count to show — once an intent is MATCHED

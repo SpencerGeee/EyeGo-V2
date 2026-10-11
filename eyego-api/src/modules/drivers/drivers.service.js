@@ -765,9 +765,18 @@ async function getActiveTrip(driverId) {
   return trip ? attachGroupSummary(attachFarePerSeat(trip)) : null;
 }
 
+/**
+ * The trips tab: everything not yet finished, plus the latest finished ones.
+ * This returned EVERY trip the driver had ever driven, each with its seats —
+ * a payload that grows by twenty trips a day for a busy driver, re-fetched on
+ * every visit to the tab. Older history is paged by GET /driver/trips.
+ */
+const ALL_TRIPS_HISTORY = 100;
 async function getAllTrips(driverId) {
-  const trips = await prisma.trip.findMany({
-    where: { driverId },
+  const { TERMINAL_STATUSES } = require('../../services/trip-state.service');
+  const query = (where, extra = {}) => prisma.trip.findMany({
+    where: { driverId, ...where },
+    ...extra,
     include: {
       route: true,
       vehicle: true,
@@ -787,15 +796,21 @@ async function getAllTrips(driverId) {
           // else, the guest's number is the one that reaches the person at the
           // kerb. Without it the driver's seat sheet fell back to the booker's
           // phone and told them to call whoever ordered the car. See item 13.
-          guestName: true, guestPhone: true,
+          guestName: true, guestPhone: true, boardingPin: true, pinVerifiedAt: true,
           user: { select: { id: true, name: true } },
         },
       },
     },
-    orderBy: { departureTime: 'asc' },
   });
-  // Compute farePerSeatPesewas using the same estimateFare formula the rider home screen uses
-  return trips.map((t) => attachGroupSummary(attachFarePerSeat(t)));
+  const [open, ended] = await Promise.all([
+    query({ status: { notIn: TERMINAL_STATUSES } }, { orderBy: { departureTime: 'asc' } }),
+    query({ status: { in: TERMINAL_STATUSES } }, { orderBy: { departureTime: 'desc' }, take: ALL_TRIPS_HISTORY }),
+  ]);
+  const trips = [...open, ...ended].sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime));
+  // Compute farePerSeatPesewas using the same estimateFare formula the rider home screen uses.
+  // Scrubbed like the detail endpoints: with masked calling on, the list was
+  // still handing the driver a guest's real number.
+  return trips.map((t) => attachGroupSummary(attachFarePerSeat(scrubBookingSecrets(t))));
 }
 
 async function devActivate(driverId) {
@@ -3191,10 +3206,15 @@ async function getRatings(driverId) {
   // The headline average and the star breakdown both exclude chronic low-raters
   // so the two agree with each other and with what riders are shown.
   const countableWhere = await ratingIntegrity.ratingWhere({ driverId });
-  const [aggregate, allRatings] = await Promise.all([
+  // Counted in the database: this loaded every rating the driver had ever
+  // received, comment text and all, to count stars and tags in JS.
+  const [aggregate, byStars, tagCounts] = await Promise.all([
     prisma.driverRating.aggregate({ where: countableWhere, _avg: { stars: true }, _count: true }),
-    prisma.driverRating.findMany({ where: countableWhere, select: { stars: true, comment: true } }),
+    prisma.driverRating.groupBy({ by: ['stars'], where: countableWhere, _count: { _all: true } }),
+    Promise.all(COMPLIMENT_TAGS.map(({ label }) =>
+      prisma.driverRating.count({ where: { ...countableWhere, comment: { contains: label } } }))),
   ]);
+  const totalRated = byStars.reduce((n, g) => n + g._count._all, 0);
 
   /**
    * The last thirty days as ONE number, so a driver can still tell whether they
@@ -3211,19 +3231,19 @@ async function getRatings(driverId) {
 
   // Build star breakdown
   const breakdown = [5, 4, 3, 2, 1].map((stars) => {
-    const count = allRatings.filter((r) => r.stars === stars).length;
+    const count = byStars.find((g) => g.stars === stars)?._count._all ?? 0;
     return {
       stars,
       count,
-      percentage: allRatings.length > 0 ? Math.round((count / allRatings.length) * 100) : 0,
+      percentage: totalRated > 0 ? Math.round((count / totalRated) * 100) : 0,
     };
   });
 
   // Real compliment counts — how many ratings' comment text mentions each tag.
-  const compliments = COMPLIMENT_TAGS.map(({ label, icon }) => ({
+  const compliments = COMPLIMENT_TAGS.map(({ label, icon }, i) => ({
     label,
     icon,
-    count: allRatings.filter((r) => r.comment?.includes(label)).length,
+    count: tagCounts[i],
   })).filter((c) => c.count > 0);
 
   /**
@@ -3859,6 +3879,7 @@ async function getSupportTickets(driverId) {
       },
     },
     orderBy: { updatedAt: 'desc' },
+    take: 50, // the latest; every ticket ever, with every message, was the whole history
   });
 
   /**
