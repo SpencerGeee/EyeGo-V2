@@ -2368,6 +2368,11 @@ async function deleteNote(id, admin) {
   const note = await prisma.adminNote.findUnique({ where: { id } });
   if (!note) throw new NotFoundError('Note');
   if (note.deletedAt) return note;
+  // Your own note, or a superadmin's call — not any admin retracting another
+  // investigator's record.
+  if (admin?.role !== 'SUPERADMIN' && note.adminId !== admin?.id) {
+    throw new AppError('Only the admin who wrote this note can retract it.', 403, 'FORBIDDEN');
+  }
   logger.info('[ADMIN] note retracted', { noteId: id, by: admin?.email });
   return prisma.adminNote.update({ where: { id }, data: { deletedAt: new Date() } });
 }

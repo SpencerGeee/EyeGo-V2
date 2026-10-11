@@ -99,6 +99,8 @@ async function topUp(driverId, amountPesewas, { method: requestedMethod } = {}) 
  * the same `balanceBefore` and the ledger stopped adding up).
  */
 async function creditTopUp(driverId, reference, amountPesewas, { description } = {}) {
+  // Integer pesewas, checked here so every credit path gets it.
+  assertPesewas(amountPesewas, 'top-up amount', { client: true });
   return prisma.$transaction(async (tx) => {
     /**
      * SERIALISED ON THE DRIVER ROW. The app's verify call and Paystack's webhook
@@ -139,17 +141,6 @@ async function creditTopUp(driverId, reference, amountPesewas, { description } =
       },
     });
   });
-}
-
-/**
- * The gateway confirmed a charge. Delegates to `creditTopUp` so this and the
- * simulated path write byte-identical ledger rows — and so the balanceBefore
- * bug this used to carry (read outside the transaction, so two concurrent
- * credits recorded the same "before") cannot come back on one of them only.
- */
-async function confirmTopUp(driverId, reference, amountPesewas) {
-  const safeAmount = assertPesewas(amountPesewas, 'top-up amount', { client: true });
-  return creditTopUp(driverId, reference, safeAmount);
 }
 
 async function withdraw(driverId, amountPesewas) {
@@ -453,7 +444,6 @@ module.exports = {
   getWallet,
   topUp,
   creditTopUp,
-  confirmTopUp,
   withdraw,
   reverseWithdrawal,
   getPayoutAccount,

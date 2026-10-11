@@ -107,7 +107,7 @@ describe('creditTopUp', () => {
   it('credits the balance and records the movement', async () => {
     mockDriver.update.mockResolvedValue({ walletBalancePesewas: 200_00 });
 
-    await walletService.confirmTopUp('d1', 'ref-1', 50_00);
+    await walletService.creditTopUp('d1', 'ref-1', 50_00);
 
     expect(mockDriver.update).toHaveBeenCalled();
     expect(mockWalletTransaction.create).toHaveBeenCalled();
@@ -118,7 +118,7 @@ describe('creditTopUp', () => {
     // without this a driver is paid again for every retry.
     mockWalletTransaction.findFirst.mockResolvedValue({ id: 'existing', balanceAfterPesewas: 200_00 });
 
-    await walletService.confirmTopUp('d1', 'ref-already-seen', 50_00);
+    await walletService.creditTopUp('d1', 'ref-already-seen', 50_00);
 
     expect(mockDriver.update).not.toHaveBeenCalled();
     expect(mockWalletTransaction.create).not.toHaveBeenCalled();
@@ -127,7 +127,7 @@ describe('creditTopUp', () => {
   it('refuses a fractional amount', async () => {
     // Money is integer pesewas everywhere. A float here is a rounding error
     // that compounds across a ledger.
-    await expect(walletService.confirmTopUp('d1', 'ref-2', 50.5)).rejects.toThrow();
+    await expect(walletService.creditTopUp('d1', 'ref-2', 50.5)).rejects.toThrow();
   });
 });
 

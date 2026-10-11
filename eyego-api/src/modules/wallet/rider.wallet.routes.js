@@ -352,6 +352,22 @@ router.post('/payment-methods/verify', async (req, res) => {
     throw new AppError('Card verification failed — payment not complete', 400, 'VERIFICATION_FAILED');
   }
 
+  /**
+   * ONLY YOUR OWN CARD-SAVE CHECKOUT.
+   *
+   * This saved the reusable authorization of ANY successful Paystack
+   * reference to the caller — someone else's booking or top-up included. With
+   * another rider's reference in hand, their card became a saved card on your
+   * account, chargeable from Pay. The checkout above stamps who started it.
+   */
+  let meta = verification.data.metadata;
+  if (typeof meta === 'string') {
+    try { meta = JSON.parse(meta); } catch { meta = null; }
+  }
+  if (meta?.type !== 'CARD_SAVE' || meta?.userId !== req.user.userId) {
+    throw new AppError('Card verification failed — payment not complete', 400, 'VERIFICATION_FAILED');
+  }
+
   const auth = verification.data.authorization;
   if (!auth?.reusable) {
     throw new AppError('This card cannot be saved for future payments', 400, 'CARD_NOT_REUSABLE');

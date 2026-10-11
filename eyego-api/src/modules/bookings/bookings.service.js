@@ -707,6 +707,21 @@ async function createRideGroup(tripId, userId, isCoverAll = false) {
   // violating the unique constraint or creating duplicate groups.
   return prisma.$transaction(
     async (tx) => {
+      /**
+       * A GROUP IS LED BY SOMEONE ON THE TRIP.
+       *
+       * Anyone signed in could POST /trips/:id/group on any open bus: with no
+       * group yet they became its permanent lead, and with cover-all on,
+       * `syncCoveredSeatsTx` held EVERY free seat in their name — a whole bus
+       * blocked by someone who never booked. The invite screen holds the
+       * host's own seat before this can be reached, so the app always has one.
+       */
+      const ownSeat = await tx.booking.findFirst({
+        where: { tripId, userId, isCoveredByLead: false, ...seatOccupyingWhere() },
+        select: { id: true },
+      });
+      if (!ownSeat) throw new ForbiddenError('Book your own seat first, then invite your group.');
+
       const existing = await tx.rideGroup.findUnique({ where: { tripId } });
 
       let group;
