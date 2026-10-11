@@ -8,6 +8,7 @@ const authenticate = require('../../middleware/auth');
 const { requireBookingEnabled } = require('../../middleware/killSwitch');
 const { authenticateDriver } = require('../../middleware/driverAuth');
 const validate = require('../../middleware/validate');
+const { bookingCreateLimiter } = require('../../middleware/rateLimiter');
 // One ceiling for the party size, shared with the rider app's picker — see the
 // note on `seatCount` in the create route below for what happened without it.
 const { MAX_SEATS_PER_BOOKING } = require('../../config/booking');
@@ -88,6 +89,7 @@ router.post(
 router.post(
   '/',
   authenticate,
+  bookingCreateLimiter,
   requireBookingEnabled,
   [
     body('quoteId').isString().isLength({ min: 64, max: 64 }),

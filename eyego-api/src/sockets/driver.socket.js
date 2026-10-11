@@ -15,6 +15,7 @@ const {
 } = require('../services/route-geometry.service');
 const { completeTrip } = require('../modules/trips/trips.service');
 const { sendMulticastPush, sendPush, prefAllows } = require('../services/push.service');
+const { chatThrottle } = require('./middleware/chatThrottle');
 const liveActivityPush = require('../services/live-activity-push.service');
 const { haversineMeters } = require('../utils/geo');
 const supply = require('../services/supply-index.service');
@@ -887,6 +888,7 @@ function emitSafetyCheck(io, tripId, reason) {
     // BUGFIX: Server-side chat input sanitization — enforce length limit and trim.
     // Strips only HTML tags (not angle brackets in content like "2 < 3 km").
     const MAX_CHAT_LENGTH = 500;
+    const chatAllowed = chatThrottle();
     function sanitizeChatText(raw) {
       if (typeof raw !== 'string') return '';
       return raw.trim().replace(/<[^>]*>/g, '').slice(0, MAX_CHAT_LENGTH);
@@ -895,7 +897,7 @@ function emitSafetyCheck(io, tripId, reason) {
     socket.on('chat:send', async ({ tripId, text, timestamp }) => {
       if (!tripId || !text) return;
       text = sanitizeChatText(text);
-      if (!text) return;
+      if (!text || !chatAllowed()) return;
 
       // Security: verify this driver is actually assigned to this trip
       try {
@@ -975,7 +977,7 @@ function emitSafetyCheck(io, tripId, reason) {
     socket.on('chat:private_send', async ({ tripId, text, recipientId, timestamp }) => {
       if (!tripId || !text || !recipientId) return;
       text = sanitizeChatText(text);
-      if (!text) return;
+      if (!text || !chatAllowed()) return;
 
       // Security: verify this driver is assigned to the trip AND the recipient has a booking
       try {

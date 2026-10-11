@@ -55,8 +55,36 @@ const otpLimiter = rateLimit({
   legacyHeaders: false,
   store: makeStore('otp'),
   message: { success: false, code: 'RATE_LIMITED', message: 'Too many OTP requests. Please wait 1 hour.' },
-  keyGenerator: (req) => req.body?.phone || req.ip,
+  // The NUMBER, not the string: "024…", "+23324…" and "233 24…" are one
+  // phone, and keying on the raw text gave each spelling its own 5 SMS.
+  keyGenerator: (req) => String(req.body?.phone ?? '').replace(/\D/g, '').slice(-9) || req.ip,
   // Skip all limits in dev — avoids blocking repeated test flows
+  skip: () => isDev,
+});
+
+/**
+ * Every OTP request is a paid SMS. The per-number limit above stops one phone
+ * being flooded; this stops one machine walking through thousands of numbers.
+ */
+const otpIpLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: isDev ? 10000 : 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: makeStore('otp-ip'),
+  message: { success: false, code: 'RATE_LIMITED', message: 'Too many sign-in codes requested from this network. Please wait a while.' },
+  skip: () => isDev,
+});
+
+/** Masked calls cost voice minutes; a call is a deliberate tap, not a loop. */
+const callLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: isDev ? 10000 : 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: makeStore('contact-call'),
+  message: { success: false, code: 'RATE_LIMITED', message: 'Too many calls in a short time. Try the chat, or wait a few minutes.' },
+  keyGenerator: (req) => req.user?.userId || req.ip,
   skip: () => isDev,
 });
 
@@ -120,6 +148,8 @@ module.exports = {
   defaultLimiter,
   authLimiter,
   otpLimiter,
+  otpIpLimiter,
+  callLimiter,
   paymentLimiter,
   paymentInitiateLimiter,
   bookingCreateLimiter,

@@ -3,6 +3,7 @@
 const { Router } = require('express');
 const controller = require('./contact.controller');
 const { authenticateAny } = require('../../middleware/auth');
+const { callLimiter } = require('../../middleware/rateLimiter');
 
 const router = Router();
 
@@ -16,7 +17,7 @@ router.post('/voice', controller.voiceCallback);
 router.use(authenticateAny);
 
 // POST /v1/contact/call — initiate an anonymized contact relay
-router.post('/call', controller.initiateCall);
+router.post('/call', callLimiter, controller.initiateCall);
 
 // POST /v1/contact/call/:callId/end — end a call session
 router.post('/call/:callId/end', controller.endCall);

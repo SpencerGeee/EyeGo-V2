@@ -468,12 +468,6 @@ async function completeVerification(driverId, data) {
   });
 }
 
-async function addVehicle(driverId, data) {
-  return prisma.vehicle.create({
-    data: { driverId, ...data },
-  });
-}
-
 /**
  * REAL-TIME ID CHECK — "is the person driving the person we approved?"
  *
@@ -2031,6 +2025,17 @@ async function releaseOfflineHold(driverId, tripId, bookingId) {
   return { released: released.count > 0 };
 }
 
+/** Wrong-code counters (boarding PIN, offline OTP): 15-minute window, fail open on Redis. */
+async function wrongCodeCount(key) {
+  try { return Number(await redis.get(key)) || 0; } catch { return 0; }
+}
+async function countWrongCode(key) {
+  try { await redis.multi().incr(key).expire(key, 15 * 60).exec(); } catch { /* best effort */ }
+}
+async function clearWrongCodes(key) {
+  try { await redis.del(key); } catch { /* best effort */ }
+}
+
 async function verifyOfflineOtp(driverId, tripId, { bookingId, otp }) {
   // BUGFIX: this used `include: { trip: { where: { driverId } } }`. Prisma only
   // accepts `where` inside an include for to-MANY relations — `Booking.trip` is
@@ -2044,9 +2049,17 @@ async function verifyOfflineOtp(driverId, tripId, { bookingId, otp }) {
     include: { trip: true },
   });
   if (!booking) throw new NotFoundError('Booking');
+  // Same cap as the boarding PIN: a guessable code confirms a passenger who
+  // may not exist (departure minimums, quest counts).
+  const triesKey = `offline-otp:tries:${booking.id}`;
+  if ((await wrongCodeCount(triesKey)) >= 5) {
+    throw new AppError('Too many wrong codes. Send the passenger a new code and try again in 15 minutes.', 429, 'OTP_LOCKED');
+  }
   if (!booking.offlineOtp || booking.offlineOtp !== otp) {
+    await countWrongCode(triesKey);
     throw new AppError('Invalid OTP', 400, 'OTP_INVALID');
   }
+  await clearWrongCodes(triesKey);
   if (booking.offlineOtpExp < new Date()) throw new AppError('OTP expired', 400, 'OTP_EXPIRED');
 
   const driver = await prisma.driver.findUnique({ where: { id: driverId } });
@@ -2156,13 +2169,31 @@ async function boardPassenger(driverId, tripId, bookingId, { pin = null } = {}) 
         'PIN_REQUIRED',
       );
     }
+    /**
+     * FIVE GUESSES, NOT TEN THOUSAND.
+     *
+     * A 4-digit code with unlimited tries is a code the driver can find
+     * without the rider — and boarding a rider who is not in the car is how a
+     * trip gets started (and charged) without them. Wrong codes count per
+     * booking; five lock it for 15 minutes.
+     */
+    const triesKey = `boarding-pin:tries:${pinRow.id}`;
+    if ((await wrongCodeCount(triesKey)) >= 5) {
+      throw new AppError(
+        'Too many wrong codes. Ask the rider to open their EyeGo app and read you the code, then try again in 15 minutes.',
+        429,
+        'PIN_LOCKED',
+      );
+    }
     if (supplied !== pinRow.boardingPin) {
+      await countWrongCode(triesKey);
       throw new AppError(
         "That code doesn't match. Check the rider is showing you the code for this trip.",
         400,
         'PIN_INCORRECT',
       );
     }
+    await clearWrongCodes(triesKey);
     await prisma.booking.updateMany({
       where: { id: { in: toBoard.filter((b) => b.boardingPin).map((b) => b.id) } },
       data: { pinVerifiedAt: new Date() },
@@ -2916,7 +2947,7 @@ const acceptTerms = async (driverId, { termsVersion, privacyVersion }) => {
 
 module.exports = {
   acceptTerms,
-  getMe, updateProfile, updateFcmToken, completeVerification, addVehicle,
+  getMe, updateProfile, updateFcmToken, completeVerification,
   goOnline, goOffline, getActiveTrip, getTripHistory, getAllTrips, devActivate,
   getNotifications,
   startTrip, departTrip, arriveAtPickup, arriveTrip, cancelTrip, recordPresence, recordCashReceived, submitSelfieCheck,
@@ -3341,7 +3372,13 @@ async function updatePreferences(driverId, data) {
   });
 
   const currentPrefs = driver?.preferences ? JSON.parse(driver.preferences) : {};
-  const merged = { ...currentPrefs, ...data };
+  // The keys the driver app writes, each checked. `{ ...currentPrefs, ...data }`
+  // stored any key of any size the request carried.
+  const patch = {};
+  if (typeof data?.notificationsEnabled === 'boolean') patch.notificationsEnabled = data.notificationsEnabled;
+  if (typeof data?.navigationApp === 'string' && data.navigationApp.length <= 32) patch.navigationApp = data.navigationApp;
+  if (typeof data?.theme === 'string' && data.theme.length <= 16) patch.theme = data.theme;
+  const merged = { ...currentPrefs, ...patch };
 
   await prisma.driver.update({
     where: { id: driverId },

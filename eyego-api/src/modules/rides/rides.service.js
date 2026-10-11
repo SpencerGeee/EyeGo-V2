@@ -35,6 +35,7 @@ const {
 } = require('../../services/trip-view');
 
 const { TRIP_STATUS: S, ACTOR } = tripState;
+const MAX_CONCURRENT_RIDES = 3;
 
 /**
  * The only states `failTripHard` may force to NO_DRIVERS_FOUND.
@@ -355,6 +356,15 @@ async function requestRide(userId, body) {
         // So "open my ride" opens THAT ride — see ALREADY_ON_A_RIDE in bookSeat.
         err.details = { activeTripId: existing.id };
         throw err;
+      }
+    } else {
+      // Booking for someone else is allowed; an unlimited number is not — each
+      // live ride is offers on real drivers' phones. Uber caps it the same way.
+      const live = await prisma.trip.count({
+        where: { requesterId: userId, routeId: null, status: { notIn: tripState.TERMINAL_STATUSES } },
+      });
+      if (live >= MAX_CONCURRENT_RIDES) {
+        throw new AppError(`You can have up to ${MAX_CONCURRENT_RIDES} rides going at once.`, 409, 'TOO_MANY_RIDES');
       }
     }
 

@@ -3,6 +3,7 @@
 const redis = require('../config/redis');
 const { notifications: pushNotifications } = require('../services/push.service');
 const logger = require('../utils/logger');
+const { chatThrottle } = require('./middleware/chatThrottle');
 const { seatOccupyingWhere, SEAT_OCCUPYING_STATUSES } = require('../utils/booking-status');
 
 const TRIP_ROOM = (tripId) => `trip:${tripId}`;
@@ -46,6 +47,7 @@ module.exports = function registerPassengerSocket(io, passengerNamespace) {
   passengerNamespace.on('connection', (socket) => {
     const userId = socket.userId;
     logger.info(`Passenger connected: ${userId}`);
+    const chatAllowed = chatThrottle();
 
     // Join user-specific room so driver can send private messages
     socket.join(`user:${userId}`);
@@ -226,6 +228,10 @@ module.exports = function registerPassengerSocket(io, passengerNamespace) {
     // ── Chat messages ──────────────────────────────────────────
     socket.on('chat:send', async ({ tripId, text, timestamp }) => {
       if (!tripId || !text) return;
+      // Same cleaning as the private send and the driver side — this stored
+      // whatever arrived, of any length, string or not.
+      text = typeof text === 'string' ? text.trim().replace(/<[^>]*>/g, '').slice(0, 500) : '';
+      if (!text || !chatAllowed()) return;
 
       // Security Validation: Ensure sender has an active booking on this trip
       let booking = null;
@@ -315,7 +321,7 @@ module.exports = function registerPassengerSocket(io, passengerNamespace) {
       const clean = typeof text === 'string'
         ? text.trim().replace(/<[^>]*>/g, '').slice(0, 500)
         : '';
-      if (!clean) return;
+      if (!clean || !chatAllowed()) return;
 
       try {
         const prisma = require('../config/database');

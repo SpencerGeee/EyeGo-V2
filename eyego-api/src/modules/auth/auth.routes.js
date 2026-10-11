@@ -3,7 +3,7 @@
 const { Router } = require('express');
 const controller = require('./auth.controller');
 const authenticate = require('../../middleware/auth');
-const { authLimiter, otpLimiter } = require('../../middleware/rateLimiter');
+const { authLimiter, otpLimiter, otpIpLimiter } = require('../../middleware/rateLimiter');
 const { body } = require('express-validator');
 const validate = require('../../middleware/validate');
 
@@ -12,6 +12,7 @@ const router = Router();
 // ─── Passenger ───────────────────────────────────────
 router.post(
   '/request-otp',
+  otpIpLimiter,
   otpLimiter,
   body('phone').notEmpty().withMessage('Phone number is required'),
   validate,
@@ -55,6 +56,7 @@ router.post('/logout', authenticate, controller.logout);
 // ─── Driver ───────────────────────────────────────
 router.post(
   '/driver/request-otp',
+  otpIpLimiter,
   otpLimiter,
   body('phone').notEmpty().withMessage('Phone number is required'),
   validate,

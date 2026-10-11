@@ -21,7 +21,6 @@ router.patch('/me', controller.updateMe);
 router.delete('/me', controller.deleteMe);
 router.post('/fcm-token', body('fcmToken').notEmpty(), validate, controller.updateFcmToken);
 router.post('/verify', controller.completeVerification);
-router.post('/vehicle', requireActiveDriver, controller.addVehicle);
 
 // Dev-only self-activation (skips PENDING_REVIEW for testing)
 router.post('/dev-activate', controller.devActivate);

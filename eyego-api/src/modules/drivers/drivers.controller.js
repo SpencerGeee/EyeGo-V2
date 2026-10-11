@@ -32,11 +32,6 @@ const completeVerification = async (req, res) => {
   ok(res, { driver }, 'Profile submitted for review');
 };
 
-const addVehicle = async (req, res) => {
-  const vehicle = await driversService.addVehicle(req.user.userId, req.body);
-  created(res, { vehicle }, 'Vehicle added');
-};
-
 const goOnline = async (req, res) => {
   const { lat, lng } = req.body;
   const driver = await driversService.goOnline(req.user.userId, lat, lng);
@@ -655,7 +650,7 @@ const clearDestinationMode = async (req, res) => {
 };
 
 module.exports = {
-  getMe, updateMe, updateFcmToken, completeVerification, addVehicle,
+  getMe, updateMe, updateFcmToken, completeVerification,
   goOnline, goOffline, getTripHistory, getActiveTrip, getOutcomes, getAllTrips, devActivate,
   startTrip, departTrip, arriveAtPickup, arriveTrip, cancelTrip, presence, cashReceived, nextStop, lostItems, answerLostItem, selfieCheck,
   getTripById, acceptDispatch, declineDispatch,

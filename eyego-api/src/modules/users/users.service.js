@@ -549,7 +549,11 @@ async function updateNotificationPreferences(userId, prefs) {
 
   // Merge incoming prefs with existing so partial updates don't overwrite unrelated fields
   const existing = user.notificationPrefs ? JSON.parse(user.notificationPrefs) : {};
-  const merged = { ...existing, ...prefs };
+  // Only the switches the app has, only as booleans — the route validates the
+  // known keys but let any other key through into the stored blob.
+  const KEYS = ['driverArriving', 'tripStarted', 'tripCompleted', 'chatMessages', 'paymentConfirmations', 'promotions', 'newFeatures', 'safetyAlerts'];
+  const patch = Object.fromEntries(KEYS.filter((k) => typeof prefs?.[k] === 'boolean').map((k) => [k, prefs[k]]));
+  const merged = { ...existing, ...patch };
 
   await prisma.user.update({
     where: { id: userId },
@@ -636,8 +640,18 @@ async function updateSettingsBlob(userId, column, patch) {
   return merged;
 }
 
+/**
+ * Only the switches a client may set, only as booleans. Each blob was merged
+ * with whatever the request carried — so `insuranceCardUrl`, which only the
+ * upload endpoint should write (admins open it), could be pointed anywhere
+ * with a PUT to /me/safety-settings.
+ */
+const pickBooleans = (patch, keys) =>
+  Object.fromEntries(keys.filter((k) => typeof patch?.[k] === 'boolean').map((k) => [k, patch[k]]));
+
 const getSafetySettings = (userId) => getSettingsBlob(userId, 'safetySettings');
-const updateSafetySettings = (userId, patch) => updateSettingsBlob(userId, 'safetySettings', patch);
+const updateSafetySettings = (userId, patch) =>
+  updateSettingsBlob(userId, 'safetySettings', pickBooleans(patch, ['shareTrip', 'rideCheck', 'speedAlerts', 'nightSafety']));
 
 // App preferences (theme, etc) — mirrors the driver app's /driver/preferences.
 // Previously the rider's dark/light toggle was AsyncStorage-only; a reinstall
@@ -647,9 +661,10 @@ const getPreferences = (userId) => getSettingsBlob(userId, 'preferences');
 // `ride` (quiet / AC / luggage) is read by the driver's offer card — only the
 // known switches, only as booleans. See utils/ride-prefs.
 const updatePreferences = (userId, patch) =>
-  updateSettingsBlob(userId, 'preferences', patch?.ride !== undefined
-    ? { ...patch, ride: require('../../utils/ride-prefs').sanitizeRidePrefs(patch.ride) }
-    : patch);
+  updateSettingsBlob(userId, 'preferences', {
+    ...(['dark', 'light', 'system'].includes(patch?.theme) ? { theme: patch.theme } : {}),
+    ...(patch?.ride !== undefined ? { ride: require('../../utils/ride-prefs').sanitizeRidePrefs(patch.ride) } : {}),
+  });
 
 async function updateInsuranceCard(userId, fileBuffer) {
   const url = await cloudinary.uploadBuffer(fileBuffer, {
@@ -659,7 +674,8 @@ async function updateInsuranceCard(userId, fileBuffer) {
   return updateSettingsBlob(userId, 'safetySettings', { insuranceCardUrl: url });
 }
 const getPrivacySettings = (userId) => getSettingsBlob(userId, 'privacySettings');
-const updatePrivacySettings = (userId, patch) => updateSettingsBlob(userId, 'privacySettings', patch);
+const updatePrivacySettings = (userId, patch) =>
+  updateSettingsBlob(userId, 'privacySettings', pickBooleans(patch, ['locationSharing', 'marketingNotifs', 'analytics']));
 
 /**
  * Stamp the current terms and privacy versions on the user.

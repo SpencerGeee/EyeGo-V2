@@ -78,8 +78,11 @@ router.post(
   validate,
   h(async (req, res) => {
     const report = await service.createReport({
-      userId: actorId(req),
       ...req.body,
+      // AFTER the spread: a body naming userId/driverId filed the report as
+      // somebody else.
+      userId: actorId(req),
+      driverId: null,
       lat: Number(req.body.lat),
       lng: Number(req.body.lng),
     });
@@ -168,8 +171,9 @@ router.post(
   validate,
   h(async (req, res) => {
     const report = await service.createReport({
-      driverId: actorId(req),
       ...req.body,
+      driverId: actorId(req),
+      userId: null,
       lat: Number(req.body.lat),
       lng: Number(req.body.lng),
     });
