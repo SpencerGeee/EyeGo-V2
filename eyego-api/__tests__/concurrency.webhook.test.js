@@ -42,6 +42,7 @@ describe('Webhook idempotency — Redis NX lock + DB replay guard', () => {
       booking: mockBooking,
       trip: mockTrip,
       paymentTransaction: mockPaymentTransaction,
+      $queryRaw: jest.fn(async () => []),
       $transaction: jest.fn((cb) => cb(mockPrisma)),
     };
 

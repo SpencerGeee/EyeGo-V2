@@ -112,14 +112,15 @@ router.post(
   '/schedule',
   authenticate,
   requireBookingEnabled,
-  body('destination').trim().notEmpty().withMessage('Destination is required'),
+  body('destination').isString().trim().notEmpty().withMessage('Destination is required').isLength({ max: 200 }),
   body('scheduledAt').isISO8601().withMessage('scheduledAt must be an ISO 8601 datetime'),
-  body('seatCount').optional().isInt({ min: MIN_SEATS_PER_BOOKING, max: MAX_SEATS_PER_BOOKING }),
-  body('pickupLat').isFloat({ min: -90, max: 90 }).withMessage('pickupLat is required'),
-  body('pickupLng').isFloat({ min: -180, max: 180 }).withMessage('pickupLng is required'),
-  body('destLat').optional().isFloat({ min: -90, max: 90 }),
-  body('destLng').optional().isFloat({ min: -180, max: 180 }),
-  body('pickupName').optional().trim().isString(),
+  body('seatCount').optional().isInt({ min: MIN_SEATS_PER_BOOKING, max: MAX_SEATS_PER_BOOKING }).toInt(),
+  // toFloat: the service writes these straight to Float columns.
+  body('pickupLat').isFloat({ min: -90, max: 90 }).withMessage('pickupLat is required').toFloat(),
+  body('pickupLng').isFloat({ min: -180, max: 180 }).withMessage('pickupLng is required').toFloat(),
+  body('destLat').optional().isFloat({ min: -90, max: 90 }).toFloat(),
+  body('destLng').optional().isFloat({ min: -180, max: 180 }).toFloat(),
+  body('pickupName').optional().isString().trim().isLength({ max: 120 }),
   validate,
   tripsController.scheduleTrip
 );

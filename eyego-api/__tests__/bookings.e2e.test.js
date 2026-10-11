@@ -106,7 +106,7 @@ describe('E2E Booking Flow Simulation (Rider + Driver)', () => {
       data: { walletBalancePesewas: { decrement: 2000 } },
     });
     expect(mockBooking.updateMany).toHaveBeenCalledWith({
-      where: { id: 'booking-99', paymentStatus: undefined },
+      where: { id: 'booking-99', paymentStatus: undefined, status: 'SEAT_HELD' },
       data: {
         paymentStatus: 'PAID',
         status: 'CONFIRMED',

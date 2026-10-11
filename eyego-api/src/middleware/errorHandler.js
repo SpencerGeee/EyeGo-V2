@@ -81,10 +81,23 @@ const errorHandler = (err, req, res, next) => {
       .map(String)
       .filter((f) => /^[a-z][a-zA-Z0-9_]*$/.test(f));
     const field = fields.find((f) => f !== 'id');
-    message = field
-      ? `That ${humanizeField(field)} is already in use on another account.`
-      : 'A record with this value already exists';
+    // "On another account" only for identity fields. Every other unique index
+    // (a seat on a trip, a rating per trip) used to say it too — two riders
+    // racing for seat 3 were told "That trip id is already in use on another account".
+    message = fields.includes('seatNumber')
+      ? 'That seat was just taken. Please pick another.'
+      : FIELD_LABELS[field]
+        ? `That ${humanizeField(field)} is already in use on another account.`
+        : 'That was just done — please refresh.';
     code = 'DUPLICATE_ENTRY';
+    messageIsOurs = true;
+  } else if (err.code === 'P2034' || ['40001', '40P01'].includes(err.meta?.code)) {
+    // A serialization failure or deadlock: two requests touched the same rows at
+    // once and the database chose one. Not a server fault — it was a 500 and a
+    // Sentry page every time two riders tapped the same seat.
+    statusCode = 409;
+    message = 'Someone else changed this at the same moment. Please try again.';
+    code = 'CONCURRENT_UPDATE';
     messageIsOurs = true;
   } else if (err.code === 'P2025') {
     statusCode = 404;

@@ -42,8 +42,8 @@ const REFUNDABLE_BOOKING_STATUSES = ['PAID', 'BOARDED', 'COMPLETED', 'CANCELLED'
  * How much of this booking is still refundable.
  * Exposed so the console can show the ceiling before anyone types a number.
  */
-async function refundableAmount(bookingId) {
-  const booking = await prisma.booking.findUnique({
+async function refundableAmount(bookingId, db = prisma) {
+  const booking = await db.booking.findUnique({
     where: { id: bookingId },
     select: {
       id: true, fareAmountPesewas: true, status: true, paymentStatus: true,
@@ -52,11 +52,24 @@ async function refundableAmount(bookingId) {
   });
   if (!booking) throw new NotFoundError('Booking');
 
-  const already = await prisma.refund.aggregate({
+  const already = await db.refund.aggregate({
     where: { bookingId, status: { in: [STATUS.PENDING, STATUS.COMPLETED] } },
     _sum: { amountPesewas: true },
   });
-  const refunded = already._sum.amountPesewas ?? 0;
+  /**
+   * AND WHAT WENT BACK WITHOUT A HUMAN. A rider's own cancellation refunds to
+   * the wallet and leaves the booking PAID; this cap only counted console
+   * refunds, so the same fare could be refunded again in full. Excess-seat and
+   * duplicate-charge refunds are not this fare's money and are left out.
+   */
+  // Filtered here, not in SQL: a NOT over a nullable column drops the NULL rows.
+  const automatic = (await db.paymentTransaction.findMany({
+    where: { bookingId, status: { in: ['REFUNDED', 'PARTIAL_REFUND'] } },
+    select: { amountPesewas: true, paystackRef: true, gatewayResponse: true },
+  }))
+    .filter((t) => !t.paystackRef?.endsWith('_excess') && !t.gatewayResponse?.startsWith('Duplicate'))
+    .reduce((n, t) => n + (t.amountPesewas ?? 0), 0);
+  const refunded = (already._sum.amountPesewas ?? 0) + automatic;
 
   return {
     booking,
@@ -88,56 +101,62 @@ async function issueRefund(bookingId, { amountPesewas, reason, destination = DES
     throw new ValidationError(`destination must be WALLET or GATEWAY (received "${destination}")`);
   }
 
-  const state = await refundableAmount(bookingId);
-  const { booking } = state;
+  /**
+   * The cap is read and the refund written under the booking's row lock. They
+   * were two steps with nothing between them, so a double click on Refund read
+   * the same "remaining" twice and paid it twice.
+   */
+  const { refund: done, gatewayJob } = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "Booking" WHERE id = ${bookingId} FOR UPDATE`;
+    const state = await refundableAmount(bookingId, tx);
+    const { booking } = state;
 
-  if (!REFUNDABLE_BOOKING_STATUSES.includes(booking.status)) {
-    throw new AppError(
-      `A booking in status ${booking.status} has nothing to refund — no money has been taken for it`,
-      400,
-      'NOT_REFUNDABLE',
-    );
-  }
-  if (booking.paymentStatus !== 'PAID') {
-    throw new AppError('This booking was never settled, so there is nothing to refund', 400, 'NOT_REFUNDABLE');
-  }
-  if (state.remainingPesewas <= 0) {
-    throw new AppError('This booking has already been refunded in full', 409, 'ALREADY_REFUNDED');
-  }
+    if (!REFUNDABLE_BOOKING_STATUSES.includes(booking.status)) {
+      throw new AppError(
+        `A booking in status ${booking.status} has nothing to refund — no money has been taken for it`,
+        400,
+        'NOT_REFUNDABLE',
+      );
+    }
+    if (booking.paymentStatus !== 'PAID') {
+      throw new AppError('This booking was never settled, so there is nothing to refund', 400, 'NOT_REFUNDABLE');
+    }
+    if (state.remainingPesewas <= 0) {
+      throw new AppError('This booking has already been refunded in full', 409, 'ALREADY_REFUNDED');
+    }
 
-  const requested = amountPesewas == null ? state.remainingPesewas : parseInt(amountPesewas, 10);
-  if (!Number.isInteger(requested) || requested <= 0) {
-    throw new ValidationError('amountPesewas must be a whole number of pesewas greater than zero');
-  }
-  if (requested > state.remainingPesewas) {
-    throw new AppError(
-      `Cannot refund ${requested} pesewas: only ${state.remainingPesewas} of this fare remains unrefunded` +
-        (state.alreadyRefundedPesewas ? ` (${state.alreadyRefundedPesewas} already returned)` : ''),
-      400,
-      'REFUND_EXCEEDS_REMAINING',
-    );
-  }
+    const requested = amountPesewas == null ? state.remainingPesewas : parseInt(amountPesewas, 10);
+    if (!Number.isInteger(requested) || requested <= 0) {
+      throw new ValidationError('amountPesewas must be a whole number of pesewas greater than zero');
+    }
+    if (requested > state.remainingPesewas) {
+      throw new AppError(
+        `Cannot refund ${requested} pesewas: only ${state.remainingPesewas} of this fare remains unrefunded` +
+          (state.alreadyRefundedPesewas ? ` (${state.alreadyRefundedPesewas} already returned)` : ''),
+        400,
+        'REFUND_EXCEEDS_REMAINING',
+      );
+    }
 
-  if (destination === DESTINATIONS.GATEWAY && !state.gatewayAvailable) {
-    throw new AppError(
-      booking.paymentMethod === 'CASH'
-        ? 'This fare was paid in cash — there is no card to send it back to. Refund to the wallet instead.'
-        : 'This booking has no gateway reference to refund against. Refund to the wallet instead.',
-      400,
-      'GATEWAY_REFUND_UNAVAILABLE',
-    );
-  }
-  if (!booking.userId) {
-    throw new AppError(
-      'This booking has no rider account attached (guest or offline booking) — refund it in cash at the kerb.',
-      400,
-      'NO_RIDER_ACCOUNT',
-    );
-  }
+    if (destination === DESTINATIONS.GATEWAY && !state.gatewayAvailable) {
+      throw new AppError(
+        booking.paymentMethod === 'CASH'
+          ? 'This fare was paid in cash — there is no card to send it back to. Refund to the wallet instead.'
+          : 'This booking has no gateway reference to refund against. Refund to the wallet instead.',
+        400,
+        'GATEWAY_REFUND_UNAVAILABLE',
+      );
+    }
+    if (!booking.userId) {
+      throw new AppError(
+        'This booking has no rider account attached (guest or offline booking) — refund it in cash at the kerb.',
+        400,
+        'NO_RIDER_ACCOUNT',
+      );
+    }
 
-  // ── WALLET: money moves now, inside one transaction with its ledger row ────
-  if (destination === DESTINATIONS.WALLET) {
-    const refund = await prisma.$transaction(async (tx) => {
+    // ── WALLET: money moves now, inside one transaction with its ledger row ────
+    if (destination === DESTINATIONS.WALLET) {
       // To whoever paid — a group host for a covered seat, not the guest in it.
       const payerId = await require('../modules/cancellation/cancellation.service').payerOf(
         tx,
@@ -176,32 +195,35 @@ async function issueRefund(bookingId, { amountPesewas, reason, destination = DES
           data: { status: 'REFUNDED', paymentStatus: 'REFUNDED' },
         });
       }
-      return created;
-    });
 
-    logger.info('[refund] wallet refund issued', {
-      refundId: refund.id, bookingId, amountPesewas: requested, by: admin?.email,
-    });
-    return refund;
-  }
+      logger.info('[refund] wallet refund issued', {
+        refundId: created.id, bookingId, amountPesewas: requested, by: admin?.email,
+      });
+      return { refund: created };
+    }
 
-  // ── GATEWAY: accepted now, settled by the provider later ──────────────────
-  const refund = await prisma.refund.create({
-    data: {
-      bookingId,
-      userId: booking.userId,
-      amountPesewas: requested,
-      reason: String(reason).trim(),
-      destination,
-      status: STATUS.PENDING,
-      adminId: admin?.id ?? null,
-      adminEmail: admin?.email ?? 'system',
-    },
+    // ── GATEWAY: accepted now, settled by the provider later ──────────────────
+    const refund = await tx.refund.create({
+      data: {
+        bookingId,
+        userId: booking.userId,
+        amountPesewas: requested,
+        reason: String(reason).trim(),
+        destination,
+        status: STATUS.PENDING,
+        adminId: admin?.id ?? null,
+        adminEmail: admin?.email ?? 'system',
+      },
+    });
+    return { refund, gatewayJob: { reference: booking.paystackRef, requested } };
   });
+  if (!gatewayJob) return done;
+  const refund = done;
+  const { requested } = gatewayJob;
 
   try {
     const res = await provider.refundTransaction({
-      reference: booking.paystackRef,
+      reference: gatewayJob.reference,
       amountPesewas: requested,
       reason: String(reason).trim(),
     });

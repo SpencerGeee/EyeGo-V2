@@ -113,8 +113,20 @@ const livePassengerWhere = () => ({ status: { in: LIVE_PASSENGER_STATUSES } });
 const sumSeats = (bookings) =>
   (bookings ?? []).reduce((n, b) => n + (b?.seats ?? 1), 0);
 
+/**
+ * OCCUPYING IS NOT CANCELLABLE. BOARDED and COMPLETED hold their seat, so a
+ * cancel scoped by `seatOccupyingWhere()` happily took them — and a finished
+ * hailed ride has no driver to the fee rule, so cancelling it afterwards
+ * refunded the whole fare the driver had already been paid. A seat that has
+ * been ridden, or a trip that is over, has nothing left to cancel.
+ */
+function riderCannotCancel(tripStatus, bookings) {
+  return tripStatus === 'COMPLETED' || bookings.some((b) => b.status === 'BOARDED' || b.status === 'COMPLETED');
+}
+
 module.exports = {
   SEAT_OCCUPYING_STATUSES,
+  riderCannotCancel,
   SEAT_RELEASING_STATUSES,
   DEPARTURE_COUNTED_STATUSES,
   LIVE_PASSENGER_STATUSES,

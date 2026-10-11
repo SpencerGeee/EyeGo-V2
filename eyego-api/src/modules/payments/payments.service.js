@@ -297,6 +297,12 @@ async function confirmPayment(bookingId, reference, { cashOnBoard = false, isSyn
   // Captured inside the transaction, published after it commits.
   let confirmTransition = null;
   const result = await prisma.$transaction(async (tx) => {
+    // The row lock first. Without it a rider cancel or the hold-expiry sweep
+    // could land between the read below and the settle write, and the write
+    // (CAS on paymentStatus only) flipped a CANCELLED seat back to CONFIRMED,
+    // paid, with no seat number. Now the other writer is wholly before us —
+    // and the read sees it, taking the refund branch — or wholly after.
+    await tx.$queryRaw`SELECT id FROM "Booking" WHERE id = ${bookingId} FOR UPDATE`;
     const booking = await tx.booking.findUnique({
       where: { id: bookingId },
       include: { trip: { include: { route: true, group: true } } },
@@ -473,7 +479,9 @@ async function confirmPayment(bookingId, reference, { cashOnBoard = false, isSyn
     for (const b of bookingsToSettle) {
       // Optimistic concurrency control to prevent race conditions
       const updatedBooking = await tx.booking.updateMany({
-        where: { id: b.id, paymentStatus: b.paymentStatus },
+        // Status too: a sibling seat that expired since it was read is not
+        // settled, and its share goes back through the excess refund below.
+        where: { id: b.id, paymentStatus: b.paymentStatus, status: b.status },
         data: {
           // 'PENDING' (not a separate 'CASH_PENDING' value) — every other cash
           // consumer in the codebase (admin dashboard badge map, arriveTrip's

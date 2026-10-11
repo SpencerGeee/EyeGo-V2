@@ -22,6 +22,8 @@ const ratingIntegrity = require('../../services/rating-integrity.service');
 // given. Shared with rides.service so both departure endpoints enforce one rule.
 const boardingPin = require('../../services/boarding-pin.service');
 const { seatOccupyingWhere, departureCountedWhere, livePassengerWhere, sumSeats } = require('../../utils/booking-status');
+// A seat a passenger can be boarded on: live, and not yet aboard.
+const BOARDABLE = ['PENDING', 'SEAT_HELD', 'CONFIRMED', 'PAID'];
 const { isDriverAvailable } = require('../../services/driver-availability');
 const supply = require('../../services/supply-index.service');
 const routeGeometry = require('../../services/route-geometry.service');
@@ -802,7 +804,7 @@ async function devActivate(driverId) {
     throw new ForbiddenError('This endpoint is only available in development');
   }
 
-  const minBalance = env.DRIVER_REQUIRED_WALLET_TO_GO_ONLINE_PESEWAS ?? 20;
+  const minBalance = require('../../config/settings').get('DRIVER_REQUIRED_WALLET_TO_GO_ONLINE_PESEWAS') ?? env.DRIVER_REQUIRED_WALLET_TO_GO_ONLINE_PESEWAS ?? 20;
   const driver = await prisma.driver.findUnique({
     where: { id: driverId },
     select: { id: true, walletBalancePesewas: true },
@@ -2049,6 +2051,9 @@ async function verifyOfflineOtp(driverId, tripId, { bookingId, otp }) {
     include: { trip: true },
   });
   if (!booking) throw new NotFoundError('Booking');
+  // Already confirmed: nothing to do. A second submit used to take the
+  // commission again and count the seat twice.
+  if (booking.offlineOtpVerified) return booking;
   // Same cap as the boarding PIN: a guessable code confirms a passenger who
   // may not exist (departure minimums, quest counts).
   const triesKey = `offline-otp:tries:${booking.id}`;
@@ -2069,26 +2074,33 @@ async function verifyOfflineOtp(driverId, tripId, { bookingId, otp }) {
   // updateMany + gte so a concurrent double-tap can't both pass a pre-tx
   // balance check and push the wallet negative.
   return prisma.$transaction(async (tx) => {
+    // Claim the seat first, so two concurrent submits cannot both pass the
+    // checks above and both take the commission; and a hold the sweeper has
+    // already expired is not brought back.
+    const claimed = await tx.booking.updateMany({
+      where: { id: bookingId, offlineOtpVerified: false, status: { in: BOARDABLE } },
+      // Clearing the deadline is what turns a provisional hold into a real seat.
+      // Leaving it set would let the sweeper cancel a boarded, paid passenger.
+      data: { offlineOtpVerified: true, status: 'BOARDED', paymentStatus: 'PAID', holdExpiresAt: null },
+    });
+    if (claimed.count === 0) {
+      throw new AppError('This passenger is already confirmed, or their seat hold ran out.', 409, 'OTP_ALREADY_USED');
+    }
+
     const debited = await tx.driver.updateMany({
       where: { id: driverId, walletBalancePesewas: { gte: booking.commissionAmountPesewas } },
       data: { walletBalancePesewas: { decrement: booking.commissionAmountPesewas } },
     });
     if (debited.count === 0) throw new InsufficientWalletError();
-
-    await tx.booking.update({
-      where: { id: bookingId },
-      // Clearing the deadline is what turns a provisional hold into a real seat.
-      // Leaving it set would let the sweeper cancel a boarded, paid passenger.
-      data: { offlineOtpVerified: true, status: 'BOARDED', paymentStatus: 'PAID', holdExpiresAt: null },
-    });
+    const after = (await tx.driver.findUnique({ where: { id: driverId }, select: { walletBalancePesewas: true } })).walletBalancePesewas;
 
     await tx.walletTransaction.create({
       data: {
         driverId, type: 'COMMISSION_DEDUCTION',
         amountPesewas: booking.commissionAmountPesewas,
         description: `Offline passenger commission — Seat ${booking.seatNumber}`,
-        balanceBeforePesewas: driver.walletBalancePesewas,
-        balanceAfterPesewas: driver.walletBalancePesewas - booking.commissionAmountPesewas,
+        balanceBeforePesewas: after + booking.commissionAmountPesewas,
+        balanceAfterPesewas: after,
         tripId,
       },
     });
@@ -2121,6 +2133,13 @@ async function boardPassenger(driverId, tripId, bookingId, { pin = null } = {}) 
     include: { trip: true },
   });
   if (!booking) throw new NotFoundError('Booking');
+  // A second tap is a no-op, not a second commission. And a cancelled, expired
+  // or no-show seat is not boardable: writing BOARDED over it resurrected a
+  // booking the rider may already have been refunded for.
+  if (booking.status === 'BOARDED') return booking;
+  if (!BOARDABLE.includes(booking.status)) {
+    throw new AppError('This booking is no longer active — it was cancelled or expired.', 409, 'BOOKING_NOT_BOARDABLE');
+  }
 
   /**
    * ONE PERSON, ONE BOARDING — however many seats they hold.
@@ -2141,7 +2160,7 @@ async function boardPassenger(driverId, tripId, bookingId, { pin = null } = {}) 
             tripId,
             userId: booking.userId,
             guestName: null,
-            status: { in: ['PENDING', 'SEAT_HELD', 'CONFIRMED', 'PAID'] },
+            status: { in: BOARDABLE },
           },
         })
       : [booking];
@@ -2206,6 +2225,15 @@ async function boardPassenger(driverId, tripId, bookingId, { pin = null } = {}) 
   const cashCommission = cashRows.reduce((n, b) => n + (b.commissionAmountPesewas || 0), 0);
   if (toBoard.length > 1) {
     await prisma.$transaction(async (tx) => {
+      // Claim the cash rows FIRST: a concurrent board blocks on these row
+      // locks, then matches nothing — so it takes no second commission.
+      if (cashRows.length) {
+        const claimed = await tx.booking.updateMany({
+          where: { id: { in: cashRows.map((b) => b.id) }, status: { in: BOARDABLE } },
+          data: { status: 'BOARDED', paymentStatus: 'PAID' },
+        });
+        if (claimed.count !== cashRows.length) throw new AppError('This party is already being boarded.', 409, 'ALREADY_BOARDED');
+      }
       if (cashCommission > 0) {
         const driver = await tx.driver.findUnique({ where: { id: driverId } });
         const debited = await tx.driver.updateMany({
@@ -2225,15 +2253,8 @@ async function boardPassenger(driverId, tripId, bookingId, { pin = null } = {}) 
           },
         });
       }
-      // Outside the commission branch: a zero-commission cash seat still boards.
-      if (cashRows.length) {
-        await tx.booking.updateMany({
-          where: { id: { in: cashRows.map((b) => b.id) } },
-          data: { status: 'BOARDED', paymentStatus: 'PAID' },
-        });
-      }
       await tx.booking.updateMany({
-        where: { id: { in: toBoard.filter((b) => !cashRows.includes(b)).map((b) => b.id) } },
+        where: { id: { in: toBoard.filter((b) => !cashRows.includes(b)).map((b) => b.id) }, status: { in: BOARDABLE } },
         data: { status: 'BOARDED' },
       });
     });
@@ -2255,35 +2276,46 @@ async function boardPassenger(driverId, tripId, bookingId, { pin = null } = {}) 
     if (driver.walletBalancePesewas < booking.commissionAmountPesewas) throw new InsufficientWalletError();
 
     const result = await prisma.$transaction(async (tx) => {
-      const updated = await tx.booking.update({
-        where: { id: bookingId },
+      // Claim first (see the party branch): a double tap used to take the
+      // commission twice, because both taps read the seat as unpaid.
+      const claimed = await tx.booking.updateMany({
+        where: { id: bookingId, status: { in: BOARDABLE }, paymentStatus: { not: 'PAID' } },
         data: { status: 'BOARDED', paymentStatus: 'PAID' },
       });
+      if (claimed.count === 0) return null;
+      const updated = await tx.booking.findUnique({ where: { id: bookingId } });
 
-      await tx.driver.update({
-        where: { id: driverId },
+      const debited = await tx.driver.updateMany({
+        where: { id: driverId, walletBalancePesewas: { gte: booking.commissionAmountPesewas } },
         data: { walletBalancePesewas: { decrement: booking.commissionAmountPesewas } },
       });
+      if (debited.count === 0) throw new InsufficientWalletError();
+      const after = (await tx.driver.findUnique({ where: { id: driverId }, select: { walletBalancePesewas: true } })).walletBalancePesewas;
 
       await tx.walletTransaction.create({
         data: {
           driverId, type: 'COMMISSION_DEDUCTION',
           amountPesewas: booking.commissionAmountPesewas,
           description: `Cash passenger commission — Seat ${booking.seatNumber}`,
-          balanceBeforePesewas: driver.walletBalancePesewas,
-          balanceAfterPesewas: driver.walletBalancePesewas - booking.commissionAmountPesewas,
+          balanceBeforePesewas: after + booking.commissionAmountPesewas,
+          balanceAfterPesewas: after,
           tripId,
         },
       });
 
       return updated;
     });
+    if (!result) return prisma.booking.findUnique({ where: { id: bookingId } }); // the other tap boarded them
     announceBoarding(tripId, bookingId);
     return result;
   }
 
-  const updated = await prisma.booking.update({ where: { id: bookingId }, data: { status: 'BOARDED' } });
-  announceBoarding(tripId, bookingId);
+  const claimed = await prisma.booking.updateMany({ where: { id: bookingId, status: { in: BOARDABLE } }, data: { status: 'BOARDED' } });
+  const updated = await prisma.booking.findUnique({ where: { id: bookingId } });
+  if (claimed.count === 0 && updated?.status !== 'BOARDED') {
+    throw new AppError('This booking is no longer active — it was cancelled or expired.', 409, 'BOOKING_NOT_BOARDABLE');
+  }
+  if (claimed.count > 0) announceBoarding(tripId, bookingId);
   return updated;
 }
 

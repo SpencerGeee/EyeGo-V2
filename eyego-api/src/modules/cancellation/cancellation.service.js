@@ -11,7 +11,7 @@ const tripState = require('../../services/trip-state.service');
 const logger = require('../../utils/logger');
 const reconcile = require('../../services/trip-reconcile.service');
 const riderWallet = require('../../services/rider-wallet.service');
-const { seatOccupyingWhere, livePassengerWhere } = require('../../utils/booking-status');
+const { seatOccupyingWhere, livePassengerWhere, riderCannotCancel } = require('../../utils/booking-status');
 
 /**
  * EVERY SEAT THIS RIDER HOLDS ON THIS TRIP — the unit a cancellation acts on.
@@ -314,7 +314,27 @@ async function cancelBookingWithFee(id, userId, { reason, note } = {}) {
        */
       return { booking, refundAmountPesewas: 0, cancellationFeePesewas: null, receipt: null, transition: null, seatCount: 0, alreadyCancelled: true };
     }
+    if (riderCannotCancel(booking.trip.status, [booking, ...seatSet])) {
+      throw new AppError('This ride has already happened — if something went wrong, raise it from the receipt.', 409, 'RIDE_ALREADY_TAKEN');
+    }
     const seatIds = seatSet.map((b) => b.id);
+
+    /**
+     * CLAIM THE SEATS BEFORE ANY MONEY MOVES. Two cancels at once (a double
+     * tap, a retry) both read the set above as live — this is READ COMMITTED —
+     * and both refunded it. The conditional write serialises them: the second
+     * blocks on the row locks, then matches nothing once the first commits.
+     */
+    const claimed = await tx.booking.updateMany({
+      where: { id: { in: seatIds }, ...seatOccupyingWhere() },
+      data: { status: 'CANCELLED', seatNumber: null },
+    });
+    if (claimed.count === 0) {
+      return { booking, refundAmountPesewas: 0, cancellationFeePesewas: null, receipt: null, transition: null, seatCount: 0, alreadyCancelled: true };
+    }
+    if (claimed.count !== seatIds.length) {
+      throw new AppError('Your booking changed while cancelling — try again.', 409, 'CANCEL_CONFLICT');
+    }
     const totalFarePesewas = seatSet.reduce((sum, b) => sum + (b.fareAmountPesewas ?? 0), 0);
     const paidSeats = seatSet.filter((b) => b.paymentStatus === 'PAID');
     const paidFarePesewas = paidSeats.reduce((sum, b) => sum + (b.fareAmountPesewas ?? 0), 0);

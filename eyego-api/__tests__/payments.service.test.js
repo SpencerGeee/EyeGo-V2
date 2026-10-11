@@ -37,6 +37,7 @@ const mockPrisma = {
   walletTransaction: mockWalletTransaction,
   // Wallet payments move money through the rider ledger (rider-wallet.service).
   riderWalletTransaction: modelMock({ create: jest.fn() }),
+  $queryRaw: jest.fn(async () => []),
   $transaction: jest.fn((cb) => cb(mockPrisma)),
 };
 
@@ -94,7 +95,7 @@ describe('payments.service logic', () => {
       const result = await paymentsService.initiatePayment({ userId: 'u1', bookingId: 'b1' });
 
       expect(mockBooking.updateMany).toHaveBeenCalledWith({
-        where: { id: 'b1', paymentStatus: undefined },
+        where: { id: 'b1', paymentStatus: undefined, status: 'SEAT_HELD' },
         data: {
           // 'PENDING', not a separate 'CASH_PENDING'. Cash is settled by the
           // driver at boarding, and every other cash path in the codebase —
@@ -131,7 +132,7 @@ describe('payments.service logic', () => {
         data: { walletBalancePesewas: { decrement: 1500 } },
       });
       expect(mockBooking.updateMany).toHaveBeenCalledWith({
-        where: { id: 'b2', paymentStatus: undefined },
+        where: { id: 'b2', paymentStatus: undefined, status: 'SEAT_HELD' },
         data: {
           paymentStatus: 'PAID',
           status: 'CONFIRMED',
@@ -194,7 +195,7 @@ describe('payments.service logic', () => {
 
       expect(mockRedis.set).toHaveBeenCalledWith('lock:webhook:ref_web_123', '1', 'EX', 30, 'NX');
       expect(mockBooking.updateMany).toHaveBeenCalledWith({
-        where: { id: 'b4', paymentStatus: undefined },
+        where: { id: 'b4', paymentStatus: undefined, status: 'SEAT_HELD' },
         data: {
           paymentStatus: 'PAID',
           status: 'CONFIRMED',

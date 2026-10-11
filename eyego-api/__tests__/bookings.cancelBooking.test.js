@@ -8,7 +8,7 @@
 
 const mockBooking = {
   findUnique: jest.fn(),
-  update: jest.fn(),
+  updateMany: jest.fn(),
   count: jest.fn(),
 };
 const mockTrip = { update: jest.fn() };
@@ -30,12 +30,12 @@ describe('bookings.service.cancelBooking (P1-2 immediate seat release)', () => {
     mockBooking.findUnique.mockResolvedValue({
       id: 'b1', userId: 'u1', paymentStatus: 'PENDING', tripId: 't1', trip: { status: 'FILLING' },
     });
-    mockBooking.update.mockResolvedValue({ id: 'b1', status: 'CANCELLED', seatNumber: null });
+    mockBooking.updateMany.mockResolvedValue({ count: 1 });
 
     const result = await bookingsService.cancelBooking('b1', 'u1', {});
 
-    expect(mockBooking.update).toHaveBeenCalledWith({
-      where: { id: 'b1' },
+    expect(mockBooking.updateMany).toHaveBeenCalledWith({
+      where: { id: 'b1', paymentStatus: { not: 'PAID' }, status: { notIn: ['BOARDED', 'COMPLETED'] } },
       data: { status: 'CANCELLED', seatNumber: null },
     });
     expect(result.status).toBe('CANCELLED');
@@ -45,7 +45,7 @@ describe('bookings.service.cancelBooking (P1-2 immediate seat release)', () => {
     mockBooking.findUnique.mockResolvedValue({
       id: 'b1', userId: 'u1', paymentStatus: 'PENDING', status: 'CANCELLED', tripId: 't1', trip: { status: 'SCHEDULED' },
     });
-    mockBooking.update.mockResolvedValue({ id: 'b1', status: 'CANCELLED', seatNumber: null });
+    mockBooking.updateMany.mockResolvedValue({ count: 1 });
 
     await expect(bookingsService.cancelBooking('b1', 'u1', {})).resolves.toMatchObject({ status: 'CANCELLED' });
   });
@@ -56,6 +56,26 @@ describe('bookings.service.cancelBooking (P1-2 immediate seat release)', () => {
     });
 
     await expect(bookingsService.cancelBooking('b1', 'u1', {})).rejects.toMatchObject({ code: 'BOOKING_PAID' });
-    expect(mockBooking.update).not.toHaveBeenCalled();
+    expect(mockBooking.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('a payment that settles between the read and the write wins', async () => {
+    mockBooking.findUnique.mockResolvedValue({
+      id: 'b1', userId: 'u1', paymentStatus: 'PENDING', status: 'SEAT_HELD', tripId: 't1', trip: { status: 'FILLING' },
+    });
+    mockBooking.updateMany.mockResolvedValue({ count: 0 });
+    await expect(bookingsService.cancelBooking('b1', 'u1', {})).rejects.toMatchObject({ code: 'BOOKING_PAID' });
+  });
+
+  it('refuses a ride that has already been taken', async () => {
+    mockBooking.findUnique.mockResolvedValue({
+      id: 'b1', userId: 'u1', paymentStatus: 'PENDING', status: 'BOARDED', tripId: 't1', trip: { status: 'IN_PROGRESS' },
+    });
+    await expect(bookingsService.cancelBooking('b1', 'u1', {})).rejects.toMatchObject({ code: 'RIDE_ALREADY_TAKEN' });
+    mockBooking.findUnique.mockResolvedValue({
+      id: 'b1', userId: 'u1', paymentStatus: 'PENDING', status: 'CONFIRMED', tripId: 't1', trip: { status: 'COMPLETED' },
+    });
+    await expect(bookingsService.cancelBooking('b1', 'u1', {})).rejects.toMatchObject({ code: 'RIDE_ALREADY_TAKEN' });
+    expect(mockBooking.updateMany).not.toHaveBeenCalled();
   });
 });

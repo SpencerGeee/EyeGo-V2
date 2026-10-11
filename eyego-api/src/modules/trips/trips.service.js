@@ -12,6 +12,7 @@ const surgeService = require('./surge.service');
 const pushService = require('../../services/push.service');
 const pubSub = require('../../graphql/pubsub');
 const logger = require('../../utils/logger');
+const { singleFlight } = require('../../utils/single-flight');
 const mapboxService = require('../../services/mapbox.service');
 const ratingIntegrity = require('../../services/rating-integrity.service');
 const tripState = require('../../services/trip-state.service');
@@ -75,7 +76,7 @@ async function createTrip(driverId, data) {
     const devPlate = `DEV-${driverId.slice(0, 8).toUpperCase()}`;
     const [devVehicle] = await prisma.$transaction(async (tx) => {
       // Activate driver + top up wallet to minimum
-      const minBalance = env.DRIVER_REQUIRED_WALLET_TO_GO_ONLINE_PESEWAS ?? 20;
+      const minBalance = require('../../config/settings').get('DRIVER_REQUIRED_WALLET_TO_GO_ONLINE_PESEWAS') ?? env.DRIVER_REQUIRED_WALLET_TO_GO_ONLINE_PESEWAS ?? 20;
       const driver = await tx.driver.findUnique({ where: { id: driverId }, select: { id: true, walletBalancePesewas: true, status: true } });
       if (driver) {
         const currentBalance = driver.walletBalancePesewas ?? 0;
@@ -1615,10 +1616,17 @@ async function riderNoShow(tripId, bookingId, reportingUserId) {
      * here and in cancellation.service — did not, which is why the seat came
      * back in the counts but not in reality.
      */
-    await tx.booking.update({
-      where: { id: bookingId },
+    // Conditional: a double tap paid the driver the no-show fee twice, and a
+    // rider cancel landing at the same moment was refunded AND kept as a fee.
+    const claimed = await tx.booking.updateMany({
+      where: { id: bookingId, status: { in: ['CONFIRMED', 'SEAT_HELD'] } },
       data: { status: 'NO_SHOW', seatNumber: null },
     });
+    if (claimed.count === 0) {
+      throw new AppError('This passenger is no longer waiting — they boarded or cancelled.', 409, 'BOOKING_CHANGED');
+    }
+    // Payment state as of the claim (the payment confirm locks this row).
+    booking.paymentStatus = (await tx.booking.findUnique({ where: { id: bookingId }, select: { paymentStatus: true } })).paymentStatus;
 
     /**
      * Release the seat — but only if it was ever counted.
@@ -1742,37 +1750,42 @@ async function scheduleTrip(userId, { destination, scheduledAt, seatCount = 1, p
   // no longer be scoped by routeId — scope by rider + time instead.
   const windowStart = new Date(departureTime.getTime() - 30 * 60 * 1000);
   const windowEnd   = new Date(departureTime.getTime() + 30 * 60 * 1000);
-  const existingIntent = await prisma.scheduledRideIntent.findFirst({
-    where: { userId, status: 'PENDING', scheduledAt: { gte: windowStart, lte: windowEnd } },
-  });
-  if (existingIntent) {
-    throw new AppError('You already have a scheduled ride around that time', 409, 'DUPLICATE_SCHEDULE');
-  }
+  // One at a time per rider: the duplicate check and the create were two steps,
+  // so a double tap scheduled the same ride twice. Route + intent are one write,
+  // so a failed intent no longer leaves an orphaned route behind.
+  return singleFlight(`schedule:${userId}`, async () => {
+    const existingIntent = await prisma.scheduledRideIntent.findFirst({
+      where: { userId, status: 'PENDING', scheduledAt: { gte: windowStart, lte: windowEnd } },
+    });
+    if (existingIntent) {
+      throw new AppError('You already have a scheduled ride around that time', 409, 'DUPLICATE_SCHEDULE');
+    }
 
-  const distanceKm = Math.max(haversineKm(pickupLat, pickupLng, resolvedDestLat, resolvedDestLng), 1);
-  const route = await prisma.route.create({
-    data: {
-      name: `Scheduled: ${destination}`.slice(0, 120),
-      originName: (pickupName || 'Pickup location').slice(0, 120),
-      destinationName: destination,
-      originLat: pickupLat, originLng: pickupLng,
-      destLat: resolvedDestLat, destLng: resolvedDestLng,
-      distanceKm,
-      isActive: false, // ad-hoc route for this scheduled intent only, not publicly searchable
-    },
-  });
+    const distanceKm = Math.max(haversineKm(pickupLat, pickupLng, resolvedDestLat, resolvedDestLng), 1);
+    return prisma.$transaction(async (tx) => {
+      const route = await tx.route.create({
+        data: {
+          name: `Scheduled: ${destination}`.slice(0, 120),
+          originName: (pickupName || 'Pickup location').slice(0, 120),
+          destinationName: destination,
+          originLat: pickupLat, originLng: pickupLng,
+          destLat: resolvedDestLat, destLng: resolvedDestLng,
+          distanceKm,
+          isActive: false, // ad-hoc route for this scheduled intent only, not publicly searchable
+        },
+      });
 
-  const scheduledIntent = await prisma.scheduledRideIntent.create({
-    data: {
-      userId,
-      routeId: route.id,
-      scheduledAt: departureTime,
-      seatCount,
-      status: 'PENDING',
-    },
+      return tx.scheduledRideIntent.create({
+        data: {
+          userId,
+          routeId: route.id,
+          scheduledAt: departureTime,
+          seatCount,
+          status: 'PENDING',
+        },
+      });
+    });
   });
-
-  return scheduledIntent;
 }
 
 /**

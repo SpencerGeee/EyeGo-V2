@@ -5,7 +5,7 @@ const env = require('../../config/env');
 const { calculateFare, calculateSegmentFare, calculateSegmentFareByRatio, detourKm, calculateDeviationSurcharge, pinnedRatesFor, commissionRateFor } = require('../trips/fare.calculator');
 const { SeatTakenError, NotFoundError, AppError, ForbiddenError } = require('../../utils/errors');
 const tripState = require('../../services/trip-state.service');
-const { seatOccupyingWhere, SEAT_RELEASING_STATUSES, sumSeats } = require('../../utils/booking-status');
+const { seatOccupyingWhere, SEAT_RELEASING_STATUSES, sumSeats, riderCannotCancel } = require('../../utils/booking-status');
 const routeGeometry = require('../../services/route-geometry.service');
 const reconcile = require('../../services/trip-reconcile.service');
 const boardingPin = require('../../services/boarding-pin.service');
@@ -14,10 +14,14 @@ const { percentOf, sum, formatGhs, assertPesewas } = require('../../utils/money'
 // APP_URL — see utils/publicUrl.js.
 const { inviteUrl } = require('../../utils/publicUrl');
 const logger = require('../../utils/logger');
+const { singleFlight } = require('../../utils/single-flight');
 const { v4: uuidv4 } = require('uuid');
 const crypto = require('crypto');
 
-const SEAT_HOLD_MS = require('../../config/settings').get('SEAT_HOLD_DURATION_MINUTES') * 60 * 1000;
+// Read per booking: a module-level constant froze the boot value, so after an
+// admin change the hold the server stamped and the countdown /config/public
+// told the app disagreed.
+const seatHoldMs = () => (require('../../config/settings').get('SEAT_HOLD_DURATION_MINUTES') ?? env.SEAT_HOLD_DURATION_MINUTES) * 60 * 1000;
 
 // Map the rider-facing method to a value we persist on the booking.
 // MoMo defaults to the MTN provider key Paystack expects; the rider can still
@@ -587,7 +591,7 @@ async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, payment
       } = priced;
 
       const boardingQr = crypto.randomBytes(16).toString('hex');
-      const holdExpiry = new Date(Date.now() + SEAT_HOLD_MS);
+      const holdExpiry = new Date(Date.now() + seatHoldMs());
 
       const booking = await tx.booking.create({
         data: {
@@ -1005,14 +1009,20 @@ async function cancelBooking(bookingId, userId, { reason, note } = {}) {
    * ownership. Nothing legitimate reaches this function with a null userId.
    */
   if (booking.userId === null || booking.userId !== userId) throw new ForbiddenError();
-  if (booking.paymentStatus === 'PAID') {
-    throw new AppError('Cannot cancel a paid booking here. Contact support.', 400, 'BOOKING_PAID');
+  if (riderCannotCancel(booking.trip?.status, [booking])) {
+    throw new AppError('This ride has already happened — if something went wrong, raise it from the receipt.', 409, 'RIDE_ALREADY_TAKEN');
   }
+  const paidError = () => new AppError('Cannot cancel a paid booking here. Contact support.', 400, 'BOOKING_PAID');
+  if (booking.paymentStatus === 'PAID') throw paidError();
 
-  const updated = await prisma.booking.update({
-    where: { id: bookingId },
+  // Conditional, so a payment that settles between the read above and this
+  // write wins — an unconditional update cancelled a just-paid seat with no refund.
+  const claimed = await prisma.booking.updateMany({
+    where: { id: bookingId, paymentStatus: { not: 'PAID' }, status: { notIn: ['BOARDED', 'COMPLETED'] } },
     data: { status: 'CANCELLED', seatNumber: null },
   });
+  if (claimed.count === 0) throw paidError();
+  const updated = { ...booking, status: 'CANCELLED', seatNumber: null };
 
   /**
    * THE HOST WALKED AWAY, SO THE SEATS THEY WERE COVERING GO TOO.
@@ -1274,8 +1284,13 @@ async function rateBooking(userId, bookingId, { rating, comment }) {
       userId,
       tripId: booking.trip.id,
       stars,
-      comment,
+      comment: typeof comment === 'string' ? comment.trim().slice(0, 1000) || null : null,
     },
+  }).catch((err) => {
+    // A double tap passes the check above twice; the unique index answers the
+    // second — as "already rated", not the generic "already in use on another account".
+    if (err.code === 'P2002') throw new AppError('You already rated this trip.', 409, 'ALREADY_RATED');
+    throw err;
   });
 
   // ── Push notification to driver ───────────────────────────────────
@@ -1327,6 +1342,9 @@ async function getMyRating(userId, bookingId) {
 
 async function applyPromoCode(userId, bookingId, code) {
   return prisma.$transaction(async (tx) => {
+    // Row lock: two applies at once both read "no promo yet" — the redemption
+    // was counted twice, or a second code overwrote the first after it was counted.
+    await tx.$queryRaw`SELECT id FROM "Booking" WHERE id = ${bookingId} FOR UPDATE`;
     const booking = await tx.booking.findUnique({
       where: { id: bookingId },
       include: { trip: true }
@@ -1335,6 +1353,11 @@ async function applyPromoCode(userId, bookingId, code) {
     if (booking.userId !== userId) throw new ForbiddenError();
     if (booking.paymentStatus === 'PAID') {
       throw new AppError('Cannot apply promo to a paid booking', 400);
+    }
+    // Before boarding only: a cash seat's commission is taken at boarding, and a
+    // dead booking has nothing to discount.
+    if (!['PENDING', 'SEAT_HELD', 'CONFIRMED'].includes(booking.status)) {
+      throw new AppError('A promo can only be added before the ride starts.', 400, 'PROMO_TOO_LATE');
     }
     if (booking.promotionId) {
       throw new AppError('Booking already has a promo code applied', 400);
@@ -1613,6 +1636,8 @@ async function tipDriver(userId, bookingId, { amountPesewas, phone }) {
 }
 
 async function submitDispute(userId, bookingId, { type, description }) {
+  type = String(type ?? '').trim().slice(0, 60) || 'Other';
+  description = typeof description === 'string' ? description.trim().slice(0, 2000) : '';
   /**
    * EITHER ID. BUGFIX: every caller in the rider app is on `/ride/[id]/…`,
    * where `[id]` is the TRIP id, and posts it here as `:bookingId`. Looked up
@@ -1638,51 +1663,63 @@ async function submitDispute(userId, bookingId, { type, description }) {
    * ticket list and reply exclude SAFETY, and nobody pushes them.
    */
   const aboutDriver = /unsafe|rude|conduct|harass|safety|assault|threat|inappropriate/i.test(String(type ?? ''));
+  const category = aboutDriver ? 'SAFETY' : 'TRIP';
 
-  const ticket = await prisma.$transaction(async (tx) => {
-    const t = await tx.supportTicket.create({
-      data: {
-        userId,
-        // Was never set, despite the schema having a dedicated driverId
-        // column for exactly this — the driver-side ticket list had no real
-        // way to associate a dispute with the trip it was about (it fell
-        // back to matching on a shared phone number between accounts, which
-        // only works by coincidence). Priority/category also defaulted to
-        // MEDIUM/GENERAL, so a rider-safety dispute sorted identically to a
-        // routine "how does this work" question.
-        driverId: booking.trip?.driverId ?? null,
-        subject,
-        status: 'OPEN',
-        priority: aboutDriver ? 'URGENT' : 'HIGH',
-        category: aboutDriver ? 'SAFETY' : 'TRIP',
-      },
+  // One open dispute per trip and kind: there was no check at all, so every
+  // tap filed another ticket and pushed the driver again.
+  return singleFlight(`dispute:${userId}:${booking.tripId}:${category}`, async () => {
+    const open = await prisma.supportTicket.findFirst({
+      where: { userId, tripId: booking.tripId, category, status: { notIn: ['CLOSED', 'RESOLVED'] } },
+      select: { id: true },
+    });
+    if (open) throw new AppError('You already have an open dispute about this trip — add to it from Help.', 409, 'ALREADY_DISPUTED');
+
+    const ticket = await prisma.$transaction(async (tx) => {
+      const t = await tx.supportTicket.create({
+        data: {
+          userId,
+          tripId: booking.tripId,
+          // Was never set, despite the schema having a dedicated driverId
+          // column for exactly this — the driver-side ticket list had no real
+          // way to associate a dispute with the trip it was about (it fell
+          // back to matching on a shared phone number between accounts, which
+          // only works by coincidence). Priority/category also defaulted to
+          // MEDIUM/GENERAL, so a rider-safety dispute sorted identically to a
+          // routine "how does this work" question.
+          driverId: booking.trip?.driverId ?? null,
+          subject,
+          status: 'OPEN',
+          priority: aboutDriver ? 'URGENT' : 'HIGH',
+          category,
+        },
+      });
+
+      await tx.ticketMessage.create({
+        data: {
+          ticketId: t.id,
+          senderId: userId,
+          senderRole: 'USER',
+          text: `Issue type: ${type}\n\nDescription: ${description || 'No description provided.'}`,
+        },
+      });
+
+      return t;
     });
 
-    await tx.ticketMessage.create({
-      data: {
-        ticketId: t.id,
-        senderId: userId,
-        senderRole: 'USER',
-        text: `Issue type: ${type}\n\nDescription: ${description || 'No description provided.'}`,
-      },
-    });
+    // Notify the driver so a dispute is impossible to miss, not just something
+    // that shows up if they happen to open their tickets list.
+    if (!aboutDriver && booking.trip?.driver?.fcmToken) {
+      const pushService = require('../../services/push.service');
+      pushService.sendPush(
+        booking.trip.driver.fcmToken,
+        'A rider filed a dispute about your trip',
+        `${type}${description ? ` — ${description.slice(0, 80)}` : ''}`,
+        { type: 'DISPUTE', ticketId: ticket.id },
+      ).catch(() => {});
+    }
 
-    return t;
+    return ticket;
   });
-
-  // Notify the driver so a dispute is impossible to miss, not just something
-  // that shows up if they happen to open their tickets list.
-  if (!aboutDriver && booking.trip?.driver?.fcmToken) {
-    const pushService = require('../../services/push.service');
-    pushService.sendPush(
-      booking.trip.driver.fcmToken,
-      'A rider filed a dispute about your trip',
-      `${type}${description ? ` — ${description.slice(0, 80)}` : ''}`,
-      { type: 'DISPUTE', ticketId: ticket.id },
-    ).catch(() => {});
-  }
-
-  return ticket;
 }
 
 /**
@@ -1716,15 +1753,19 @@ async function reportLostItem(userId, tripId, description) {
   if (t.completedAt && Date.now() - new Date(t.completedAt).getTime() > LOST_ITEM_DAYS * 86_400_000) {
     throw new AppError(`It’s been more than ${LOST_ITEM_DAYS} days — contact support from Help instead.`, 409, 'TOO_LATE');
   }
-  const open = await prisma.supportTicket.findFirst({ where: { userId, tripId, category: 'LOST_ITEM', status: { not: 'CLOSED' } }, select: { id: true } });
-  if (open) throw new AppError('You’ve already reported a lost item on this trip — check Help for replies.', 409, 'ALREADY_REPORTED');
+  // Single-flight: the check below and the create were two steps, so a double
+  // tap filed two tickets and pushed the driver twice.
+  const ticket = await singleFlight(`lost-item:${userId}:${tripId}`, async () => {
+    const open = await prisma.supportTicket.findFirst({ where: { userId, tripId, category: 'LOST_ITEM', status: { not: 'CLOSED' } }, select: { id: true } });
+    if (open) throw new AppError('You’ve already reported a lost item on this trip — check Help for replies.', 409, 'ALREADY_REPORTED');
 
-  const ticket = await prisma.$transaction(async (tx) => {
-    const created = await tx.supportTicket.create({
-      data: { userId, driverId: t.driverId, tripId, subject: `Lost item — Trip #${t.shortId.slice(0, 8)}`, status: 'OPEN', priority: 'HIGH', category: 'LOST_ITEM' },
+    return prisma.$transaction(async (tx) => {
+      const created = await tx.supportTicket.create({
+        data: { userId, driverId: t.driverId, tripId, subject: `Lost item — Trip #${String(t.shortId ?? tripId).slice(0, 8)}`, status: 'OPEN', priority: 'HIGH', category: 'LOST_ITEM' },
+      });
+      await tx.ticketMessage.create({ data: { ticketId: created.id, senderId: userId, senderRole: 'USER', text } });
+      return created;
     });
-    await tx.ticketMessage.create({ data: { ticketId: created.id, senderId: userId, senderRole: 'USER', text } });
-    return created;
   });
 
   require('../../services/push.service')

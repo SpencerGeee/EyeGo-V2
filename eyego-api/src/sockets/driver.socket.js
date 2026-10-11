@@ -252,7 +252,7 @@ module.exports = function registerDriverSocket(io, driverNamespace) {
     // Auto-rejoin trip room if driver has an active trip (handles socket reconnects).
     // NOT awaited: every handler below used to register only after this query
     // returned, so a join_tracking, location frame or even a disconnect sent in
-    // that window was dropped — and a dropped disconnect left presence stale.
+    // that window was dropped â€” and a dropped disconnect left presence stale.
     (async () => { try {
       const activeTrip = await prisma.trip.findFirst({
         where: {

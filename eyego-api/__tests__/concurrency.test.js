@@ -183,6 +183,7 @@ const mockPrisma2 = {
   trip: mockTrip2,
   user: mockUser2,
   paymentTransaction: mockPaymentTransaction,
+  $queryRaw: jest.fn(async () => []),
   $transaction: jest.fn((cb) => cb(mockPrisma2)),
 };
 

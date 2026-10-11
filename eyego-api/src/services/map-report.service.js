@@ -266,9 +266,11 @@ async function createReport({ userId = null, driverId = null, type, lat, lng, na
     throw new AppError('Tell us what you noticed.', 400, 'NOTE_REQUIRED');
   }
 
-  if (userId) {
+  // Drivers too: the cap was keyed on userId alone, so a driver could file without limit.
+  const reporter = userId ? { userId } : driverId ? { driverId } : null;
+  if (reporter) {
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const recent = await prisma.mapReport.count({ where: { userId, createdAt: { gte: since } } });
+    const recent = await prisma.mapReport.count({ where: { ...reporter, createdAt: { gte: since } } });
     if (recent >= DAILY_LIMIT) {
       throw new AppError(
         "You've sent a lot of map reports today. Try again tomorrow — we're working through them.",
