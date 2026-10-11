@@ -3587,8 +3587,11 @@ async function getEarningsBreakdown(driverId, period = 'week') {
     }),
     // Commission only. Withdrawals used to be in here too, so "Net" fell every
     // time a driver cashed out — moving your own money is not a deduction.
-    prisma.walletTransaction.aggregate({
-      where: { driverId, type: 'COMMISSION_DEDUCTION', createdAt: { gte: startDate } },
+    // COMMISSION_REFUND (a trip that never went ahead, a shortened route) nets
+    // it back down; both store a positive amount.
+    prisma.walletTransaction.groupBy({
+      by: ['type'],
+      where: { driverId, type: { in: ['COMMISSION_DEDUCTION', 'COMMISSION_REFUND'] }, createdAt: { gte: startDate } },
       _sum: { amountPesewas: true },
     }),
     prisma.walletTransaction.aggregate({
@@ -3637,6 +3640,8 @@ async function getEarningsBreakdown(driverId, period = 'week') {
     byDay.set(date, acc);
   }
   const dailyBreakdown = [...byDay.values()].sort((a, b) => (a.date < b.date ? 1 : -1));
+  const commissionOf = (type) => Math.abs(deductionsAgg.find((g) => g.type === type)?._sum.amountPesewas ?? 0);
+  const deductions = Math.max(0, commissionOf('COMMISSION_DEDUCTION') - commissionOf('COMMISSION_REFUND'));
 
   return {
     totalEarningsPesewas: earningsAgg._sum.amountPesewas ?? 0,
@@ -3646,12 +3651,12 @@ async function getEarningsBreakdown(driverId, period = 'week') {
     totalTips: tipsAgg._sum.amountPesewas ?? 0,
     totalBonuses: bonusAgg._sum.amountPesewas ?? 0,
     // Commission rows store a positive amount — see signedLedgerAmount.
-    totalDeductions: Math.abs(deductionsAgg._sum.amountPesewas ?? 0),
+    totalDeductions: deductions,
     netEarnings:
       (earningsAgg._sum.amountPesewas ?? 0) +
       (tipsAgg._sum.amountPesewas ?? 0) +
       (bonusAgg._sum.amountPesewas ?? 0) -
-      Math.abs(deductionsAgg._sum.amountPesewas ?? 0),
+      deductions,
     averagePerTripPesewas: tripsData.length > 0
       ? wholePesewas((earningsAgg._sum.amountPesewas ?? 0) / tripsData.length)
       : 0,

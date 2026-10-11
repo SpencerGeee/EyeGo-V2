@@ -96,7 +96,7 @@ async function main() {
     const est = e.fareEstimate ?? e;
     if (!Number.isFinite(est.farePerPersonPesewas)) throw new Error(`shape: ${JSON.stringify(e).slice(0, 200)}`);
     if (est.farePerPersonPesewas <= 0) throw new Error('a 5 km trip estimated at zero');
-    return `per seat ${est.farePerPersonPesewas} · total ${est.totalTripCostPesewas} · driver ${est.driverEarningsPesewas}`;
+    return `per seat ${est.farePerPersonPesewas} · total ${est.totalTripCostPesewas} · driver per seat ${est.driverEarningsPerSeatPesewas}`;
   });
 
   await check('publish a trip, and it stores the WIRE tier not the UI id', async () => {
