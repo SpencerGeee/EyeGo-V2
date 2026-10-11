@@ -59,7 +59,23 @@ Final: tsc rider/driver/admin 0, API jest 181/181, static e2e all green, prisma 
   streamed ANY client-named driver's location; rider private chat to client-named recipient; SOS location
   overwritable by any rider; unauthenticated driver:seat_updated relay deleted; typing/chat:read gated; dead listeners removed.
 - Fixed 84ea60f: earnings report now nets COMMISSION_REFUND.
-- jest 181/181, tsc rider+driver 0. NOT pushed. Harness not re-run after socket fix.
-- TODO: e2e suite for parity features (outcomes, lost item, cash change, route quote/apply/next-stop, referral,
-  wait fee, prefs/pickup note, contact call DIRECT) — endpoints mapped; admin console audit; client unwrap audit;
-  auth refresh + cover-all audit.
+- jest 181/181 at that point; superseded by the hunt below.
+
+## Ownership-class hunt (2026-10-11, user: "hunt the bug class of the ownership check")
+Method: scratchpad analysers (owner_audit 1-4, transition_audit, admin_routes_match, unwrap_audit) +
+hand-verify every hit. Sub-shapes found: client-named ids trusted · "any booking row" as membership ·
+nullable-owner `x.userId && x.userId !== me` · a second verb with weaker guards · gateway reference not
+bound to caller · personal fields in ROOM frames.
+- 3c0251f: /rides/:id/cancel let any booking-holder (even cancelled) cancel a whole BUS; GraphQL trip had no
+  login + exposed driver phone/wallet, subscription refused owning driver; claimReassignedTrip bypass deleted
+  (REASSIGNING → acceptRide); masked calls on ended trips; driver map reports readable; lost item on cancelled seat.
+- 3a90847: group cover-all by a seatless stranger held every seat; card-save verify saved ANY reference's
+  card to the caller; admin notes retractable by any admin; dead confirmTopUp removed.
+- 2824114: "Unsafe driving"/"Rude conduct" disputes were pushed to + readable by the accused driver → SAFETY.
+- 5840511: /rides/:id/start skipped the wait fee → delegates to departTrip. NEW e2e parity-features.mjs.
+- 4636c51 admin Retract gated · 75055c7 receipt NEVER loaded in the app (validated the envelope) ·
+  126bc89 room frames leaked driver/guest phones + every passenger's name/fare to bus BROWSERS; masked
+  calling now real (callable flag + /contact/call); /trips/:id/contact deleted; subscribe/join on live seats only.
+Verified: API jest 187/187 · harness 557/557, 29/29 suites · tsc rider/driver/admin 0 · admin console
+calls all match routes · auth refresh rotation + logout revoke reviewed clean · cover-all via party-boarding.
+Known, not a bug: /admin live-map socket uses the shared ADMIN_SECRET_KEY (documented transitional login).

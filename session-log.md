@@ -549,3 +549,13 @@ Decisions:
 - TripRequest engine is dead: scheduled intents with no bus go through rides.requestRide.
 Rejected: unique index on WalletTransaction.paystackRef (existing data risk) — row lock instead.
 Open: migration 20261010120000_parity_pass still to apply; driver commission report doesn't net COMMISSION_REFUND.
+
+## 2026-10-11 15:00 [saved]
+Thoroughness pass + ownership-class hunt (user: "check all the other places", "hunt the ownership check class", no subagents).
+Done: harness 557/557 (29 suites, new parity-features.mjs) · jest 187/187 · tsc rider/driver/admin 0 · admin routes match.
+Decisions:
+- Phones never ride in room frames or snapshots-for-others; `callable` + POST /contact/call is the one call path.
+- A complaint about the driver's conduct/safety is SAFETY: support-only, never pushed or shown to that driver.
+- Membership = a seat-occupying booking, never "any booking row" (cancel, subscribe, room join, lost item, GraphQL).
+- One verb per action: /rides/:id/start → departTrip; REASSIGNING → acceptRide; /trips/:id/contact deleted.
+Open: device test (OTA covers the app changes); masked calling needs AT_VOICE_NUMBER + callback URL to test live.
