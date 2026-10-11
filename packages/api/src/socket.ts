@@ -450,64 +450,8 @@ export const socketEvents = {
   },
 
   /**
-   * A driver accepted this rider's on-demand trip request.
-   *
-   * DEAD-PATH FIX: the backend has always emitted `trip:request_accepted` to
-   * `user:<id>` on the /passenger namespace (trip-request.service.js), but
-   * nothing in the rider app ever listened for it — the event was constructed,
-   * addressed and thrown away every single time. The "looking for a driver"
-   * screen only ever learned it had been matched from its own 4-second poll,
-   * so the rider sat watching a spinner for up to four seconds after a driver
-   * had already accepted and started driving to them.
-   */
-  onTripRequestAccepted: (cb: (data: { requestId?: string; tripId?: string; driverName?: string }) => void) => {
-    getSocket().on('trip:request_accepted', cb);
-    return () => getSocket().off('trip:request_accepted', cb);
-  },
-
-  /**
-   * Live dispatch-cascade progress for the "looking for a driver" screen.
-   *
-   * Dispatch is sequential: the backend offers the ride to one driver at a time
-   * (services/dispatch-cascade.service.js). These events are what let the rider
-   * see who is currently being asked — the map draws a polyline to that driver
-   * and re-draws it when the offer moves on, the way Uber and Bolt do.
-   *
-   *  - `dispatch:searching` — cascade started, `totalCandidates` drivers queued
-   *  - `dispatch:offer`     — this driver now holds the offer until `expiresAt`
-   *  - `dispatch:widening`  — nobody close accepted, search radius grew
-   *  - `dispatch:matched`   — a driver accepted
-   *  - `dispatch:exhausted` — nobody accepted; show the "all drivers busy" state
-   */
-  onDispatchProgress: (
-    cb: (
-      event: 'searching' | 'offer' | 'widening' | 'matched' | 'exhausted',
-      data: {
-        rideId?: string;
-        driverId?: string;
-        driverLat?: number | null;
-        driverLng?: number | null;
-        attempt?: number;
-        totalCandidates?: number;
-        expiresAt?: string;
-        tried?: number;
-      },
-    ) => void,
-  ) => {
-    const names = ['searching', 'offer', 'widening', 'matched', 'exhausted'] as const;
-    const handlers = names.map((name) => {
-      const h = (data: any) => cb(name, data ?? {});
-      getSocket().on(`dispatch:${name}`, h);
-      return [name, h] as const;
-    });
-    return () => {
-      for (const [name, h] of handlers) getSocket().off(`dispatch:${name}`, h);
-    };
-  },
-
-  /**
    * Server-side confirmation that a payment settled (gateway webhook landed).
-   * Same dead-path story as above: emitted by payments.controller.js, listened
+   * This used to be a dead path: emitted by payments.controller.js, listened
    * for by nobody, so payment screens could only discover success by polling
    * verify.
    */

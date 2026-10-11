@@ -84,11 +84,12 @@ module.exports = function registerPassengerSocket(io, passengerNamespace) {
       // bookable one. Without that distinction anyone could join a SCHEDULED
       // trip room and be handed its public chat history.
       let hasBooking = false;
+      let tripDriverId = null;
       try {
         const prisma = require('../config/database');
         const trip = await prisma.trip.findUnique({
           where: { id: tripId },
-          select: { status: true, bookings: { select: { userId: true, status: true } } }
+          select: { status: true, driverId: true, bookings: { select: { userId: true, status: true } } }
         });
 
         if (!trip) {
@@ -96,6 +97,7 @@ module.exports = function registerPassengerSocket(io, passengerNamespace) {
           return;
         }
 
+        tripDriverId = trip.driverId;
         const isPubliclyBooking = ['SCHEDULED', 'FILLING'].includes(trip.status);
         hasBooking = trip.bookings.some(
           b => b.userId === userId && b.status !== 'CANCELLED'
@@ -157,8 +159,10 @@ module.exports = function registerPassengerSocket(io, passengerNamespace) {
         logger.error('Failed to fetch chat history:', err);
       }
 
-      // Subscribe to driver location via shared Redis subscriber
-      if (driverId && driverId !== subscribedDriverId) {
+      // Subscribe to driver location via shared Redis subscriber.
+      // `driverId` comes from the client: only THIS trip's driver, or a booked
+      // rider could name any driver and be streamed their live position.
+      if (driverId && driverId === tripDriverId && driverId !== subscribedDriverId) {
         cleanupSubscription();
 
         subscribedDriverId = driverId;
@@ -188,7 +192,8 @@ module.exports = function registerPassengerSocket(io, passengerNamespace) {
 
     // ── Typing indicators ────────────────────────────────────────
     socket.on('chat:typing_start', ({ tripId }) => {
-      if (!tripId || !userId) return;
+      // Only someone in the trip's chat (a booked rider) is typing in it.
+      if (!tripId || !userId || !socket.rooms.has(TRIP_CHAT_ROOM(tripId))) return;
       // Broadcast to driver and other passengers (exclude sender)
       socket.to(TRIP_CHAT_ROOM(tripId)).emit('chat:typing', {
         senderId: userId,
@@ -203,7 +208,8 @@ module.exports = function registerPassengerSocket(io, passengerNamespace) {
     });
 
     socket.on('chat:typing_stop', ({ tripId }) => {
-      if (!tripId || !userId) return;
+      // Only someone in the trip's chat (a booked rider) is typing in it.
+      if (!tripId || !userId || !socket.rooms.has(TRIP_CHAT_ROOM(tripId))) return;
       socket.to(TRIP_CHAT_ROOM(tripId)).emit('chat:typing', {
         senderId: userId,
         senderRole: 'PASSENGER',
@@ -325,7 +331,9 @@ module.exports = function registerPassengerSocket(io, passengerNamespace) {
           where: { id: tripId },
           select: { driverId: true },
         });
-        const driverId = recipientId || trip?.driverId;
+        // Always the trip's driver — never a client-named recipient, or a booked
+        // rider could message any driver on the platform under this trip.
+        const driverId = trip?.driverId;
         if (!driverId) {
           socket.emit('error', { message: 'No driver assigned to this trip', code: 'NO_DRIVER' });
           return;
@@ -448,20 +456,20 @@ module.exports = function registerPassengerSocket(io, passengerNamespace) {
     });
 
     // ── Payment confirmed ── bridge to driver namespace ────────────
-    socket.on('passenger:payment_confirmed', async ({ bookingId, tripId }) => {
-      logger.info(`Payment confirmed: Passenger ${userId} for trip ${tripId}`);
-
-      // Notify all sockets in the driver namespace within the trip room
-      io.of('/driver').to(TRIP_ROOM(tripId)).emit('passenger:payment_confirmed', {
-        bookingId,
-        tripId,
-      });
-
-      // Also emit a status change so the rider tracking screen can update
-      io.of('/passenger').to(TRIP_ROOM(tripId)).emit('trip:status_change', {
-        tripId,
-        status: 'PAYMENT_CONFIRMED',
-      });
+    // The CLIENT claims this, so the server checks it: the booking must be this
+    // rider's, on this trip, and actually PAID. It relayed blind — any rider
+    // could tell any driver "payment confirmed", and the rider app sends it
+    // for CASH bookings too, so the driver was told a cash rider had paid.
+    // The `trip:status_change PAYMENT_CONFIRMED` frame it also sent to every
+    // rider in the room had no listener and is gone.
+    socket.on('passenger:payment_confirmed', async ({ bookingId, tripId } = {}) => {
+      if (!bookingId || !tripId) return;
+      const prisma = require('../config/database');
+      const paid = await prisma.booking
+        .findFirst({ where: { id: bookingId, tripId, userId, paymentStatus: 'PAID' }, select: { id: true } })
+        .catch(() => null);
+      if (!paid) return;
+      io.of('/driver').to(TRIP_ROOM(tripId)).emit('passenger:payment_confirmed', { bookingId, tripId });
     });
 
     // ── Safety location stream ── persisted + relayed to admin during SOS ──
@@ -495,8 +503,11 @@ module.exports = function registerPassengerSocket(io, passengerNamespace) {
          * it. `createdAt` therefore still marks when the rider actually pressed
          * the button, while lat/lng follow them.
          */
+        // THIS rider's incident only. Without `userId` any rider who knew a
+        // trip id could move someone else's open SOS pin — and ops would
+        // drive to the wrong place.
         const open = await prisma.sosEvent.findFirst({
-          where: { tripId, resolvedAt: null },
+          where: { tripId, userId, resolvedAt: null },
           orderBy: { createdAt: 'desc' },
           select: { id: true },
         });

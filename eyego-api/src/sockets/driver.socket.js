@@ -851,9 +851,21 @@ function emitSafetyCheck(io, tripId, reason) {
       // describes — an old client that emitted this without the REST call.
     });
 
+    // Typing and read receipts trusted any tripId: any driver could fake
+    // "Driver is typing…" or mark another trip's messages read. Cached per
+    // socket — typing fires on every keystroke burst.
+    const ownedTrips = new Set();
+    async function ownsTrip(tripId) {
+      if (!tripId) return false;
+      if (ownedTrips.has(tripId)) return true;
+      const t = await prisma.trip.findFirst({ where: { id: tripId, driverId }, select: { id: true } }).catch(() => null);
+      if (t) ownedTrips.add(tripId);
+      return !!t;
+    }
+
     // ── Typing indicators ────────────────────────────────────
-    socket.on('chat:typing_start', ({ tripId }) => {
-      if (!tripId) return;
+    socket.on('chat:typing_start', async ({ tripId }) => {
+      if (!(await ownsTrip(tripId))) return;
       io.of('/passenger').to(`${TRIP_ROOM(tripId)}:chat`).emit('chat:typing', {
         senderId: driverId,
         senderName: 'Driver',
@@ -862,8 +874,8 @@ function emitSafetyCheck(io, tripId, reason) {
       });
     });
 
-    socket.on('chat:typing_stop', ({ tripId }) => {
-      if (!tripId) return;
+    socket.on('chat:typing_stop', async ({ tripId }) => {
+      if (!(await ownsTrip(tripId))) return;
       io.of('/passenger').to(`${TRIP_ROOM(tripId)}:chat`).emit('chat:typing', {
         senderId: driverId,
         senderRole: 'DRIVER',
@@ -1043,6 +1055,7 @@ function emitSafetyCheck(io, tripId, reason) {
     // ── Read receipts ────────────────────────────────────────────
     socket.on('chat:read', async ({ tripId, messageIds }) => {
       if (!tripId || !messageIds || !Array.isArray(messageIds) || messageIds.length === 0) return;
+      if (!(await ownsTrip(tripId))) return;
 
       try {
         // BUGFIX: Removed redundant prisma require — already imported at top of module
@@ -1089,13 +1102,6 @@ function emitSafetyCheck(io, tripId, reason) {
       } catch (err) {
         logger.error('Failed to process read receipt:', err);
       }
-    });
-
-    socket.on('driver:seat_updated', async ({ tripId, seatData }) => {
-      io.of('/passenger').to(TRIP_ROOM(tripId)).emit('trip:seat_update', {
-        tripId,
-        seatData,
-      });
     });
 
     socket.on('disconnect', async () => {
