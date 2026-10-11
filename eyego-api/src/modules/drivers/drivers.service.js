@@ -3772,7 +3772,8 @@ async function getSupportTickets(driverId) {
     where: {
       OR: [
         ...(user ? [{ userId: user.id }] : []),
-        { driverId },
+        // Never a SAFETY complaint about them — see bookings.submitDispute.
+        { driverId, category: { not: 'SAFETY' } },
       ],
     },
     include: {
@@ -3827,7 +3828,7 @@ async function replyToTicket(driverId, ticketId, { message }) {
   const ticket = await prisma.supportTicket.findFirst({
     where: {
       id: ticketId,
-      OR: [...(user ? [{ userId: user.id }] : []), { driverId }],
+      OR: [...(user ? [{ userId: user.id }] : []), { driverId, category: { not: 'SAFETY' } }],
     },
   });
   if (!ticket) throw new NotFoundError('Ticket');

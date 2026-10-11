@@ -1623,6 +1623,16 @@ async function submitDispute(userId, bookingId, { type, description }) {
   if (booking.userId !== userId) throw new ForbiddenError();
 
   const subject = `Dispute — ${type} — Booking #${bookingId.slice(0, 8)}`;
+  /**
+   * A COMPLAINT ABOUT THE DRIVER IS NOT THE DRIVER'S TO READ.
+   *
+   * "Unsafe driving" and "Rude conduct" were filed exactly like a fare
+   * query: the accused driver was pushed the rider's words, could open the
+   * whole thread and reply into it — while knowing where that rider is picked
+   * up. Support sees it (driverId still names who it is about); the driver's
+   * ticket list and reply exclude SAFETY, and nobody pushes them.
+   */
+  const aboutDriver = /unsafe|rude|conduct|harass|safety|assault|threat|inappropriate/i.test(String(type ?? ''));
 
   const ticket = await prisma.$transaction(async (tx) => {
     const t = await tx.supportTicket.create({
@@ -1638,8 +1648,8 @@ async function submitDispute(userId, bookingId, { type, description }) {
         driverId: booking.trip?.driverId ?? null,
         subject,
         status: 'OPEN',
-        priority: 'HIGH',
-        category: 'TRIP',
+        priority: aboutDriver ? 'URGENT' : 'HIGH',
+        category: aboutDriver ? 'SAFETY' : 'TRIP',
       },
     });
 
@@ -1657,7 +1667,7 @@ async function submitDispute(userId, bookingId, { type, description }) {
 
   // Notify the driver so a dispute is impossible to miss, not just something
   // that shows up if they happen to open their tickets list.
-  if (booking.trip?.driver?.fcmToken) {
+  if (!aboutDriver && booking.trip?.driver?.fcmToken) {
     const pushService = require('../../services/push.service');
     pushService.sendPush(
       booking.trip.driver.fcmToken,

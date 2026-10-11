@@ -29,6 +29,8 @@ const mockRideGroup1 = modelMock({
 // suite never mentions.
 const mockPrisma1 = prismaMock({
   rideGroup: { findUnique: mockRideGroup1.findUnique, create: mockRideGroup1.create },
+  // The creator holds their own seat — createRideGroup refuses anyone else.
+  booking: { findFirst: async () => ({ id: 'own-seat' }) },
 });
 
 jest.mock('../src/config/env', () => ({
@@ -120,7 +122,7 @@ describe('TOCTOU race: createRideGroup', () => {
         findUnique.mockResolvedValue({ id: 'rg-1', tripId: 'trip-con', leadPassengerId: 'user-1', isCoverAll: false });
       }
 
-      const tx = prismaMock({ rideGroup: { findUnique, create: mockRideGroup1.create } });
+      const tx = prismaMock({ rideGroup: { findUnique, create: mockRideGroup1.create }, booking: { findFirst: async () => ({ id: 'own-seat' }) } });
       return cb(tx);
     });
 

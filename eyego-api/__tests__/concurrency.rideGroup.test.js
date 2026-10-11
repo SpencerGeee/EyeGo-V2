@@ -22,7 +22,8 @@ beforeEach(() => {
   // host's seats have to be reconciled inside the same transaction — and a mock
   // that lists only `rideGroup` fails with `tx.trip.findUnique is not a function`
   // from a test about duplicate groups. See helpers/prismaMock.js.
-  mockPrisma = prismaMock();
+  // The creator holds their own seat — createRideGroup refuses anyone else.
+  mockPrisma = prismaMock({ booking: { findFirst: async () => ({ id: 'own-seat' }) } });
   mockRideGroup = mockPrisma.rideGroup;
 
   jest.doMock('../src/config/env', () => ({
@@ -83,6 +84,14 @@ describe('createRideGroup — TOCTOU race prevention', () => {
     expect(result).toEqual(createdGroup);
   });
 
+  it('refuses a creator who holds no seat on the trip — no group, no seats claimed', async () => {
+    const tx = prismaMock({ booking: { findFirst: async () => null } });
+    mockPrisma.$transaction.mockImplementation((cb) => cb(tx));
+    await expect(bookingsService.createRideGroup('trip-1', 'stranger', true)).rejects.toThrow(/own seat/);
+    expect(tx.rideGroup.create).not.toHaveBeenCalled();
+    expect(tx.booking.createMany).not.toHaveBeenCalled();
+  });
+
   it('returns existing group without creating a duplicate', async () => {
     mockPrisma.$transaction.mockImplementation((cb) => cb(mockPrisma));
 
@@ -132,7 +141,7 @@ describe('createRideGroup — TOCTOU race prevention', () => {
       // The service also reconciles covered seats inside the same transaction
       // (`syncCoveredSeatsTx` reaches `tx.trip` and `tx.booking`), so a tx
       // carrying one model fails on a table this test never mentions.
-      const tx = prismaMock({ rideGroup: { findUnique, create: mockRideGroup.create } });
+      const tx = prismaMock({ rideGroup: { findUnique, create: mockRideGroup.create }, booking: { findFirst: async () => ({ id: 'own-seat' }) } });
       return cb(tx);
     });
 
