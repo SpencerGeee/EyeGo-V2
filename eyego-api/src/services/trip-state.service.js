@@ -561,6 +561,34 @@ async function applyTransitionTx(tx, tripId, to, opts = {}) {
                 : 'Refund: your ride did not go ahead';
           for (const b of paidSeats) await refundBookingForDriverCancellation(tx, b, label);
         }
+
+        /**
+         * AND THE DRIVER GETS THEIR COMMISSION BACK.
+         *
+         * A cash rider's commission is taken from the driver's wallet the moment
+         * they are BOARDED (and an offline passenger's when verified). If the
+         * trip then ends without being driven — the car fails at the pickup, the
+         * driver cancels with people aboard — the driver hands the cash back and
+         * was still charged commission on a ride that never happened. Returned
+         * here, once (these rows leave BOARDED in the update just below).
+         */
+        // Pre-departure only: a trip that was under way was (at least partly) driven.
+        if (current.driverId && current.status !== S.IN_PROGRESS) {
+          const boardedCash = await tx.booking.findMany({
+            where: { tripId, status: 'BOARDED', paymentMethod: 'CASH' },
+            select: { commissionAmountPesewas: true },
+          });
+          const back = boardedCash.reduce((n, b) => n + (b.commissionAmountPesewas || 0), 0);
+          if (back > 0) {
+            await require('../modules/wallet/wallet.service').moveDriverBalance(tx, {
+              driverId: current.driverId,
+              deltaPesewas: back,
+              type: 'COMMISSION_REFUND',
+              tripId,
+              description: 'Commission returned — the trip did not go ahead',
+            });
+          }
+        }
         await tx.booking.updateMany({
           where: {
             tripId,
