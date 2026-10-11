@@ -693,7 +693,8 @@ async function getReceipt(bookingId, userId) {
     trip: {
       include: {
         route: { select: { originName: true, destinationName: true } },
-        driver: { select: { name: true, phone: true } },
+        // No phone: a receipt outlives the ride, and the number's reason to exist does not.
+        driver: { select: { name: true } },
         vehicle: { select: { make: true, model: true, plateNumber: true } },
       },
     },
@@ -749,6 +750,10 @@ async function getReceipt(bookingId, userId) {
 
   return {
     ...(receipt ?? {}),
+    // Always present, Receipt row or not: a cash ride has none, and the app's
+    // receipt schema requires both (packages/api schemas.ts ReceiptSchema).
+    bookingId: booking.id,
+    paymentMethod: receipt?.paymentMethod ?? booking.paymentMethod,
     // A cash ride genuinely has no receipt number yet. Null says so; inventing
     // one would put a reference on screen that support cannot look up.
     receiptNumber: receipt?.receiptNumber ?? null,

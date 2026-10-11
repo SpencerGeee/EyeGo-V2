@@ -290,9 +290,13 @@ export const ReceiptSchema = z.looseObject({
     total: Pesewas,
     seatCount: SeatCountOrZero.optional(),
     perSeatPesewas: OptionalPesewas,
-  }),
+  // Absent only when the server's fare lookup failed — the complete screen
+  // then falls back to totalPaidPesewas. Present, it must be right.
+  }).optional(),
   paymentMethod: z.string().min(1),
-  receiptNumber: z.string().min(1),
+  // Null for a cash ride: no Receipt row exists yet, and the server says so
+  // rather than inventing a reference support cannot look up.
+  receiptNumber: z.string().min(1).nullable(),
 });
 
 // ── rider: wallet ────────────────────────────────────────────────────────────

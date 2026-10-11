@@ -318,7 +318,7 @@ export const driverApi = {
 
   // Availability
   goOnline: (data: { lat?: number; lng?: number }) =>
-    apiClient.post<ApiResponse<{ isOnline: boolean }>>('/driver/go-online', data),
+    apiClient.post<ApiResponse<{ driver: { isOnline: boolean } }>>('/driver/go-online', data),
 
   goOffline: () =>
     apiClient.post<ApiResponse<{ isOnline: boolean }>>('/driver/go-offline'),
@@ -519,7 +519,7 @@ export const driverApi = {
     apiClient.post<ApiResponse<DriverTrip>>(`/driver/trips/${tripId}/accept`),
 
   declineDispatch: (tripId: string, reason?: string) =>
-    apiClient.post<ApiResponse<{ declined: boolean }>>(`/driver/trips/${tripId}/decline`, { reason }),
+    apiClient.post<ApiResponse<{ trip: DriverTrip }>>(`/driver/trips/${tripId}/decline`, { reason }),
 
   // On-demand trip requests — first driver to accept becomes the owning driver
   acceptTripRequest: (requestId: string) =>

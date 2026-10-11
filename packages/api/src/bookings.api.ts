@@ -206,8 +206,11 @@ export const bookingsApi = {
   // runtime. One endpoint, one declaration: import `cancellationApi`.
 
   // ── Receipts ────────────────────────────────────────────────────────
+  // The server answers `{ receipt }` (receipts.routes.js). This validated the
+  // ENVELOPE as if it were the receipt, so it threw for every booking and the
+  // complete screen never showed a receipt number or the receipt's breakdown.
   getReceipt: (id: string) =>
-    apiClient.get<ApiResponse<{
+    apiClient.get<ApiResponse<{ receipt: {
       bookingId: string;
       tripId: string;
       routeName: string;
@@ -230,13 +233,13 @@ export const bookingsApi = {
       };
       paymentMethod: string;
       paidAt: string;
-      receiptNumber: string;
+      receiptNumber: string | null;
       trip: any;
-    }>>(`/receipts/${id}`).then((res) => {
+    } }>>(`/receipts/${id}`).then((res) => {
       // A receipt is the one document a rider may forward to a bank or an
       // employer. A total that disagrees with the ledger is not a rendering
       // bug — it is a dispute, and one nobody can settle after the fact.
-      assertShape(ReceiptSchema, res.data?.data, 'receipt');
+      assertShape(ReceiptSchema, res.data?.data?.receipt, 'receipt');
       return res;
     }),
 
