@@ -559,3 +559,15 @@ Decisions:
 - Membership = a seat-occupying booking, never "any booking row" (cancel, subscribe, room join, lost item, GraphQL).
 - One verb per action: /rides/:id/start → departTrip; REASSIGNING → acceptRide; /trips/:id/contact deleted.
 Open: device test (OTA covers the app changes); masked calling needs AT_VOICE_NUMBER + callback URL to test live.
+
+## 2026-10-11 22:00 [saved]
+Goal: hunt 8 bug classes across API + apps and fix everything (user: no subagents; then "make sure everything is done fully").
+Decisions:
+- One socket listener guard for both namespaces instead of per-handler payload checks.
+- Every read-then-write on money/state is a claim (conditional updateMany with status in WHERE, or FOR UPDATE).
+- Disputes/lost items/scheduling: Redis single-flight + an "already open" check; no partial unique index (no migration).
+- Sweeps: Redis lease per tick in server.js; notifying sweeps also claim their row.
+- Global limiter keyed by verified token (user or admin), per-IP only for anonymous traffic.
+- Admin Next upgraded within major 15 only; both locks regenerated, no RN/Expo version moved.
+Rejected: firebase-admin / @sentry/node major upgrades (cannot verify push/Sentry locally); per-field length validators (global body cap instead).
+Open: device testing; OTA for the app-side changes (FleetMap only touched in admin); flag the now-live acceptance gate to the client.

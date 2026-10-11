@@ -79,3 +79,27 @@ bound to caller · personal fields in ROOM frames.
 Verified: API jest 187/187 · harness 557/557, 29/29 suites · tsc rider/driver/admin 0 · admin console
 calls all match routes · auth refresh rotation + logout revoke reviewed clean · cover-all via party-boarding.
 Known, not a bug: /admin live-map socket uses the shared ADMIN_SECRET_KEY (documented transitional login).
+
+## Hardening pass — 8 bug classes (2026-10-11, user: "hunt all of 1–8, fix everything", no subagents)
+Commits: a3cb8b3 over-posting + abuse limits · d436712 input bounds + socket crash · 4521963 races ·
+63d0a36 multi-instance jobs · 59d44b8 XSS + CSV · 90e0360 unbounded lists · 3198cf2 deps ·
+2816792 production rate limits · c084998 acceptance rate.
+- CRASH: one empty socket emit killed the API (listener throw on nextTick = uncaughtException → exit).
+  sockets/middleware/guardListeners.js wraps every listener. Drivers could never trip:subscribe
+  (resume.socket read socket.driverId, never set). Driver handlers registered after a DB await.
+- MONEY: a finished ride could be "cancelled" for a full refund (occupying ≠ cancellable →
+  riderCannotCancel). Double cancel refunded twice; confirmPayment could resurrect a cancelled seat;
+  cash board / offline OTP / no-show charged or paid twice; admin refund cap ignored auto refunds and
+  wasn't locked. All are claims now (conditional updateMany or FOR UPDATE).
+- INPUT: phantom seats (seat 99), string pins skipped the deviation fee; 10k-char/1k-item body cap;
+  ?limit clamped to 100 (admin excluded); GPS/SOS coords bounded.
+- MULTI-INSTANCE: scheduled rides seated twice; every sweep now takes a Redis lease per tick.
+- XSS: /track/:id and /invite/:token reflected the URL into an inline <script>.
+- LISTS: driver trips tab loaded every trip ever; ratings + admin analytics summed in JS.
+- DEPS: admin next 15.1.6 → 15.5.27 (critical RSC RCE + middleware auth bypass); API 4 critical → 0.
+- RATE LIMITS (production-only, hidden by dev mode): 100 req/15 min per IP would have 429'd online
+  drivers within minutes and everyone behind a carrier CGNAT; now per verified user/admin.
+Verified: harness 572/572 (30 suites) + hardening.mjs 16/16 after its last check was added · jest 203/203 · tsc rider/driver/admin 0 ·
+admin `next build` green · purge + reset-pool run, local DB clean.
+Not changed (needs live verification): firebase-admin 12→14, @sentry/node 10→11, africastalking 0.7, jest 30.
+Behaviour now live in production: the go-online acceptance gate (<30% over ≥10 offers, 30 days) has real data.
