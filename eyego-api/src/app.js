@@ -279,6 +279,11 @@ function makePublicPageHandler(relPath, tokenParam) {
     if (!cachedHtml) {
       return res.status(503).type('text/plain').send('Tracking page is temporarily unavailable.');
     }
+    // The token comes straight off the URL and into an inline <script>. Ids and
+    // share tokens are cuid/hex, so anything else is not a link we issued.
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(req.params[tokenParam] ?? '')) {
+      return res.status(404).type('text/plain').send('Link not found.');
+    }
     const config = {
       [tokenParam]: req.params[tokenParam],
       // The origin the visitor actually reached us on. Baking APP_URL in here
@@ -286,7 +291,12 @@ function makePublicPageHandler(relPath, tokenParam) {
       // build, was not the one serving the page.
       apiBase: require('./utils/publicUrl').publicBaseUrl(req),
     };
-    const html = cachedHtml.replace('window.__EYEGO_CONFIG__ || {}', JSON.stringify(config));
+    // JSON.stringify does not escape `</script>`, and a string replacement
+    // expands `$'`/`$&` — so `/track/</script><script>…` ran on this origin
+    // (where the legacy console keeps its admin secret). Escaped, and inserted
+    // by function so nothing in it is a replacement pattern.
+    const json = JSON.stringify(config).split('<').join('\\x3c');
+    const html = cachedHtml.replace('window.__EYEGO_CONFIG__ || {}', () => json);
     res.setHeader('Content-Type', 'text/html');
     res.send(html);
   };

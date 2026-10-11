@@ -31,7 +31,9 @@ function escapeField(value) {
   else if (typeof value === 'object') s = JSON.stringify(value);
   else s = String(value);
 
-  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  // Not for plain numbers: "-5.00" cannot be a formula, and prefixing it turned
+  // every negative amount in a finance export into text.
+  if (/^[=+\-@\t\r]/.test(s) && !/^-\d+(\.\d+)?$/.test(s)) s = `'${s}`;
 
   if (/[",\r\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
   return s;
