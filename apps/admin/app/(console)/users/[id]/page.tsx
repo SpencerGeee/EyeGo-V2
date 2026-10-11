@@ -274,6 +274,7 @@ export default async function UserDetailPage({ params }: { params: Promise<{ id:
             subjectId={user.id}
             notes={notes?.notes ?? []}
             canWrite={!isReadOnly(admin?.role)}
+            viewer={admin}
             revalidatePath={`/users/${user.id}`}
           />
         </div>

@@ -437,6 +437,7 @@ export default async function DriverDetailPage({ params }: { params: Promise<{ i
             subjectId={driver.id}
             notes={notes?.notes ?? []}
             canWrite={!isReadOnly(admin?.role)}
+            viewer={admin}
             revalidatePath={`/drivers/${driver.id}`}
           />
         </div>

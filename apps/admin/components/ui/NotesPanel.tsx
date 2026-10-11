@@ -33,12 +33,15 @@ export function NotesPanel({
   subjectId,
   notes,
   canWrite,
+  viewer,
   revalidatePath,
 }: {
   subjectType: 'User' | 'Driver' | 'Trip' | 'Booking';
   subjectId: string;
   notes: AdminNote[];
   canWrite: boolean;
+  /** Who is looking. Retract is the author's (or a superadmin's) — the API refuses anyone else. */
+  viewer: { email: string; role: string } | null;
   revalidatePath: string;
 }) {
   const [body, setBody] = useState('');
@@ -118,7 +121,7 @@ export function NotesPanel({
                   <time dateTime={note.createdAt} title={dateTime(note.createdAt)}>
                     {relative(note.createdAt)}
                   </time>
-                  {canWrite ? (
+                  {canWrite && (viewer?.role === 'SUPERADMIN' || note.adminEmail === viewer?.email) ? (
                     <>
                       <span aria-hidden="true">·</span>
                       <button
