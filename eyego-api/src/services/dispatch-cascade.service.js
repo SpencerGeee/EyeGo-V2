@@ -1658,6 +1658,12 @@ async function declineOffer(tripId, driverId) {
   // is done with them permanently — "if the driver passes, it shouldn't be
   // shown to them again". Every other exclusion in this file is a cooldown.
   noteDecline(state, driverId, { deliberate: true });
+  // Counted in the acceptance rate. A lapsed offer is not — it is a cooldown,
+  // not a refusal, and a phone asleep in a pocket has decided nothing.
+  if (!state.declinedRecorded?.includes(driverId)) {
+    state.declinedRecorded = [...(state.declinedRecorded ?? []), driverId];
+    prisma.dispatchAction.create({ data: { driverId, tripId, action: 'DECLINED' } }).catch(() => {});
+  }
   const wasHolder = state.currentDriverId === driverId;
   // Cleared whether or not they were the holder: a decline from a driver whose
   // offer already lapsed still has to leave the state honest.

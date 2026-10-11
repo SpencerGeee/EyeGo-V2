@@ -1355,6 +1355,9 @@ async function acceptRide(driverId, tripId) {
   await cascade.announceWinner(tripId, driverId);
   // A driver on a trip is not dispatchable supply.
   await supply.removeDriver(driverId);
+  // The acceptance rate (performance screen, go-online gate) counts these rows;
+  // the cascade never wrote one, so for every hailed ride the rate was empty.
+  prisma.dispatchAction.create({ data: { driverId, tripId, action: 'ACCEPTED' } }).catch(() => {});
 
   // A driver who accepted from the kerb outside the pickup is already there.
   const arrived = await autoArriveIfAtPickup(tripId, driverId);

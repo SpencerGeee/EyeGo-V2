@@ -11,7 +11,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
-import { section, check, summary, GET, POST, req, makeRider, makeDriver, connectSocket, sleep, ACCRA, BASE } from './lib.mjs';
+import { section, check, summary, GET, POST, req, makeRider, makeDriver, connectSocket, goOnline, until, sleep, ACCRA, BASE } from './lib.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const apiRequire = createRequire(path.join(here, '..', '..', 'eyego-api', 'package.json'));
@@ -195,11 +195,40 @@ async function main() {
     if (ok !== 1 || rs.some((r) => r.status >= 500)) throw new Error(rs.map((r) => `${r.status} ${codeOf(r)}`).join(', '));
     return rs.map((r) => `${r.status}${codeOf(r) ? ` ${codeOf(r)}` : ''}`).join(' · ');
   });
+
+  section('6 · a deliberate pass is counted, once');
+  await check('driver passes a hailed offer → one DECLINED row for the acceptance rate', async () => {
+    ctx.hailDriver = await makeDriver({ name: 'E2E Hardening Pass Driver' });
+    await goOnline(ctx.hailDriver, ACCRA.nearPickup.lat, ACCRA.nearPickup.lng);
+    const rider = await makeRider('E2E Hardening Hailer');
+    const q = await POST('/rides/quote', {
+      pickupLat: ACCRA.pickup.lat, pickupLng: ACCRA.pickup.lng,
+      dropoffLat: ACCRA.dropoff.lat, dropoffLng: ACCRA.dropoff.lng, tier: 'ECO',
+    }, { token: rider.token });
+    const r = await POST('/rides', {
+      quoteId: q.quoteId,
+      pickupLat: ACCRA.pickup.lat, pickupLng: ACCRA.pickup.lng,
+      dropoffLat: ACCRA.dropoff.lat, dropoffLng: ACCRA.dropoff.lng,
+      pickupAddress: 'Kwame Nkrumah Circle, Accra', dropoffAddress: 'Dansoman High Street, Accra',
+      paymentMethod: 'CASH',
+    }, { token: rider.token });
+    const tripId = (r.trip ?? r)?.id ?? r.tripId;
+    await until(async () => (await GET('/rides/driver/state', { token: ctx.hailDriver.token }))?.offer?.tripId === tripId,
+      { timeoutMs: 30000, everyMs: 1000, label: 'the offer reaches the driver' });
+    await POST(`/rides/${tripId}/decline`, {}, { token: ctx.hailDriver.token });
+    await POST(`/rides/${tripId}/decline`, {}, { token: ctx.hailDriver.token }).catch(() => {});
+    await sleep(300);
+    const n = await db.dispatchAction.count({ where: { driverId: ctx.hailDriver.id, tripId, action: 'DECLINED' } });
+    await POST(`/rides/${tripId}/cancel`, { reason: 'other' }, { token: rider.token }).catch(() => {});
+    if (n !== 1) throw new Error(`${n} DECLINED rows`);
+    return '1 row';
+  });
 }
 
 main()
   .catch((e) => console.error(e))
   .finally(async () => {
+    if (ctx.hailDriver) await POST('/driver/go-offline', {}, { token: ctx.hailDriver.token }).catch(() => {});
     await db.$disconnect().catch(() => {});
     summary();
   });
