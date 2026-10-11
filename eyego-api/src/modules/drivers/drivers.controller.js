@@ -505,8 +505,8 @@ const emergencyAlert = async (req, res) => {
       const smsService = require('../../services/sms.service');
       const redis = require('../../config/redis');
 
-      const lat = latitude ? parseFloat(latitude) : null;
-      const lng = longitude ? parseFloat(longitude) : null;
+      const lat = Number.isFinite(parseFloat(latitude)) && Math.abs(parseFloat(latitude)) <= 90 ? parseFloat(latitude) : null; // never NaN on an SOS
+      const lng = Number.isFinite(parseFloat(longitude)) && Math.abs(parseFloat(longitude)) <= 180 ? parseFloat(longitude) : null;
 
       // SosEvent.userId has no FK constraint — it's a plain identifier column,
       // so it's safe to store the reporting driver's id here.

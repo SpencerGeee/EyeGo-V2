@@ -3,6 +3,7 @@
 const { Server } = require('socket.io');
 const { createAdapter } = require('@socket.io/redis-adapter');
 const socketAuth = require('./middleware/socketAuth');
+const { guardListeners } = require('./middleware/guardListeners');
 const registerDriverSocket = require('./driver.socket');
 const registerPassengerSocket = require('./passenger.socket');
 const registerResumeProtocol = require('./resume.socket');
@@ -41,12 +42,14 @@ function initSocketServer(httpServer) {
   // ── /passenger namespace ──────────────────────────────
   const passengerNs = io.of('/passenger');
   passengerNs.use(socketAuth('PASSENGER'));
+  passengerNs.on('connection', guardListeners); // first, so it wraps every handler below
   registerPassengerSocket(io, passengerNs);
   registerResumeProtocol(passengerNs, 'RIDER');
 
   // ── /driver namespace ─────────────────────────────────
   const driverNs = io.of('/driver');
   driverNs.use(socketAuth('DRIVER'));
+  driverNs.on('connection', guardListeners);
   registerDriverSocket(io, driverNs);
   registerResumeProtocol(driverNs, 'DRIVER');
 

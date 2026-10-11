@@ -133,8 +133,8 @@ const emergencyAlert = async (req, res) => {
       const prisma = require('../../config/database');
       const pushService = require('../../services/push.service');
 
-      const lat = latitude ? parseFloat(latitude) : null;
-      const lng = longitude ? parseFloat(longitude) : null;
+      const lat = Number.isFinite(parseFloat(latitude)) && Math.abs(parseFloat(latitude)) <= 90 ? parseFloat(latitude) : null; // never NaN on an SOS
+      const lng = Number.isFinite(parseFloat(longitude)) && Math.abs(parseFloat(longitude)) <= 180 ? parseFloat(longitude) : null;
 
       // Persist SOS event
       const sosEvent = await prisma.sosEvent.create({
@@ -359,7 +359,7 @@ const saveLiveActivityToken = async (req, res) => {
 const getNearbyDrivers = async (req, res) => {
   const lat = parseFloat(req.query.lat);
   const lng = parseFloat(req.query.lng);
-  const radiusKm = Math.min(parseFloat(req.query.radiusKm) || 6, 15);
+  const radiusKm = Math.min(Math.max(parseFloat(req.query.radiusKm) || 6, 0.5), 15);
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
     return ok(res, []);
   }

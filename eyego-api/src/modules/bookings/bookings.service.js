@@ -396,6 +396,11 @@ async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, payment
       if (!['SCHEDULED', 'FILLING'].includes(trip.status)) {
         throw new AppError('This trip is no longer accepting bookings', 400, 'TRIP_UNAVAILABLE');
       }
+      // Seats are 1..maxSeats (the seat map's numbering). Nothing checked it, so
+      // seat 99 on a 14-seat bus was a booking for a seat that does not exist.
+      if (!Number.isInteger(seatNumber) || seatNumber < 1 || seatNumber > trip.maxSeats) {
+        throw new AppError('That seat does not exist on this vehicle', 400, 'INVALID_SEAT');
+      }
 
       /**
        * ONE LIVE RIDE PER PERSON.

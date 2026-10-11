@@ -249,8 +249,11 @@ module.exports = function registerDriverSocket(io, driverNamespace) {
     // Join driver-specific room
     socket.join(`driver:${driverId}`);
 
-    // Auto-rejoin trip room if driver has an active trip (handles socket reconnects)
-    try {
+    // Auto-rejoin trip room if driver has an active trip (handles socket reconnects).
+    // NOT awaited: every handler below used to register only after this query
+    // returned, so a join_tracking, location frame or even a disconnect sent in
+    // that window was dropped � and a dropped disconnect left presence stale.
+    (async () => { try {
       const activeTrip = await prisma.trip.findFirst({
         where: {
           driverId: driverId,
@@ -289,11 +292,18 @@ module.exports = function registerDriverSocket(io, driverNamespace) {
       }
     } catch (err) {
       logger.error('Failed to auto-rejoin trip room on driver reconnect:', err);
-    }
+    } })();
 
     // ── Location update (fires every ~3s from app) ──────────
-    socket.on('driver:location_update', async ({ lat, lng, heading = 0, speed = 0, mocked = false }) => {
-      if (!lat || !lng) return;
+    socket.on('driver:location_update', async ({ lat, lng, heading = 0, speed = 0, mocked = false } = {}) => {
+      // Numbers on the globe, or the frame is dropped. `!lat || !lng` let a
+      // string or lat 9999 through to the supply index and to every rider's
+      // map on the trip (a degenerate camera fit crashes MapLibre).
+      lat = Number(lat);
+      lng = Number(lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180 || (!lat && !lng)) return;
+      heading = Number.isFinite(Number(heading)) ? Number(heading) : 0;
+      speed = Number.isFinite(Number(speed)) ? Number(speed) : 0;
 
       // Per-socket throttle: max one location update per 2s
       const now = Date.now();

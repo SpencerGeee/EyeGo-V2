@@ -39,7 +39,9 @@ const MAX_REPLAY = 100;
 
 function registerResumeProtocol(namespace, role) {
   namespace.on('connection', (socket) => {
-    const viewerId = role === 'DRIVER' ? socket.driverId : socket.userId;
+    // A driver's token carries their driverId as `userId` (socketAuth). This read
+    // `socket.driverId`, which nothing sets, so every driver subscribe was refused.
+    const viewerId = socket.userId;
 
     /**
      * Subscribe to a trip and catch up.

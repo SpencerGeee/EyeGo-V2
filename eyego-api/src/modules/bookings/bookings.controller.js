@@ -100,10 +100,21 @@ const updateHeavyCargo = async (req, res) => {
  * choices, priced by the exact function `bookSeat` writes with. No row is
  * created. See bookings.service `priceSeat`.
  */
+// A pin from the body, or null. bookSeat used to pass the raw values through, so
+// a string coordinate skipped the deviation surcharge (`Number.isFinite('5.6')`
+// is false) and was then written to a Float column — a 500 after pricing.
+function point(lat, lng, address) {
+  const la = Number(lat);
+  const ln = Number(lng);
+  if (lat == null || lng == null || !Number.isFinite(la) || !Number.isFinite(ln) || Math.abs(la) > 90 || Math.abs(ln) > 180) return null;
+  return { lat: la, lng: ln, address: typeof address === 'string' ? address.slice(0, 300) : null };
+}
+const shortText = (v, max) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : null);
+
 const previewSeatFare = async (req, res) => {
   const { tripId, pickupStopId, dropoffStopId, pickupLat, pickupLng, dropoffLat, dropoffLng, dropoffAddress } = req.body;
-  const joinerPickup = pickupLat != null && pickupLng != null ? { lat: Number(pickupLat), lng: Number(pickupLng) } : null;
-  const dropoff = dropoffLat != null && dropoffLng != null ? { lat: Number(dropoffLat), lng: Number(dropoffLng), address: dropoffAddress ?? null } : null;
+  const joinerPickup = point(pickupLat, pickupLng);
+  const dropoff = point(dropoffLat, dropoffLng, dropoffAddress);
   const result = await bookingsService.previewSeatFare(tripId, {
     pickupStopId: pickupStopId ?? null,
     dropoffStopId: dropoffStopId ?? null,
@@ -122,10 +133,10 @@ const bookSeat = async (req, res) => {
   const { pickupStopId, dropoffStopId, paymentMethod, guestName, guestPhone, pickupLat, pickupLng, pickupAddress, dropoffLat, dropoffLng, dropoffAddress } = req.body;
   // A group-hub joiner's own pickup point (differs from the trip's main pickup) — null
   // when boarding at the trip's own pickup, the common case.
-  const joinerPickup = pickupLat != null && pickupLng != null ? { lat: pickupLat, lng: pickupLng, address: pickupAddress ?? null } : null;
+  const joinerPickup = point(pickupLat, pickupLng, pickupAddress);
   // The rider's own drop-off pin on the route map — see bookings.service `resolveDropoff`.
-  const dropoff = dropoffLat != null && dropoffLng != null ? { lat: Number(dropoffLat), lng: Number(dropoffLng), address: dropoffAddress ?? null } : null;
-  const result = await bookingsService.bookSeat(req.user.userId, tripId, seatNumber, pickupStopId ?? null, paymentMethod ?? null, guestName ?? null, guestPhone ?? null, joinerPickup, dropoffStopId ?? null, dropoff);
+  const dropoff = point(dropoffLat, dropoffLng, dropoffAddress);
+  const result = await bookingsService.bookSeat(req.user.userId, tripId, Number(seatNumber), pickupStopId ?? null, paymentMethod ?? null, shortText(guestName, 60), shortText(guestPhone, 20), joinerPickup, dropoffStopId ?? null, dropoff);
 
   // Emit real-time seat update to passengers and driver
   try {

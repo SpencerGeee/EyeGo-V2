@@ -143,11 +143,11 @@ router.get('/me/saved-places', controller.getSavedPlaces);
 
 router.post(
   '/me/saved-places',
-  body('label').notEmpty().trim(),
-  body('address').notEmpty().trim(),
+  body('label').isString().trim().isLength({ min: 1, max: 60 }),
+  body('address').isString().trim().isLength({ min: 1, max: 300 }),
   body('lat').isFloat({ min: -90, max: 90 }),
   body('lng').isFloat({ min: -180, max: 180 }),
-  body('icon').optional().isString().trim(),
+  body('icon').optional().isString().trim().isLength({ max: 32 }),
   // Home and Work are SLOTS the rider chooses, not words we look for in the
   // label — see the long note on `createSavedPlace`. Anything else is a place
   // they can call whatever they like, and there may be any number of them.
@@ -166,10 +166,10 @@ router.post(
 router.patch(
   '/me/saved-places/:placeId',
   body('label').optional().isString().trim().isLength({ min: 1, max: 60 }),
-  body('address').optional().isString().trim().isLength({ min: 1, max: 200 }),
+  body('address').optional().isString().trim().isLength({ min: 1, max: 300 }),
   body('lat').optional().isFloat({ min: -90, max: 90 }),
   body('lng').optional().isFloat({ min: -180, max: 180 }),
-  body('icon').optional().isString().trim(),
+  body('icon').optional().isString().trim().isLength({ max: 32 }),
   body('slot').optional({ nullable: true }).isIn(['HOME', 'WORK']),
   body('sortOrder').optional().isInt({ min: 0, max: 999 }),
   validate,
