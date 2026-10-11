@@ -12,9 +12,13 @@ const { audit } = require('../../middleware/adminAudit');
 // 20/15min guaranteed 429s within a minute of normal use. This limiter only
 // needs to stop brute-forcing, not throttle a logged-in admin, so keep it
 // generous.
+// Keyed per admin: the console calls us from its server, so every admin shares
+// that server's IP — per-IP, one busy session throttled the whole team.
+const { whoIsAsking } = require('../../middleware/rateLimiter');
 const adminLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 600,
+  keyGenerator: whoIsAsking,
   message: 'Too many admin requests',
   standardHeaders: true,
   legacyHeaders: false,
@@ -26,6 +30,7 @@ const adminLimiter = rateLimit({
 const adminActionLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 300,
+  keyGenerator: whoIsAsking,
   message: 'Too many admin actions. Slow down.',
 });
 
