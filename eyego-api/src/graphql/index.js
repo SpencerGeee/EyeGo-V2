@@ -1,8 +1,8 @@
 'use strict';
 
 const { createYoga, createSchema } = require('graphql-yoga');
-const jwt = require('jsonwebtoken');
 const env = require('../config/env');
+const { checkJwtBlacklist } = require('../middleware/auth');
 const { typeDefs } = require('./schema');
 const { resolvers } = require('./resolvers');
 const { createDataLoaders } = require('./dataloaders');
@@ -31,12 +31,15 @@ const yoga = createYoga({
     if (authHeader?.startsWith('Bearer ')) {
       try {
         const token = authHeader.slice(7);
-        // Accepts both rider tokens (userId) and driver tokens (driverId).
+        // Rider and driver tokens alike: { userId, role }.
         // Must be JWT_ACCESS_SECRET (same as middleware/auth.js) — the env
         // schema has no JWT_SECRET, so the previous env.JWT_SECRET was
         // undefined and EVERY GraphQL request silently fell through to
         // anonymous.
-        user = jwt.verify(token, env.JWT_ACCESS_SECRET, { algorithms: ['HS256'] });
+        // The REST check, revocation included — a signed-out or deleted
+        // account's token kept working here until it expired.
+        const decoded = await checkJwtBlacklist(token);
+        if (decoded.role === 'PASSENGER' || decoded.role === 'DRIVER') user = decoded;
       } catch {
         // Invalid/expired token — resolvers that require auth will throw
       }

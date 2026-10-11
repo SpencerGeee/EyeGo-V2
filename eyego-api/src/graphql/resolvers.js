@@ -2,9 +2,29 @@
 
 const prisma = require('../config/database');
 const pubSub = require('./pubsub');
+const { seatOccupyingWhere } = require('../utils/booking-status');
 
 function requireAuth(user) {
   if (!user) throw new Error('Authentication required');
+}
+
+/**
+ * THE ONE RULE FOR READING A TRIP HERE: its driver, the rider who requested
+ * it, or a rider holding a live seat on it. `Query.trip` had no rule at all
+ * (no login either), and the subscription looked for `user.driverId`, which
+ * no token carries — the JWT is `{ userId, role }` for both apps — so the
+ * owning driver was always refused while a rider with a long-cancelled seat
+ * was let in to stream the driver's position.
+ */
+async function canSeeTrip(user, trip) {
+  if (!user || !trip) return false;
+  if (user.role === 'DRIVER') return trip.driverId === user.userId;
+  if (trip.requesterId === user.userId) return true;
+  const seat = await prisma.booking.findFirst({
+    where: { tripId: trip.id, userId: user.userId, ...seatOccupyingWhere() },
+    select: { id: true },
+  });
+  return !!seat;
 }
 
 const resolvers = {
@@ -69,14 +89,16 @@ const resolvers = {
       };
     },
 
-    trip: async (_, { id }, { loaders }) => {
-      return loaders.trip.load(id);
+    trip: async (_, { id }, { user, loaders }) => {
+      requireAuth(user);
+      const trip = await loaders.trip.load(id);
+      return (await canSeeTrip(user, trip)) ? trip : null;
     },
 
     earningsBreakdown: async (_, { period = 'TODAY' }, { user }) => {
       requireAuth(user);
-      // Driver JWT contains driverId; userId fallback supports future unified tokens
-      const driverId = user.driverId ?? user.userId ?? user.id;
+      if (user.role !== 'DRIVER') throw new Error('Forbidden');
+      const driverId = user.userId;
 
       const now = new Date();
       let from;
@@ -173,19 +195,8 @@ const resolvers = {
           },
         });
 
-        // BUGFIX: this only checked the caller was authenticated, not that they
-        // had any relationship to THIS trip — any rider or driver could subscribe
-        // to any other trip's live status and driver GPS coordinates. Require
-        // either driver ownership or a booking on the trip.
-        const driverId = user.driverId;
-        const riderId = user.userId ?? user.id;
-        const isOwningDriver = driverId && current?.driverId === driverId;
-        const hasBooking = !isOwningDriver && riderId
-          ? await prisma.booking.findFirst({ where: { tripId, userId: riderId }, select: { id: true } })
-          : null;
-        if (current && !isOwningDriver && !hasBooking) {
-          throw new Error('Forbidden');
-        }
+        // Status and the driver's GPS — see canSeeTrip.
+        if (!(await canSeeTrip(user, current))) throw new Error('Forbidden');
 
         if (current) {
           yield {
@@ -210,4 +221,4 @@ const resolvers = {
   },
 };
 
-module.exports = { resolvers };
+module.exports = { resolvers, canSeeTrip };

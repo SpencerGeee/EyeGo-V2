@@ -293,7 +293,7 @@ export const driverApi = {
    *
    * This is what creates the driver's `Vehicle` row, and nothing else does.
    * Without it the account can pass review and go online but cannot accept a
-   * single trip — `createTrip` and `claimReassignedTrip` reject with
+   * single trip — `createTrip` and `rides.acceptRide` reject with
    * `NO_VEHICLE`, and tier-matched dispatch filters the driver out. Onboarding
    * used to send these fields to `updateMe`, which dropped them silently.
    *
@@ -520,11 +520,6 @@ export const driverApi = {
 
   declineDispatch: (tripId: string, reason?: string) =>
     apiClient.post<ApiResponse<{ declined: boolean }>>(`/driver/trips/${tripId}/decline`, { reason }),
-
-  // A trip a previous driver bailed on pre-boarding — first online nearby
-  // driver to claim it takes over (see drivers.service.js redispatchTrip).
-  claimReassignment: (tripId: string) =>
-    apiClient.post<ApiResponse<{ trip: DriverTrip }>>(`/driver/trips/${tripId}/claim-reassignment`),
 
   // On-demand trip requests — first driver to accept becomes the owning driver
   acceptTripRequest: (requestId: string) =>

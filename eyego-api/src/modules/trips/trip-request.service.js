@@ -609,8 +609,7 @@ async function acceptTripRequest(driverId, tripRequestId) {
         // show a "Start Trip" button they had to tap before anything progressed,
         // while the rider sat watching a driver who appeared not to have moved.
         // "Start Trip" is reserved for genuinely SCHEDULED trips (see
-        // TRIP_STATUS_CONFIG in apps/driver/app/(trip)/active/[id].tsx), which is
-        // also why claimReassignedTrip already lands on DRIVER_EN_ROUTE.
+        // TRIP_STATUS_CONFIG in apps/driver/app/(trip)/active/[id].tsx).
         status: 'DRIVER_EN_ROUTE',
       },
       include: { route: true, vehicle: true, driver: { select: { name: true, phone: true, profilePhoto: true } } },

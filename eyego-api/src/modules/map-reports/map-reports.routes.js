@@ -198,8 +198,9 @@ router.get(
   h(async (req, res) => {
     const report = await service.getReport(req.params.id);
     // A report is only visible to the person who filed it. Everything else is
-    // the admin console's business — see admin.routes.js.
-    if (report.userId && report.userId !== actorId(req)) {
+    // the admin console's business — see admin.routes.js. Strict: a driver's
+    // report has `userId: null`, and `report.userId && …` let any rider read it.
+    if (report.userId !== actorId(req)) {
       return res.status(404).json({ success: false, message: 'Not found' });
     }
     return ok(res, { report });

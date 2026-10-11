@@ -15,9 +15,7 @@ const typeDefs = /* GraphQL */ `
   type Driver {
     id: ID!
     name: String!
-    phone: String!
     profilePhoto: String
-    walletBalancePesewas: Int!
   }
 
   type Route {

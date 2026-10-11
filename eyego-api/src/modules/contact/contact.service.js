@@ -45,6 +45,11 @@ async function resolveParties({ callerId, callerRole, tripId, calleeRole, callee
     },
   });
   if (!trip || !trip.driver) throw new NotFoundError('Trip');
+  // Live trips only. Every Call button is on a live stage; without this a
+  // driver could pull (DIRECT mode) the number of every rider ever carried.
+  if (require('../../services/trip-state.service').TERMINAL_STATUSES.includes(trip.status)) {
+    throw new AppError('This trip has ended — use the chat, or report a lost item.', 409, 'TRIP_ENDED');
+  }
 
   if (callerRole === 'DRIVER') {
     if (callerId !== trip.driverId) throw new ForbiddenError('Caller is not the driver of this trip');

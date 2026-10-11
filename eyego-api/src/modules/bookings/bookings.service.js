@@ -1672,7 +1672,9 @@ async function reportLostItem(userId, tripId, description) {
   const text = String(description ?? '').replace(/\s+/g, ' ').trim().slice(0, 1000);
   if (text.length < 3) throw new AppError('Say what you lost — colour, brand, where you sat.', 400, 'DESCRIPTION_REQUIRED');
   const booking = await prisma.booking.findFirst({
-    where: { tripId, userId },
+    // A seat that rode. A booking cancelled before departure is still a row on
+    // the trip, and it let someone who was never in the car message the driver.
+    where: { tripId, userId, status: 'COMPLETED' },
     select: {
       id: true,
       trip: { select: { id: true, shortId: true, status: true, completedAt: true, driverId: true, driver: { select: { fcmToken: true } } } },

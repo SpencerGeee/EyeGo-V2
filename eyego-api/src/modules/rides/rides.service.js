@@ -1101,9 +1101,21 @@ async function movePickup(userId, tripId, { lat, lng, address }) {
 async function cancelRide(userId, tripId, reason = null) {
   const trip = await prisma.trip.findUnique({ where: { id: tripId } });
   if (!trip) throw new NotFoundError('Trip');
+  /**
+   * ONLY THE RIDER WHO BOOKED THE RIDE CANCELS THE RIDE.
+   *
+   * This used to let anyone with ANY booking on the trip through — and then
+   * cancel the WHOLE trip. On a driver's bus (`requesterId` null) that meant
+   * one passenger, even one whose own seat was cancelled last week, could call
+   * POST /rides/:id/cancel and cancel every passenger's seat at once; on a
+   * hailed ride a party guest could cancel the host's car. A bus passenger
+   * gives back their own seat through the booking (cancellation.service).
+   */
+  if (trip.routeId) {
+    throw new AppError('This is a shared trip — cancel your own seat from your booking.', 409, 'SHARED_TRIP');
+  }
   if (trip.requesterId !== userId) {
-    const booking = await prisma.booking.findFirst({ where: { tripId, userId } });
-    if (!booking) throw new AppError('Not authorized', 403, 'FORBIDDEN');
+    throw new AppError('Only the rider who booked this ride can cancel it.', 403, 'FORBIDDEN');
   }
 
   /**

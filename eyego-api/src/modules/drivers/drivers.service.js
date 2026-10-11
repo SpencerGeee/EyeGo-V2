@@ -377,7 +377,7 @@ const MAX_SEATER_COUNT = 20;
  * onboarding screen PATCHed the vehicle fields onto `/driver/me` instead, where
  * `updateProfile`'s allow-list silently dropped every one of them. The mutation
  * returned 200, onboarding advanced, and the driver ended up approved with no
- * vehicle — which `createTrip` and `claimReassignedTrip` reject outright
+ * vehicle — which `createTrip` and `rides.acceptRide` reject outright
  * (`NO_VEHICLE`) and `matcher.service` filters out of every tier-matched
  * dispatch. A driver in that state can go online and never legally take a ride.
  *
@@ -1088,9 +1088,8 @@ const ACCEPTABLE_DISPATCH_STATUSES = ['SCHEDULED', 'FILLING'];
  *   - `acceptDispatch`  — the trip is ALREADY assigned to this driver
  *                         (`driverId` matches) and sits at SCHEDULED/FILLING.
  *   - `rides.acceptRide` — the cascade is offering it; `driverId` is still
- *                         NULL and the trip sits at MATCHING.
- *   - `claimReassignedTrip` — a previous driver bailed; REASSIGNING,
- *                         first-claim-wins.
+ *                         NULL and the trip sits at MATCHING, or a previous
+ *                         driver gave it back (REASSIGNING).
  *
  * The driver app had to guess which one applied from a `kind` string passed
  * through navigation params — and the dispatch list, which is where most taps
@@ -1185,15 +1184,17 @@ async function claimTrip(driverId, tripId) {
   // Before any of the three claim paths commit anything.
   await assertCanAffordTrip(driverId, tripId);
 
-  if (trip.status === 'REASSIGNING') {
-    return claimReassignedTrip(driverId, tripId);
-  }
-
   if (trip.driverId === driverId && ACCEPTABLE_DISPATCH_STATUSES.includes(trip.status)) {
     return acceptDispatch(driverId, tripId);
   }
 
-  if (trip.driverId == null && trip.status === 'MATCHING') {
+  // A trip a previous driver gave back (REASSIGNING) is back in the cascade,
+  // so it is claimed exactly like a fresh search. It used to have its own
+  // `claimReassignedTrip`, which skipped the self-ride fraud check, ignored a
+  // live offer held by another driver, never stopped the cascade or took the
+  // driver out of supply — and was reachable bare, without the wallet check
+  // above, at POST /driver/trips/:id/claim-reassignment.
+  if (trip.driverId == null && ['MATCHING', 'REASSIGNING'].includes(trip.status)) {
     // Lazy require: rides.service pulls in the cascade, which pulls in this
     // module. Resolving it at call time rather than load time keeps the cycle
     // from biting during startup.
@@ -2484,69 +2485,6 @@ async function redispatchTrip(cancellingDriverId, trip, { reason, note } = {}) {
 // redispatchTrip above). Atomic first-claim-wins, same pattern as
 // acceptDispatch — resumes the trip exactly where it left off
 // (DRIVER_EN_ROUTE) under the new driver.
-async function claimReassignedTrip(driverId, tripId) {
-  const driver = await prisma.driver.findUnique({ where: { id: driverId } });
-  if (!driver) throw new NotFoundError('Driver');
-  if (!driver.isOnline) throw new AppError('You must be online to accept trips', 400, 'DRIVER_OFFLINE');
-
-  // Server-side backstop for the busy-driver rule. Even if a stale dispatch
-  // card is still on screen from before the driver took another trip, they
-  // cannot claim a second one.
-  if (!(await isDriverAvailable(prisma, driverId))) {
-    throw new AppError('Finish your current trip before accepting another.', 409, 'DRIVER_BUSY');
-  }
-
-  const vehicle = await prisma.vehicle.findFirst({ where: { driverId, isActive: true } });
-  if (!vehicle) throw new AppError('No active vehicle registered. Add a vehicle before accepting trips.', 400, 'NO_VEHICLE');
-
-  let transition;
-  const result = await prisma.$transaction(async (tx) => {
-    try {
-      // Same first-claim-wins guarantee, now expressed once in the state
-      // machine (status + version CAS) instead of hand-rolled here, and it
-      // produces the TripEvent the waiting riders' apps react to.
-      transition = await tripState.applyTransitionTx(tx, tripId, 'DRIVER_EN_ROUTE', {
-        actor: tripState.ACTOR.DRIVER,
-        actorId: driverId,
-        data: { driverId, vehicleId: vehicle.id },
-        payload: { claimedFrom: 'REASSIGNING' },
-      });
-    } catch (err) {
-      if (err.code === 'VERSION_CONFLICT' || err.code === 'ILLEGAL_TRANSITION') {
-        throw new AppError('This trip has already been reassigned to another driver.', 409, 'REASSIGNMENT_UNAVAILABLE');
-      }
-      throw err;
-    }
-
-    await tx.dispatchAction.create({ data: { driverId, tripId, action: 'ACCEPTED' } });
-
-    return tx.trip.findUnique({
-      where: { id: tripId },
-      include: {
-        route: true,
-        bookings: { where: { ...seatOccupyingWhere() }, include: { user: { select: { fcmToken: true } } } },
-      },
-    });
-  });
-
-  tripState.publishCommitted(transition);
-
-  setImmediate(async () => {
-    for (const b of result.bookings) {
-      if (b.user?.fcmToken) {
-        pushService.sendPush(
-          b.user.fcmToken,
-          'New driver on the way',
-          'A new driver has been matched to your trip and is heading your way.',
-          { type: 'TRIP_REASSIGNED', tripId },
-        ).catch(() => {});
-      }
-    }
-  });
-
-  return result;
-}
-
 // ═══════════════════════════════════════════════════════════════════
 // ACCOUNT DELETION
 // ═══════════════════════════════════════════════════════════════════
@@ -2898,7 +2836,7 @@ async function getPendingTripRequests(driverId, { lat, lng } = {}) {
       return haversineKm(lat, lng, t.pickupLat, t.pickupLng) <= DISPATCH_RADIUS_KM;
     })
     .map((t) => ({
-      tripId: t.id, // this is the trip id — accept via drivers/trips/:id/claim-reassignment
+      tripId: t.id, // the trip id — accepted like any search, POST /rides/:id/accept
       kind: 'REASSIGNMENT',
       routeOrigin: 'Pickup nearby',
       routeDestination: t.route?.destinationName,
@@ -2985,7 +2923,7 @@ module.exports = {
   getSupportTickets, createSupportTicket, replyToTicket, ticketUserFor, getLostItems, answerLostItem,
   scheduleInspection, getInspections,
   deleteMe, reportTrip,
-  getPendingTripRequests, getUpcomingScheduledTrips, claimReassignedTrip,
+  getPendingTripRequests, getUpcomingScheduledTrips,
 };
 
 // ── Rate passenger (driver rates rider after trip) ────────────────

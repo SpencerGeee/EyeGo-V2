@@ -106,3 +106,4 @@ module.exports = authenticate;
 module.exports.authenticateDriver = authenticateDriver;
 module.exports.authenticateAny = authenticateAny;
 module.exports.blacklistToken = blacklistToken;
+module.exports.checkJwtBlacklist = checkJwtBlacklist;

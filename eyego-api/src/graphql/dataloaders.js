@@ -20,7 +20,7 @@ function createDataLoaders() {
             select: { id: true, name: true, originName: true, destinationName: true },
           },
           driver: {
-            select: { id: true, name: true, phone: true, profilePhoto: true, walletBalancePesewas: true },
+            select: { id: true, name: true, profilePhoto: true },
           },
           /**
            * SEAT-OCCUPYING BOOKINGS, so `availableSeats` below can be the same
