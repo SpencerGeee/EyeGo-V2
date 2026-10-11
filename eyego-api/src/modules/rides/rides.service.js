@@ -954,6 +954,13 @@ async function applyRouteChange(userId, tripId, { expectedFarePesewas, ...change
     actorId: userId,
     sideEffects: async (tx) => {
       const t = await routeChangeTrip(tx, tripId, userId); // still changeable inside the write
+      // Priced against a fare that has not moved since — so a double-tapped
+      // Confirm (or a retry) cannot apply the commission change twice.
+      if (t.bookings.find((b) => b.id === p.booking.id)?.fareAmountPesewas !== p.current) {
+        // Not FARE_CHANGED: the app re-asks on that, and this is usually the
+        // first tap having already gone through.
+        throw new AppError('Your route was already updated — check the trip for the new fare.', 409, 'ROUTE_CHANGED_MEANWHILE');
+      }
       const [next, ...onward] = p.after;
       const final = p.after[p.after.length - 1];
       await tx.trip.update({

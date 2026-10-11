@@ -854,7 +854,7 @@ function emitSafetyCheck(io, tripId, reason) {
     // ── Typing indicators ────────────────────────────────────
     socket.on('chat:typing_start', ({ tripId }) => {
       if (!tripId) return;
-      io.of('/passenger').to(TRIP_ROOM(tripId)).emit('chat:typing', {
+      io.of('/passenger').to(`${TRIP_ROOM(tripId)}:chat`).emit('chat:typing', {
         senderId: driverId,
         senderName: 'Driver',
         senderRole: 'DRIVER',
@@ -864,7 +864,7 @@ function emitSafetyCheck(io, tripId, reason) {
 
     socket.on('chat:typing_stop', ({ tripId }) => {
       if (!tripId) return;
-      io.of('/passenger').to(TRIP_ROOM(tripId)).emit('chat:typing', {
+      io.of('/passenger').to(`${TRIP_ROOM(tripId)}:chat`).emit('chat:typing', {
         senderId: driverId,
         senderRole: 'DRIVER',
         isTyping: false,
@@ -936,7 +936,8 @@ function emitSafetyCheck(io, tripId, reason) {
       socket.emit('chat:message', messagePayload);
 
       driverNamespace.to(TRIP_ROOM(tripId)).emit('chat:message', messagePayload);
-      io.of('/passenger').to(TRIP_ROOM(tripId)).emit('chat:message', messagePayload);
+      // Passengers' chat room (members only) — see TRIP_CHAT_ROOM in passenger.socket.
+      io.of('/passenger').to(`${TRIP_ROOM(tripId)}:chat`).emit('chat:message', messagePayload);
 
       // Push notification to passengers who may be in the background
       try {

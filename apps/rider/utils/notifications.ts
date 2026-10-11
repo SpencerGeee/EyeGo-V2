@@ -31,11 +31,14 @@ export async function registerForPushNotifications(accessToken?: string): Promis
     const isDev = typeof __DEV__ !== 'undefined' && __DEV__;
     if (token && accessToken && (isDev || isSecure)) {
       try {
-        await fetch(`${apiUrl}/user/fcm-token`, {
+        const res = await fetch(`${apiUrl}/user/fcm-token`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
           body: JSON.stringify({ fcmToken: token }),
         });
+        // fetch resolves on 401/500 too — an expired token here silently left the
+        // rider with NO push registration. Treat any non-2xx like a network error.
+        if (!res.ok) throw new Error(`fcm-token ${res.status}`);
       } catch {
         // Queue for retry — without the token on the server, no pushes arrive.
         // (flushQueue posts via apiClient, which attaches auth itself.)

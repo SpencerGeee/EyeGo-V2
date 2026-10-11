@@ -507,7 +507,7 @@ export default function RootLayout() {
           );
         } else if (type === 'TRIP_CANCELLED_NO_SHOW') {
           router.push('/(tabs)/trips' as Href);
-        } else if (type === 'CASH_CHANGE' || type === 'REFERRAL_REWARD') {
+        } else if (type === 'CASH_CHANGE' || type === 'REFERRAL_REWARD' || type === 'WALLET_CREDITED') {
           router.push('/profile/wallet' as Href);
         } else if (type === 'SUPPORT_REPLY') {
           router.push(`/profile/help${data.ticketId ? `?ticket=${data.ticketId}` : ''}` as Href);

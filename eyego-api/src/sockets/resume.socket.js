@@ -75,6 +75,9 @@ function registerResumeProtocol(namespace, role) {
         }
 
         socket.join(`trip:${tripId}`);
+        // A rider with a booking (or the requester) is a passenger: they get the
+        // members-only chat room too. See TRIP_CHAT_ROOM in passenger.socket.
+        if (role !== 'DRIVER') socket.join(`trip:${tripId}:chat`);
 
         const missed = await tripState.eventsSince(tripId, lastSeq, MAX_REPLAY);
         // With the route line: a client resuming mid-trip must get its map back

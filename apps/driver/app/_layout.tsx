@@ -413,7 +413,7 @@ export default function RootLayout() {
         router.push('/(profile)/lost-items' as any);
       } else if (type === 'DOCUMENT_EXPIRING') {
         router.push('/(profile)/documents' as any);
-      } else if (type === 'SUPPORT_REPLY') {
+      } else if (type === 'SUPPORT_REPLY' || type === 'DISPUTE') {
         router.push({ pathname: '/(profile)/help', params: data.ticketId ? { ticket: String(data.ticketId) } : {} } as any);
       } else if (type === 'REPORT_RESOLVED') {
         router.push('/(tabs)/notifications' as any);

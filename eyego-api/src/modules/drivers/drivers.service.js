@@ -1719,7 +1719,10 @@ async function recordCashReceived(driverId, tripId, bookingId, amountPesewas) {
     if (change > 0 && !b.userId) throw new AppError('This passenger has no EyeGo account to receive change.', 400, 'NO_ACCOUNT');
     if (change > cap) throw new AppError(`Change to a wallet is limited to ${formatGhs(cap)} a ride.`, 400, 'CHANGE_TOO_LARGE');
 
-    await tx.booking.update({ where: { id: b.id }, data: { cashReceivedPesewas: received } });
+    // An atomic claim, not the read above: a double-tapped Confirm would otherwise
+    // run twice past that null check and credit the rider twice.
+    const claim = await tx.booking.updateMany({ where: { id: b.id, cashReceivedPesewas: null }, data: { cashReceivedPesewas: received } });
+    if (claim.count !== 1) throw new AppError('Cash for this passenger is already recorded.', 409, 'CASH_ALREADY_RECORDED');
     if (change > 0) {
       await require('../../services/rider-wallet.service').record({
         userId: b.userId, type: 'CASH_CHANGE', amountPesewas: change, description: 'Change from a cash ride', bookingId: b.id, tx,

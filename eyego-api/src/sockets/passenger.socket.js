@@ -6,6 +6,13 @@ const logger = require('../utils/logger');
 const { seatOccupyingWhere } = require('../utils/booking-status');
 
 const TRIP_ROOM = (tripId) => `trip:${tripId}`;
+/**
+ * PASSENGER CHAT IS FOR PASSENGERS. A rider BROWSING a bookable bus may join
+ * TRIP_ROOM (to watch seats go), and chat used to be broadcast there — so
+ * anyone who had opened the trip heard every passenger's messages from then
+ * on. Chat goes to this room, which only booked riders join.
+ */
+const TRIP_CHAT_ROOM = (tripId) => `trip:${tripId}:chat`;
 const LOCATION_CHANNEL = (driverId) => `driver:${driverId}:location`;
 
 // Shared Redis subscriber for all passenger sockets
@@ -106,6 +113,7 @@ module.exports = function registerPassengerSocket(io, passengerNamespace) {
       }
 
       socket.join(TRIP_ROOM(tripId));
+      if (hasBooking) socket.join(TRIP_CHAT_ROOM(tripId));
       logger.debug(`Passenger ${userId} joined trip room ${tripId}`);
 
       // Fetch and send chat message history
@@ -171,6 +179,7 @@ module.exports = function registerPassengerSocket(io, passengerNamespace) {
 
     socket.on('passenger:leave_trip_room', ({ tripId }) => {
       socket.leave(TRIP_ROOM(tripId));
+      socket.leave(TRIP_CHAT_ROOM(tripId));
 
       if (subscribedTripId === tripId) {
         cleanupSubscription();
@@ -181,7 +190,7 @@ module.exports = function registerPassengerSocket(io, passengerNamespace) {
     socket.on('chat:typing_start', ({ tripId }) => {
       if (!tripId || !userId) return;
       // Broadcast to driver and other passengers (exclude sender)
-      socket.to(TRIP_ROOM(tripId)).emit('chat:typing', {
+      socket.to(TRIP_CHAT_ROOM(tripId)).emit('chat:typing', {
         senderId: userId,
         senderRole: 'PASSENGER',
         isTyping: true,
@@ -195,7 +204,7 @@ module.exports = function registerPassengerSocket(io, passengerNamespace) {
 
     socket.on('chat:typing_stop', ({ tripId }) => {
       if (!tripId || !userId) return;
-      socket.to(TRIP_ROOM(tripId)).emit('chat:typing', {
+      socket.to(TRIP_CHAT_ROOM(tripId)).emit('chat:typing', {
         senderId: userId,
         senderRole: 'PASSENGER',
         isTyping: false,
@@ -270,7 +279,7 @@ module.exports = function registerPassengerSocket(io, passengerNamespace) {
       socket.emit('chat:message', messagePayload);
 
       // Broadcast to all clients in the trip room on passenger namespace
-      passengerNamespace.to(TRIP_ROOM(tripId)).emit('chat:message', messagePayload);
+      passengerNamespace.to(TRIP_CHAT_ROOM(tripId)).emit('chat:message', messagePayload);
 
       // Broadcast to driver namespace in the trip room
       io.of('/driver').to(TRIP_ROOM(tripId)).emit('chat:message', messagePayload);

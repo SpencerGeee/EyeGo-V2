@@ -2,7 +2,7 @@
 
 jest.mock('../../config/database', () => {
   const tx = {
-    booking: { findFirst: jest.fn(), update: jest.fn() },
+    booking: { findFirst: jest.fn(), update: jest.fn(), updateMany: jest.fn(async () => ({ count: 1 })) },
     paymentTransaction: { create: jest.fn() },
   };
   return { $transaction: (fn) => fn(tx), user: { findUnique: jest.fn(async () => null) }, __tx: tx };
