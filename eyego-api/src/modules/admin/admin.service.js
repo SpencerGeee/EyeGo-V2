@@ -1291,7 +1291,8 @@ async function getMetrics() {
 
   const todayRevenuePesewas = todayPayments._sum.fareAmountPesewas ?? 0;
   const env = require('../../config/env');
-  const todayCommissionPesewas = percentOf(todayRevenuePesewas, env.PLATFORM_COMMISSION);
+  // The live rate — the console edits it; env is only its boot default.
+  const todayCommissionPesewas = percentOf(todayRevenuePesewas, require('../../config/settings').get('PLATFORM_COMMISSION') ?? env.PLATFORM_COMMISSION);
 
   /**
    * HOW MANY DRIVERS DISPATCH CAN ACTUALLY REACH.
@@ -1943,7 +1944,7 @@ function bucketByDay(rows, dateField, valueFn) {
  */
 async function getAnalyticsOverview({ from, to } = {}) {
   const env = require('../../config/env');
-  const commissionRate = env.PLATFORM_COMMISSION;
+  const commissionRate = require('../../config/settings').get('PLATFORM_COMMISSION') ?? env.PLATFORM_COMMISSION;
   const today = startOfToday();
   const weekAgo = daysAgo(7);
   const monthAgo = daysAgo(30);

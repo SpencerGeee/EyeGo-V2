@@ -228,11 +228,14 @@ async function start() {
     // in bookings.service), plus a 5-min grace so the sweep never races an
     // in-flight payment. Previously this read a separate SEAT_HOLD_MINUTES var,
     // so tuning the hold duration silently didn't move the sweep.
-    const HOLD_MINUTES =
-      parseInt(process.env.SEAT_HOLD_MINUTES, 10) || env.SEAT_HOLD_DURATION_MINUTES + 5;
+    // Read per run: the hold duration is a console setting, and a boot-time
+    // snapshot expired holds early after an admin lengthened the window.
+    const holdMinutes = () =>
+      parseInt(process.env.SEAT_HOLD_MINUTES, 10) ||
+      (require('./config/settings').get('SEAT_HOLD_DURATION_MINUTES') ?? env.SEAT_HOLD_DURATION_MINUTES) + 5;
     const runSeatHoldExpiry = async () => {
       try {
-        const cutoff = new Date(Date.now() - HOLD_MINUTES * 60 * 1000);
+        const cutoff = new Date(Date.now() - holdMinutes() * 60 * 1000);
         // `seatNumber: null` is not tidiness — it is the whole point. The
         // unique key is @@unique([tripId, seatNumber]) with no status in it, so
         // a CANCELLED row that keeps `seatNumber: 3` permanently blocks seat 3

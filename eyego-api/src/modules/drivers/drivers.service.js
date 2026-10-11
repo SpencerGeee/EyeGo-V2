@@ -207,7 +207,7 @@ function attachGroupSummary(trip) {
     (n, b) =>
       n +
       (b.deviationSurchargePesewas || 0) +
-      (b.heavyCargo ? env.HEAVY_LOAD_SURCHARGE_PESEWAS : 0),
+      (b.heavyCargo ? (require('../../config/settings').get('HEAVY_LOAD_SURCHARGE_PESEWAS') ?? env.HEAVY_LOAD_SURCHARGE_PESEWAS) : 0),
     0,
   );
   const soldSummary = {
@@ -220,7 +220,7 @@ function attachGroupSummary(trip) {
         n +
         (b.commissionAmountPesewas != null
           ? b.commissionAmountPesewas
-          : percentOf(b.fareAmountPesewas || 0, env.PLATFORM_COMMISSION)),
+          : percentOf(b.fareAmountPesewas || 0, require('../trips/fare.calculator').commissionRateFor(trip))),
       0,
     ),
   };

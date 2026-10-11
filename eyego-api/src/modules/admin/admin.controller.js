@@ -276,7 +276,7 @@ const assignDriver = async (req, res) => {
         routeOrigin: trip.route?.originName || '—',
         routeDestination: trip.route?.destinationName || '—',
         departureTime: trip.departureTime,
-        estimatedEarningsPesewas: earnings - percentOf(earnings, env.PLATFORM_COMMISSION), // driver cut after platform commission
+        estimatedEarningsPesewas: earnings - percentOf(earnings, trip.commissionRate ?? require('../../config/settings').get('PLATFORM_COMMISSION')), // driver cut after platform commission
         seatCount: trip.maxSeats || 0,
         bookedCount: (trip.bookings || []).length,
         expiresAt: new Date(Date.now() + 120 * 1000).toISOString(), // 2 min to accept

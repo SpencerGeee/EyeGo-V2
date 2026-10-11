@@ -44,7 +44,9 @@ function normalizePaymentMethod(method) {
  * did not contain a surcharge the booking row had already been charged.
  */
 function cargoSurchargeFor(booking) {
-  return booking?.heavyCargo ? env.HEAVY_LOAD_SURCHARGE_PESEWAS : 0;
+  // The live knob, like fare.calculator — env is only its boot default. Reading env
+  // here charged a different surcharge from the one the fare quoted after an edit.
+  return booking?.heavyCargo ? (require('../../config/settings').get('HEAVY_LOAD_SURCHARGE_PESEWAS') ?? env.HEAVY_LOAD_SURCHARGE_PESEWAS) : 0;
 }
 
 function applyFareAddons(baseFarePerPerson, { trip, pickupLat, pickupLng, heavyCargo }) {

@@ -255,7 +255,7 @@ export function RideEndedSheet() {
         if (tripId) return goDeeper(`/ride/${tripId}` as never);
         return rebook();
       case 'REFUND_ISSUED':
-        if (tripId) return goDeeper(`/ride/${tripId}/complete?viewOnly=1` as never);
+        if (tripId) return goDeeper(`/ride/${tripId}/complete?viewOnly=1${notice.bookingId ? `&bookingId=${notice.bookingId}` : ''}` as never);
         return;
       case 'SUPPORT_REPLY':
         return goDeeper(`/profile/help${notice.ticketId ? `?ticket=${notice.ticketId}` : ''}` as never);

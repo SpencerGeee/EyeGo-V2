@@ -32,7 +32,13 @@ export default function TripCompleteScreen() {
   useEffect(() => {
     if (id) void markTripTold(id);
   }, [id]);
-  const { activeBooking, selectedTrip: storeTrip } = useRideStore(useShallow((s) => ({ activeBooking: s.activeBooking, selectedTrip: s.selectedTrip })));
+  const { activeBooking: storeBooking, selectedTrip: storeTrip } = useRideStore(useShallow((s) => ({ activeBooking: s.activeBooking, selectedTrip: s.selectedTrip })));
+  /**
+   * THIS TRIP'S BOOKING, OR NONE. The ride store's `activeBooking` is whatever
+   * the rider booked last — opening an older trip's receipt from Activity while
+   * another ride is live used to show (and RATE / TIP) that other booking.
+   */
+  const activeBooking = storeBooking && (storeBooking as any).tripId === id ? storeBooking : null;
   const navigated = useRef(false);
 
   /**

@@ -1936,37 +1936,68 @@ async function processScheduledRideIntents() {
         orderBy: { confirmedSeats: 'desc' }, // prefer filling up an already-popular trip
       });
 
-      if (candidateTrip && candidateTrip.confirmedSeats + intent.seatCount <= candidateTrip.maxSeats) {
-        const fare = calculateFare({
-          tier: candidateTrip.tier,
-          distanceKm: intent.route.distanceKm,
-          seatCount: candidateTrip.maxSeats,
-          // The WHOLE price lock, fees included — see pinnedRatesFor.
-          ...pinnedRatesFor(candidateTrip),
-          surgeMultiplier: candidateTrip.surgeMultiplier,
-        });
+      /**
+       * A SEAT THE RIDER ACTUALLY HAS — ONE ROW PER SEAT, COMMITTED, NUMBERED.
+       *
+       * BUGFIX. This created ONE unpaid `SEAT_HELD` row (no seat number, no
+       * `seats`, no `holdExpiresAt`) for the whole party and bumped the PAYMENT
+       * counter `confirmedSeats` by the party size. Nobody is at a checkout for a
+       * scheduled ride, so the seat-hold sweep cancelled that row ~15 min later —
+       * after the rider had been pushed "Scheduled ride confirmed" — and the
+       * counter was never given back, so the trip advertised fewer seats forever.
+       *
+       * Now it is what a cash checkout produces (confirmPayment): CONFIRMED,
+       * paymentStatus PENDING (cash on boarding), one numbered row per seat, and
+       * `confirmedSeats` moved by the same count that path moves it. Capacity is
+       * read off the seats actually free, not the payment counter.
+       */
+      const matched = candidateTrip
+        ? await prisma.$transaction(async (tx) => {
+            const taken = new Set(
+              (await tx.booking.findMany({
+                where: { tripId: candidateTrip.id, ...seatOccupyingWhere(), seatNumber: { not: null } },
+                select: { seatNumber: true },
+              })).map((b) => b.seatNumber),
+            );
+            const free = [];
+            for (let n = 1; n <= candidateTrip.maxSeats && free.length < intent.seatCount; n += 1) if (!taken.has(n)) free.push(n);
+            if (free.length < intent.seatCount) return false; // full — hand off to live dispatch below
 
-        await prisma.$transaction(async (tx) => {
-          await tx.booking.create({
-            data: {
-              tripId: candidateTrip.id,
-              userId: intent.userId,
-              fareAmountPesewas: fare.farePerPersonPesewas,
-              commissionAmountPesewas: fare.commissionPerSeatPesewas,
-              paymentMethod: 'CASH',
-              paymentStatus: 'PENDING',
-              status: 'SEAT_HELD',
-            },
-          });
-          await tx.trip.update({
-            where: { id: candidateTrip.id },
-            data: { confirmedSeats: { increment: intent.seatCount } },
-          });
-          await tx.scheduledRideIntent.update({
-            where: { id: intent.id },
-            data: { status: 'MATCHED', matchedTripId: candidateTrip.id },
-          });
-        });
+            const fare = calculateFare({
+              tier: candidateTrip.tier,
+              distanceKm: intent.route.distanceKm,
+              seatCount: candidateTrip.maxSeats,
+              // The WHOLE price lock, fees included — see pinnedRatesFor.
+              ...pinnedRatesFor(candidateTrip),
+              surgeMultiplier: candidateTrip.surgeMultiplier,
+            });
+            for (const seatNumber of free) {
+              await tx.booking.create({
+                data: {
+                  tripId: candidateTrip.id,
+                  userId: intent.userId,
+                  seatNumber,
+                  fareAmountPesewas: fare.farePerPersonPesewas,
+                  commissionAmountPesewas: fare.commissionPerSeatPesewas,
+                  paymentMethod: 'CASH',
+                  paymentStatus: 'PENDING',
+                  status: 'CONFIRMED',
+                },
+              });
+            }
+            await tx.trip.update({
+              where: { id: candidateTrip.id },
+              data: { confirmedSeats: { increment: free.length } },
+            });
+            await tx.scheduledRideIntent.update({
+              where: { id: intent.id },
+              data: { status: 'MATCHED', matchedTripId: candidateTrip.id },
+            });
+            return true;
+          })
+        : false;
+
+      if (matched) {
 
         const rider = await prisma.user.findUnique({ where: { id: intent.userId }, select: { fcmToken: true } });
         if (rider?.fcmToken) {
@@ -2015,18 +2046,48 @@ async function processScheduledRideIntents() {
         }
         logger.info('Scheduled ride matched to existing trip', { intentId: intent.id, tripId: candidateTrip.id });
       } else {
-        // No existing trip to seat them on — dispatch it live to nearby drivers now,
-        // close to the actual pickup time, instead of leaving it unprocessed forever.
-        const tripRequestService = require('./trip-request.service');
-        await tripRequestService.createRequest(intent.userId, {
-          destination: intent.route.destinationName,
-          scheduledAt: intent.scheduledAt.toISOString(),
+        /**
+         * NO BUS TO SEAT THEM ON — BOOK A CAR THROUGH THE LIVE DISPATCH.
+         *
+         * BUGFIX. This handed the ride to `trip-request.service`, the retired
+         * dispatch engine: neither app creates or accepts TripRequests any more
+         * (the driver's offer board lists cascade trips only, and nothing calls
+         * /driver/trip-requests/:id/accept), so every scheduled ride without a
+         * matching bus went to a queue no driver could see and was never
+         * picked up — while the intent read DISPATCHED.
+         *
+         * Now it is an ordinary on-demand request (signed quote → requestRide →
+         * dispatch cascade), keyed on the intent so a retried tick cannot book
+         * twice, and only from DISPATCH_LEAD_MS before pickup so the driver is
+         * not waiting (and the waiting fee is not running) a quarter-hour early.
+         */
+        const DISPATCH_LEAD_MS = 8 * 60 * 1000;
+        if (intent.scheduledAt.getTime() - now.getTime() > DISPATCH_LEAD_MS) continue;
+        const r = intent.route;
+        const quote = await require('../../services/fare-quote.service').createQuote({
+          userId: intent.userId,
+          tier: 'ECO',
+          pickupLat: r.originLat, pickupLng: r.originLng,
+          dropoffLat: r.destLat, dropoffLng: r.destLng,
           seatCount: intent.seatCount,
-          pickupLat: intent.route.originLat,
-          pickupLng: intent.route.originLng,
-          destLat: intent.route.destLat,
-          destLng: intent.route.destLng,
         });
+        const ride = await require('../rides/rides.service').requestRide(intent.userId, {
+          quoteId: quote.quoteId,
+          pickupLat: r.originLat, pickupLng: r.originLng, pickupAddress: r.originName,
+          dropoffLat: r.destLat, dropoffLng: r.destLng, dropoffAddress: r.destinationName,
+          seatCount: intent.seatCount,
+          paymentMethod: 'CASH',
+          idempotencyKey: `scheduled-intent:${intent.id}`,
+          // Their own booking, made in advance — not a double-tap to guard against.
+          allowConcurrent: true,
+        });
+        await prisma.scheduledRideIntent.update({ where: { id: intent.id }, data: { matchedTripId: ride.tripId } });
+        const rider = await prisma.user.findUnique({ where: { id: intent.userId }, select: { fcmToken: true } });
+        pushService
+          .sendPush(rider?.fcmToken, 'Finding your driver', `Your scheduled ride to ${r.destinationName} is being matched with a driver now.`, {
+            type: 'SCHEDULE_MATCHED', tripId: ride.tripId,
+          })
+          .catch(() => {});
         // Mark as handed off so this worker doesn't keep re-dispatching it every
         // tick. This is NOT the same as EXPIRED — the intent is still actively
         // trying to find a driver via live dispatch, just via a different

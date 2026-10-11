@@ -313,7 +313,13 @@ async function withdraw(driverId, amountPesewas) {
   // withdrawal took them below the minimum required to go online.
   const pushService = require('../../services/push.service');
   const remaining = driver.walletBalancePesewas - safeAmount;
-  const lowBalanceThreshold = env.DRIVER_REQUIRED_WALLET_TO_GO_ONLINE_PESEWAS ?? 20;
+  // The console's "Driver wallet warning level" — a knob nothing read until now —
+  // floored at what going online needs, so the warning always comes first.
+  const settings = require('../../config/settings');
+  const lowBalanceThreshold = Math.max(
+    settings.get('DRIVER_MIN_WALLET_BALANCE_PESEWAS') ?? 0,
+    settings.get('DRIVER_REQUIRED_WALLET_TO_GO_ONLINE_PESEWAS') ?? env.DRIVER_REQUIRED_WALLET_TO_GO_ONLINE_PESEWAS ?? 0,
+  );
   if (remaining < lowBalanceThreshold) {
     prisma.driver.findUnique({ where: { id: driverId }, select: { fcmToken: true } })
       .then((d) => { if (d?.fcmToken) pushService.notifications.lowWallet(d.fcmToken, remaining); })

@@ -55,7 +55,13 @@ export default function RateTipScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { id, bookingId: paramBookingId } = useLocalSearchParams<{ id: string; bookingId?: string }>();
   const router = useRouter();
-  const { activeBooking, selectedTrip, clearRideState } = useRideStore(useShallow((s) => ({ activeBooking: s.activeBooking, selectedTrip: s.selectedTrip, clearRideState: s.clearRideState })));
+  const { activeBooking: storeBooking, selectedTrip, clearRideState } = useRideStore(useShallow((s) => ({ activeBooking: s.activeBooking, selectedTrip: s.selectedTrip, clearRideState: s.clearRideState })));
+  /**
+   * THIS TRIP'S BOOKING, OR NONE. The ride store's `activeBooking` is whatever
+   * the rider booked last — opening an older trip's receipt from Activity while
+   * another ride is live used to show (and RATE / TIP) that other booking.
+   */
+  const activeBooking = storeBooking && (storeBooking as any).tripId === id ? storeBooking : null;
   const user = useAuthStore((s) => s.user);
   const queryClient = useQueryClient();
 
@@ -64,7 +70,8 @@ export default function RateTipScreen() {
     queryKey: ['booking', 'active-for-rating'],
     queryFn: () => bookingsApi.getActive(),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    select: (r: any) => r.data?.data?.booking ?? null,
+    // Only if it is THIS trip's — the active booking may belong to another ride.
+    select: (r: any) => { const b = r.data?.data?.booking ?? null; return b?.tripId === id ? b : null; },
     enabled: !paramBookingId && !activeBooking?.id,
     staleTime: 0,
   });

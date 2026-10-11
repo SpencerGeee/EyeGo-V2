@@ -224,7 +224,7 @@ function buildTripSnapshot(trip, viewer = {}) {
   // Seats, not rows: an on-demand party of three is one booking for three.
   const mySeatsPaidFor = sumSeats(myBookings);
   const myCargoSurchargePesewas = myBookings.reduce(
-    (n, b) => n + (b.heavyCargo ? env.HEAVY_LOAD_SURCHARGE_PESEWAS : 0),
+    (n, b) => n + (b.heavyCargo ? (require('../config/settings').get('HEAVY_LOAD_SURCHARGE_PESEWAS') ?? env.HEAVY_LOAD_SURCHARGE_PESEWAS) : 0),
     0,
   );
   const myDeviationSurchargePesewas = myBookings.reduce(

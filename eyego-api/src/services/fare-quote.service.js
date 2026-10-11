@@ -276,7 +276,8 @@ async function createQuote({
       // Past this it is not a pickup, it is a second trip. Refused rather than
       // priced, so a rider cannot quietly drag a driver across town for a fee
       // that no longer covers it.
-      if (doorstepDetourKm > env.DOORSTEP_MAX_DETOUR_KM * 2) {
+      // The console's 'Maximum door detour' — env is only its boot default.
+      if (doorstepDetourKm > (require('../config/settings').get('DOORSTEP_MAX_DETOUR_KM') ?? env.DOORSTEP_MAX_DETOUR_KM) * 2) {
         throw new AppError(
           'That pickup point is too far from this trip\'s route.',
           422,

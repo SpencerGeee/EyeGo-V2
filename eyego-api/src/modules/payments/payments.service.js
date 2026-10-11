@@ -562,7 +562,7 @@ async function confirmPayment(bookingId, reference, { cashOnBoard = false, isSyn
 
     // Check if minimum occupancy met → update trip status
     if (
-      updatedTrip.confirmedSeats >= env.MIN_OCCUPANCY_TO_DEPART &&
+      updatedTrip.confirmedSeats >= (require('../../config/settings').get('MIN_OCCUPANCY_TO_DEPART') ?? env.MIN_OCCUPANCY_TO_DEPART) &&
       updatedTrip.status === 'FILLING'
     ) {
       // Minimum occupancy reached — the trip is going. Emitted through the
