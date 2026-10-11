@@ -52,3 +52,14 @@ Final: tsc rider/driver/admin 0, API jest 181/181, static e2e all green, prisma 
 - Wait meter at hailed pickup; receipt 'Waiting time' line.
 - Change destination / add stop → driver banner + 'At the stop — continue'.
 - Cash change sheet; referral share/redeem; lost item → driver Lost items → rider push.
+
+## Thoroughness pass (2026-10-11, user: "check all the other places you haven't checked")
+- Local stack up (docker pg+redis, migration applied). Full harness: 526/526 checks, 28/28 suites GREEN.
+- Fixed 0172623 (socket trust): payment_confirmed relayed blind (told drivers cash riders had paid); join_trip_room
+  streamed ANY client-named driver's location; rider private chat to client-named recipient; SOS location
+  overwritable by any rider; unauthenticated driver:seat_updated relay deleted; typing/chat:read gated; dead listeners removed.
+- Fixed 84ea60f: earnings report now nets COMMISSION_REFUND.
+- jest 181/181, tsc rider+driver 0. NOT pushed. Harness not re-run after socket fix.
+- TODO: e2e suite for parity features (outcomes, lost item, cash change, route quote/apply/next-stop, referral,
+  wait fee, prefs/pickup note, contact call DIRECT) — endpoints mapped; admin console audit; client unwrap audit;
+  auth refresh + cover-all audit.
