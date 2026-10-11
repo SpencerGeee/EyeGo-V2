@@ -192,6 +192,10 @@ const PRESENCE_DROPPED_TTL_SEC = 30 * 60;
 
 function markDriverConnected(driverId) {
   liveSockets.set(driverId, (liveSockets.get(driverId) ?? 0) + 1);
+  // Seen by every instance: a reconnect that lands on a DIFFERENT API instance
+  // clears nothing in this process's maps, so the old instance's grace timer
+  // took a connected driver offline.
+  redis.set(`driver:connected-at:${driverId}`, String(Date.now()), 'EX', 3600).catch(() => {});
   const timer = pendingOffline.get(driverId);
   if (timer) {
     clearTimeout(timer);
@@ -208,11 +212,13 @@ function markDriverDisconnected(driverId) {
   }
   liveSockets.delete(driverId);
   if (pendingOffline.has(driverId)) return;
+  const goneAt = Date.now();
 
   const timer = setTimeout(async () => {
     pendingOffline.delete(driverId);
-    // Reconnected while we waited — nothing to do.
+    // Reconnected while we waited — here or on another instance.
     if ((liveSockets.get(driverId) ?? 0) > 0) return;
+    if (Number(await redis.get(`driver:connected-at:${driverId}`).catch(() => 0)) > goneAt) return;
     try {
       await prisma.driver.update({ where: { id: driverId }, data: { isOnline: false } });
       // Close the hours-tracking session too. Leaving it open was how a driver

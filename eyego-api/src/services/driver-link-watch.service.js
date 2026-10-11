@@ -120,7 +120,8 @@ async function check() {
 
     if (isPresent) {
       if (wasWarned) {
-        await redis.srem(WARNED_KEY, trip.id).catch(() => {});
+        // The SREM that removed it publishes; another instance's pass is a no-op.
+        if (!(await redis.srem(WARNED_KEY, trip.id).catch(() => 0))) continue;
         restored += 1;
         publisher.publishDriverLink(trip.id, { lost: false });
         logger.info('Driver link restored', { tripId: trip.id, driverId: trip.driverId });
@@ -136,8 +137,11 @@ async function check() {
     const silentForMs = Date.now() - trip.updatedAt.getTime();
     if (silentForMs < LINK_LOST_AFTER_MS) continue;
 
-    await redis.sadd(WARNED_KEY, trip.id).catch(() => {});
+    // The SADD that added it warns — every API instance runs this watch, and
+    // each one used to tell the rider their driver was lost.
+    const added = await redis.sadd(WARNED_KEY, trip.id).catch(() => 1);
     await redis.expire(WARNED_KEY, WARNED_TTL_SECONDS).catch(() => {});
+    if (!added) continue;
     lost += 1;
     publisher.publishDriverLink(trip.id, { lost: true, lastSeenMs: trip.updatedAt.getTime() });
     // An alarm in minutes, not the 180 the stuck-trip sweep waits for. Someone

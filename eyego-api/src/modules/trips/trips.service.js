@@ -1892,6 +1892,8 @@ async function cancelScheduledRide(userId, intentId) {
  *      instead of silently doing nothing (the previous behavior).
  * Intents whose scheduledAt has passed by more than 1 hour with no match are marked EXPIRED.
  */
+class TripFull extends Error {}
+
 async function processScheduledRideIntents() {
   const now = new Date();
   const lookAheadMs = 15 * 60 * 1000; // start trying to match 15 min before departure
@@ -1909,7 +1911,8 @@ async function processScheduledRideIntents() {
         // Over an hour past its scheduled time with nobody having matched it — give up.
         // Only reachable when the sweeper missed the window (API down), so the rider
         // would otherwise just find their ride gone. No money moves: an intent holds none.
-        await prisma.scheduledRideIntent.update({ where: { id: intent.id }, data: { status: 'EXPIRED' } });
+        const expired = await prisma.scheduledRideIntent.updateMany({ where: { id: intent.id, status: 'PENDING' }, data: { status: 'EXPIRED' } });
+        if (expired.count === 0) continue; // another instance got there first
         const rider = await prisma.user.findUnique({ where: { id: intent.userId }, select: { fcmToken: true } });
         if (rider?.fcmToken) {
           await pushService.sendPush(
@@ -1951,6 +1954,14 @@ async function processScheduledRideIntents() {
        */
       const matched = candidateTrip
         ? await prisma.$transaction(async (tx) => {
+            // Claim the intent first. Every API instance runs this sweep; two
+            // that both read it PENDING both seated the rider — the second, once
+            // the first had committed, on different free seats.
+            const claim = await tx.scheduledRideIntent.updateMany({
+              where: { id: intent.id, status: 'PENDING' },
+              data: { status: 'MATCHED', matchedTripId: candidateTrip.id },
+            });
+            if (claim.count === 0) return 'TAKEN';
             const taken = new Set(
               (await tx.booking.findMany({
                 where: { tripId: candidateTrip.id, ...seatOccupyingWhere(), seatNumber: { not: null } },
@@ -1959,7 +1970,7 @@ async function processScheduledRideIntents() {
             );
             const free = [];
             for (let n = 1; n <= candidateTrip.maxSeats && free.length < intent.seatCount; n += 1) if (!taken.has(n)) free.push(n);
-            if (free.length < intent.seatCount) return false; // full — hand off to live dispatch below
+            if (free.length < intent.seatCount) throw new TripFull(); // roll the claim back; live dispatch below
 
             const fare = calculateFare({
               tier: candidateTrip.tier,
@@ -1987,14 +1998,11 @@ async function processScheduledRideIntents() {
               where: { id: candidateTrip.id },
               data: { confirmedSeats: { increment: free.length } },
             });
-            await tx.scheduledRideIntent.update({
-              where: { id: intent.id },
-              data: { status: 'MATCHED', matchedTripId: candidateTrip.id },
-            });
             return true;
-          })
+          }).catch((err) => { if (err instanceof TripFull) return false; throw err; })
         : false;
 
+      if (matched === 'TAKEN') continue;
       if (matched) {
 
         const rider = await prisma.user.findUnique({ where: { id: intent.userId }, select: { fcmToken: true } });

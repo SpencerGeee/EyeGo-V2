@@ -145,6 +145,23 @@ async function start() {
     // them — and tells them again when the signal comes back.
     require('./services/driver-link-watch.service').start();
 
+    /**
+     * ONE INSTANCE PER TICK. Every sweep below ran on every API instance at
+     * once. Most are idempotent, but the ones that notify (document warnings,
+     * scheduled-ride notices) notified once per instance. A Redis lease a little
+     * shorter than the interval picks one runner per tick; with Redis down every
+     * instance runs, as before.
+     */
+    const every = (name, ms, fn, { now = true } = {}) => {
+      const tick = async () => {
+        let got = 'OK';
+        try { got = await redis.set(`sweep:${name}`, String(process.pid), 'PX', Math.max(ms - 2000, 1000), 'NX'); } catch { /* run anyway */ }
+        if (got) await fn();
+      };
+      if (now) setImmediate(tick);
+      setInterval(tick, ms);
+    };
+
     // ── Trip expiry sweep ──────────────────────────────────────────────
     // Expire stale trips that passed their departure time by more than
     // the expiry window. Runs on startup and every 6 hours thereafter.
@@ -193,8 +210,7 @@ async function start() {
         logger.warn('Fatigue sweep failed (non-blocking):', err.message);
       }
     };
-    setImmediate(runTripExpiry);
-    setInterval(runTripExpiry, 5 * 60 * 1000);
+    every('trip-expiry', 5 * 60 * 1000, runTripExpiry);
 
     /**
      * ── Orphaned-trip reconciliation ───────────────────────────────────
@@ -219,8 +235,7 @@ async function start() {
         logger.warn('Trip reconcile sweep failed (non-blocking):', err.message);
       }
     };
-    setImmediate(runReconcile);
-    setInterval(runReconcile, 2 * 60 * 1000);
+    every('trip-reconcile', 2 * 60 * 1000, runReconcile);
 
     // ── Seat hold expiry sweep ─────────────────────────────────────────
     // Cancel bookings stuck in SEAT_HELD (payment window expired) every 2 min.
@@ -271,8 +286,7 @@ async function start() {
         logger.warn('Seat hold expiry sweep failed (non-blocking):', err.message);
       }
     };
-    setImmediate(runSeatHoldExpiry);
-    setInterval(runSeatHoldExpiry, 2 * 60 * 1000);
+    every('seat-hold-expiry', 2 * 60 * 1000, runSeatHoldExpiry);
 
     // ── IdempotencyKey cleanup sweep ───────────────────────────────────
     // Delete expired idempotency keys daily to prevent unbounded table growth.
@@ -287,8 +301,7 @@ async function start() {
         logger.warn('IdempotencyKey cleanup failed (non-blocking):', err.message);
       }
     };
-    setImmediate(runIdempotencyCleanup);
-    setInterval(runIdempotencyCleanup, 24 * 60 * 60 * 1000);
+    every('idempotency-cleanup', 24 * 60 * 60 * 1000, runIdempotencyCleanup);
 
     // ── Scheduled-ride dispatcher ────────────────────────────────────
     // Converts ScheduledRideIntent rows into a real Booking (or a live on-demand
@@ -315,8 +328,7 @@ async function start() {
     };
     // Skip the whole worker under test to avoid touching the DB / spawning timers.
     if (env.NODE_ENV !== 'test') {
-      setImmediate(runScheduledRideDispatch);
-      setInterval(runScheduledRideDispatch, 60 * 1000);
+      every('scheduled-rides', 60 * 1000, runScheduledRideDispatch);
     }
 
     // ── Unanswered dispatch offer expiry ─────────────────────────────
@@ -334,8 +346,7 @@ async function start() {
         logger.warn('Dispatch offer expiry sweep failed (non-blocking):', err.message);
       }
     };
-    setImmediate(runDispatchOfferExpiry);
-    setInterval(runDispatchOfferExpiry, 60 * 1000);
+    every('dispatch-offer-expiry', 60 * 1000, runDispatchOfferExpiry);
 
     // ── Driver quest regeneration ────────────────────────────────────
     // DriverQuest rows previously only came from a one-time seed script with
@@ -362,8 +373,7 @@ async function start() {
      * guarantees the new day's quests exist within an hour of midnight whatever
      * the deploy history or the clock change.
      */
-    setImmediate(runQuestRegeneration);
-    setInterval(runQuestRegeneration, 60 * 60 * 1000);
+    every('quest-regeneration', 60 * 60 * 1000, runQuestRegeneration);
 
     /**
      * Warn drivers before their paperwork lapses.
@@ -384,8 +394,7 @@ async function start() {
         logger.warn('Document expiry sweep failed (non-blocking):', err.message);
       }
     };
-    setImmediate(runDocumentExpiryWarnings);
-    setInterval(runDocumentExpiryWarnings, 60 * 60 * 1000);
+    every('document-expiry', 60 * 60 * 1000, runDocumentExpiryWarnings);
 
     /**
      * Prune analytics events past the retention window.
@@ -405,7 +414,7 @@ async function start() {
         logger.warn('Analytics prune failed (non-blocking):', err.message);
       }
     };
-    setInterval(runAnalyticsPrune, 24 * 60 * 60 * 1000);
+    every('analytics-prune', 24 * 60 * 60 * 1000, runAnalyticsPrune, { now: false });
 
     /**
      * SAFETY PRE-FLIGHT — loud, but not fatal.

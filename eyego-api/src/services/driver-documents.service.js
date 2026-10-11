@@ -165,7 +165,12 @@ async function runExpiryWarnings(now = new Date()) {
       seen.add(doc.id);
       // Already told at this threshold (or a tighter one).
       if (doc.expiryNoticeDays != null && doc.expiryNoticeDays <= days) continue;
-      await prisma.driverDocument.update({ where: { id: doc.id }, data: { expiryNoticeDays: days } });
+      // The write is the claim: whoever moves the threshold sends the push.
+      const claimed = await prisma.driverDocument.updateMany({
+        where: { id: doc.id, OR: [{ expiryNoticeDays: null }, { expiryNoticeDays: { gt: days } }] },
+        data: { expiryNoticeDays: days },
+      });
+      if (claimed.count === 0) continue;
 
       const token = doc.driver?.fcmToken;
       if (!token) continue;
