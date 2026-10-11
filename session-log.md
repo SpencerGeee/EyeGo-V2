@@ -527,3 +527,14 @@ Decisions:
 - Overview fitBounds always lands bearing 0 / pitch 0 — MapLibre keeps current tilt on bounds fits.
 Rejected: adding skia peerDep to packages/maps (dual-lockfile churn); camera tilt on the driver offer (pushes the near road under the card).
 Open: device-verify search orbit, 3D marker perf, driver native puck swap; push 5 local commits.
+
+## 2026-10-11 00:30 [saved]
+Goal: close away-feed holes, real inboxes, rival-parity features (12 commits, local).
+Decisions:
+- Inbox = away-outcomes facts over `days` (≤30); one fact source, sheets' own copy; read state per device.
+- Away sheets skip facts from the last foreground stretch (liveFrom–liveTo) — live path already told them.
+- Hailed stops: Trip.dropoff is the NEXT place, Trip.onwardStops the queue — routing/ETA/maps untouched.
+- Cancel/no-show fee and wait fee pay the driver less commission; wait rate is the tier card's existing knob.
+- SupportTicket.driverId is ambiguous; a driver's OWN ticket = filer user's phone equals driver phone.
+Rejected: a persisted Notification table (35 push sites, migration) — derived inbox chosen; true multi-waypoint routing.
+Open: run prisma migrate deploy (20261010120000_parity_pass); 3 pre-existing stale-mock jest failures in payments/wallet tests.

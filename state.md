@@ -1,31 +1,38 @@
-# State — 2026-10-10 (completeness + rival-parity pass)
+# State — 2026-10-10/11 (completeness + rival-parity pass)
 
 ## Current Goal
-Close the "while you were away" holes, make both inboxes real, and build the rival-parity gaps (Uber/Bolt/Yango/Lyft).
+Close the "while you were away" holes, make both inboxes real, build the rival-parity gaps. DONE — not pushed.
 
 ## Decisions (grilled with user 2026-10-10)
-- Inbox (both apps) = away-outcomes.service facts over 30 days, same wording as the away sheets, read state per device. No Notification table.
-- Rider late-cancel / no-show fee → driver wallet minus the trip's commission rate (new `CANCELLATION_FEE` row).
-- Wait fee: on-demand only; runtime settings (3 free min, GH₵0.50/min, cap); goes to driver minus commission.
-- Mid-trip change destination / add stop: on-demand only; rider re-quotes from pinned rates, confirms; driver notified (no consent); TripEvent.
-- Doc expiry: reminders 30/7/1 days; on expiry → EXPIRED + dispatch blocks until a new one is approved.
-- Fatigue: 12 h online → 6 h break (runtime settings); warn at 11 h; current trip may finish.
-- Referral: rider→rider credits after invitee's first completed paid ride (default GH₵10 each), one per phone, no self-referral.
-- Lost item: from a finished trip (≤7 days) → LOST_ITEM ticket + driver push/away + 1:1 chat reopened 24 h; driver marks found/not found.
-- Cash change: driver enters cash received; overpayment → rider wallet credit + driver wallet debit, one tx, capped.
-- Ride prefs (quiet / AC / luggage help) in profile + per-ride pickup note; driver sees chips + note on offer + trip sheet.
-- Providers: Resend email receipts; Africa's Talking masked calls; selfie ID — all key-gated, no-op until keys set.
-- My calls (no question): driver away-sheet live duplicate fix; support-reply push + outcome; report-resolved / payout-completed outcomes; rider scheduled-ride reminder.
+- Inbox (both apps) = away-outcomes.service facts over 30 days in the sheets' words; read state per device.
+- Late-cancel / no-show fee → driver minus commission (CANCELLATION_FEE ledger row).
+- Wait fee: hailed only; free minutes + cap are settings; RATE = tier card RIDE_<T>_WAIT_PER_MIN_PESEWAS (existed, never charged).
+- Mid-trip destination / stops: hailed only, rider re-quotes, no driver consent; Trip.dropoff = NEXT place, Trip.onwardStops = queue.
+- Fatigue 12 h / 6 h break; referral rider→rider (GH₵10 each after first paid ride); lost item → driver; cash change → wallets.
+- Ride prefs (quiet/AC/luggage) + pickup note; providers key-gated: Resend email, AT voice masked calls, selfie check.
 
-## Evidence (verified 2026-10-10)
-- Driver AwayOutcomesSheet re-shows live-bannered events (DriverTripStatusListener banners cancel/joined; no told-marking).
-- admin respondToTicket: no push, no socket. resolveTripReport: tells nobody.
-- notifications.routes.js (rider) + drivers.service getNotifications: derived feeds; markRead no-ops; unread-count = paid bookings.
-- cancellation.service keeps fee from refund; no driver credit anywhere.
-- DriverDocument.expiresAt indexed, never read outside admin.
-- Referral/ReferralBonus models exist; nothing writes them.
+## Commits (main, local only)
+622288a inbox+away · 30bc069 cancel/wait fee · a9387e8 cash change · 1c83d04 prefs+note · d844a85 route change
+7455014 expiry-spam fix + departure reminders · 361b7bc fatigue · f8d4f31 referrals · 9f74491 lost items
+084c0aa email receipts · 76748cb masked calls · eb68e42 selfie check
 
-## Plan status
-[ ] A away/inbox  [ ] B money (cancel fee, wait fee, cash change)  [ ] C trip (prefs+note, mid-trip edit, rider reminder)
-[ ] D driver compliance (doc expiry, fatigue, selfie stub)  [ ] E growth/support (referral, lost item, email, masked calls)
-One migration for new columns — user must run `prisma migrate deploy` (boot refuses pending migrations).
+## Bugs found & fixed on the way
+- Driver SOS ticket used userId=driverId (User FK) → never created (ticketUserFor).
+- Every rider dispute 404'd (trip id posted as booking id).
+- Doc-expiry sweep re-pushed hourly for 30 days (~720 pushes/doc) → expiryNoticeDays.
+- SupportTicket.driverId ambiguity (own ticket vs rider dispute about driver) → phone discriminator.
+
+## Verification
+tsc rider/driver/admin green; API jest 178 pass / 3 fail (PRE-EXISTING stale mocks: payments.service, concurrency.webhook,
+bookings.e2e — fail identically on bf3abc1); static e2e invariants all green; server e2e suites not run (no local API).
+
+## User must do
+1. `npx prisma migrate deploy` (migration 20261010120000_parity_pass) — boot refuses pending migrations.
+2. Optional keys: RESEND_API_KEY, AT_VOICE_NUMBER (+ AT voice callback → /v1/contact/voice), DRIVER_SELFIE_CHECK_HOURS.
+3. Push when ready (asked).
+
+## Device-test watch list (new)
+- Away sheet: no repeats of live banners after background/foreground; inbox badge clears.
+- Wait meter at hailed pickup; receipt 'Waiting time' line.
+- Change destination / add stop → driver banner + 'At the stop — continue'.
+- Cash change sheet; referral share/redeem; lost item → driver Lost items → rider push.
