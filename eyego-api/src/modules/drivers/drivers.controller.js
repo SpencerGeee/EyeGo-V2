@@ -112,6 +112,11 @@ const arriveTrip = async (req, res) => {
   ok(res, result, 'Trip completed');
 };
 
+/** The real-time ID selfie before going online. */
+const selfieCheck = async (req, res) => {
+  ok(res, await driversService.submitSelfieCheck(req.user.userId, req.file), 'Thanks — you can go online');
+};
+
 /** Lost items riders reported on this driver's trips. */
 const lostItems = async (req, res) => {
   ok(res, { items: await driversService.getLostItems(req.user.userId) });
@@ -670,7 +675,7 @@ const clearDestinationMode = async (req, res) => {
 module.exports = {
   getMe, updateMe, updateFcmToken, completeVerification, addVehicle,
   goOnline, goOffline, getTripHistory, getActiveTrip, getOutcomes, getAllTrips, devActivate,
-  startTrip, departTrip, arriveAtPickup, arriveTrip, cancelTrip, presence, cashReceived, nextStop, lostItems, answerLostItem,
+  startTrip, departTrip, arriveAtPickup, arriveTrip, cancelTrip, presence, cashReceived, nextStop, lostItems, answerLostItem, selfieCheck,
   getTripById, acceptDispatch, declineDispatch, claimReassignedTrip,
   acceptTripRequest, declineTripRequest, uploadDocument,
   addOfflinePassenger, addCashNoPhone, verifyOfflineOtp, releaseOfflineHold, boardPassenger, requestBoardingPin, setRequestsPaused,

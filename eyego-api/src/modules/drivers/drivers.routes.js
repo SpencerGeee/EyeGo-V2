@@ -43,6 +43,7 @@ router.get('/performance', controller.getPerformance);
 router.get('/ratings', controller.getRatings);
 router.get('/documents', controller.getDocuments);
 router.post('/documents', upload.single('file'), controller.uploadDocument);
+router.post('/selfie-check', upload.single('file'), controller.selfieCheck);
 
 // Emergency contact
 router.patch('/emergency-contact', controller.updateEmergencyContact);

@@ -467,6 +467,48 @@ async function addVehicle(driverId, data) {
   });
 }
 
+/**
+ * REAL-TIME ID CHECK — "is the person driving the person we approved?"
+ *
+ * Uber's check: before going online, a fresh selfie. Every DRIVER_SELFIE_CHECK_HOURS
+ * (0 = off, the default) goOnline asks for one (SELFIE_REQUIRED); the driver takes
+ * it with the front camera, it is stored as a SELFIE_CHECK document next to their
+ * approved profile photo, and `selfieVerifiedAt` opens the gate. Admin reviews the
+ * pair from the driver's documents.
+ * ponytail: no automatic face match — add a provider call (Smile ID / AWS
+ * Rekognition) here when one is chosen; until then the selfie is an audit trail.
+ */
+async function submitSelfieCheck(driverId, file) {
+  if (!file?.buffer) throw new AppError('No photo received', 400, 'NO_FILE');
+  const uploaded = await cloudinaryService.uploadBuffer(file.buffer, {
+    folder: `eyego/drivers/${driverId}/selfies`,
+    resource_type: 'image',
+    public_id: `selfie_${Date.now()}`,
+  });
+  const url = typeof uploaded === 'string' ? uploaded : uploaded?.secure_url;
+  if (!url) throw new AppError('Upload failed — the photo could not be stored', 502, 'UPLOAD_FAILED');
+  const now = new Date();
+  await prisma.$transaction([
+    prisma.driverDocument.upsert({
+      where: { driverId_type: { driverId, type: 'SELFIE_CHECK' } },
+      create: { driverId, type: 'SELFIE_CHECK', url, status: 'SUBMITTED' },
+      update: { url, status: 'SUBMITTED', reviewedAt: null, rejectionReason: null },
+    }),
+    prisma.driver.update({ where: { id: driverId }, data: { selfieVerifiedAt: now } }),
+  ]);
+  return { selfieVerifiedAt: now.toISOString() };
+}
+
+/** The go-online gate. Off while DRIVER_SELFIE_CHECK_HOURS is 0. */
+function assertSelfieFresh(driver) {
+  const hours = Number(require('../../config/settings').get('DRIVER_SELFIE_CHECK_HOURS') ?? 0);
+  if (!(hours > 0)) return;
+  const at = driver.selfieVerifiedAt ? new Date(driver.selfieVerifiedAt).getTime() : 0;
+  if (Date.now() - at > hours * 3_600_000) {
+    throw new AppError('Take a quick selfie so we know it’s you driving.', 403, 'SELFIE_REQUIRED');
+  }
+}
+
 async function goOnline(driverId, lat, lng) {
   const driver = await prisma.driver.findUnique({ where: { id: driverId } });
   if (!driver) throw new NotFoundError('Driver');
@@ -510,6 +552,9 @@ async function goOnline(driverId, lat, lng) {
      * has run out, and says which. A driver with no dates on file is unaffected.
      */
     await require('../../services/driver-documents.service').assertDocumentsCurrent(driverId);
+
+    // The person going online is the person we approved. See submitSelfieCheck.
+    assertSelfieFresh(driver);
 
     /**
      * A device that has been reporting a mock GPS provider.
@@ -2926,7 +2971,7 @@ module.exports = {
   getMe, updateProfile, updateFcmToken, completeVerification, addVehicle,
   goOnline, goOffline, getActiveTrip, getTripHistory, getAllTrips, devActivate,
   getNotifications,
-  startTrip, departTrip, arriveAtPickup, arriveTrip, cancelTrip, recordPresence, recordCashReceived,
+  startTrip, departTrip, arriveAtPickup, arriveTrip, cancelTrip, recordPresence, recordCashReceived, submitSelfieCheck,
   getTripById, acceptDispatch, claimTrip, declineDispatch, declineTrip, uploadDocument, reviewDocument,
   walletRequiredForTrip, assertCanAffordTrip,
   addOfflinePassenger, addCashNoPhone, verifyOfflineOtp, releaseOfflineHold, boardPassenger, requestBoardingPin, setRequestsPaused,

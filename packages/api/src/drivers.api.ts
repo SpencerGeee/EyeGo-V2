@@ -594,6 +594,12 @@ export const driverApi = {
       headers: { 'Content-Type': 'multipart/form-data' },
     }),
 
+  /** Real-time ID check: a front-camera selfie before going online. */
+  selfieCheck: (formData: FormData) =>
+    apiClient.post<ApiResponse<{ selfieVerifiedAt: string }>>('/driver/selfie-check', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }),
+
   // Emergency contact
   updateEmergencyContact: (data: { name: string; phone: string; relationship: string }) =>
     apiClient.patch<ApiResponse<void>>('/driver/emergency-contact', data),

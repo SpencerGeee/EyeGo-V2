@@ -275,6 +275,12 @@ const REGISTRY = [
     min: 1, max: 24,
   },
   {
+    key: 'DRIVER_SELFIE_CHECK_HOURS', group: 'safety', type: TYPES.INT,
+    label: 'Selfie check before going online', envDefault: 0, unit: 'hours',
+    help: 'Ask drivers for a fresh selfie when the last one is older than this. Stored next to their approved photo for review. Zero turns it off.',
+    min: 0, max: 168,
+  },
+  {
     key: 'REFERRAL_REWARD_PESEWAS', group: 'booking', type: TYPES.MONEY,
     label: 'Referral reward (each)', envDefault: 10_00,
     help: 'Ride credits for BOTH the inviting rider and the new rider, paid after the new rider’s first completed, paid ride. Zero turns referrals off.',

@@ -11,6 +11,7 @@ import { useRouter, type Href } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi, walletApi, heatmapApi, connectDriverSocket, disconnectDriverSocket, getDriverSocket, driverSocketEvents } from '@eyego/api';
+import { takeSelfieCheck } from '../../utils/selfieCheck';
 import * as Location from 'expo-location';
 import { fonts, fontSizes, spacing, radii, driverStatusLabel } from '@eyego/config';
 import { Text, Button, Entrance, GlassSurface, GradientGlowBorder, SkeletonValue, AnnouncementBanner, SheetContent, goDeeper, SmoothDefer, notify } from '@eyego/ui';
@@ -488,6 +489,11 @@ export default function HomeScreen() {
       else if (code === 'NO_VEHICLE') setOnlineError('vehicle');
       else if (code === 'NEGATIVE_WALLET_BALANCE' || code === 'WALLET_BELOW_ONLINE_MINIMUM') setOnlineError('wallet');
       else if (code === 'RATING_TOO_LOW' || code === 'ACCEPTANCE_RATE_TOO_LOW') setOnlineError('standing');
+      else if (code === 'SELFIE_REQUIRED') {
+        // Real-time ID check: take the selfie, then go online again.
+        setOnlineError(null);
+        void takeSelfieCheck().then((done) => done && goOnline.mutate());
+      }
       else if (err?.response?.status === 403 && /approv/i.test(msg)) setOnlineError('pending_review');
       else setOnlineError(msg);
     },
