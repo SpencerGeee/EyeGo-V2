@@ -171,8 +171,22 @@ export function shouldAnnounce(reason: RideEndedReason): boolean {
 
 // ── What this device has already told the rider ─────────────────────────────
 
-const SEEN_KEY = 'eyego.awaySeen.v1';
 const SEEN_CAP = 300;
+/**
+ * PER ACCOUNT, not per device. Keyed on one blob, signing in as someone else
+ * on the same phone inherited the last account's `lastAtMs`, and the new
+ * account's own earlier events were asked for with a `since` they all predate.
+ */
+function seenKey(): string {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const id = require('./auth.store').useAuthStore.getState().user?.id;
+    return `eyego.awaySeen.v1:${id ?? 'anon'}`;
+  } catch {
+    return 'eyego.awaySeen.v1:anon';
+  }
+}
+let seenFor: string | null = null;
 /**
  * `liveFrom`–`liveTo`: the last stretch the app spent in the foreground. A fact
  * from inside it happened while the rider was looking — told live (banner,
@@ -183,9 +197,11 @@ const EMPTY: Seen = { keys: [], trips: [], lastAtMs: 0, liveFrom: 0, liveTo: 0 }
 let seenCache: Seen | null = null;
 
 export async function loadSeen(): Promise<Seen> {
-  if (seenCache) return seenCache;
+  const key = seenKey();
+  if (seenCache && seenFor === key) return seenCache;
+  seenFor = key;
   try {
-    const raw = await AsyncStorage.getItem(SEEN_KEY);
+    const raw = await AsyncStorage.getItem(key);
     seenCache = raw ? { ...EMPTY, ...JSON.parse(raw) } : { ...EMPTY };
   } catch {
     seenCache = { ...EMPTY };
@@ -201,7 +217,7 @@ export async function saveSeen(patch: Partial<Seen>): Promise<void> {
     keys: (patch.keys ?? cur.keys).slice(-SEEN_CAP),
     trips: (patch.trips ?? cur.trips).slice(-SEEN_CAP),
   };
-  await AsyncStorage.setItem(SEEN_KEY, JSON.stringify(seenCache)).catch(() => {});
+  await AsyncStorage.setItem(seenFor ?? seenKey(), JSON.stringify(seenCache)).catch(() => {});
 }
 
 /** The live path (or the receipt screen) told the rider how this trip ended. */

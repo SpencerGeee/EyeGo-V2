@@ -19,6 +19,9 @@ import { loadSeen } from '../stores/rideEnded.store';
  * MUST share this hook, or they will disagree about what is unread.
  */
 export const NOTIFICATIONS_READ_KEY = 'eyego_read_notifications';
+import { useAuthStore } from '../stores/auth.store';
+/** Per account — see seenKey in rideEnded.store. */
+const readKey = () => `${NOTIFICATIONS_READ_KEY}:${useAuthStore.getState().user?.id ?? 'anon'}`;
 
 const MONEY = new Set(['REFUND_ISSUED', 'MONEY_RECEIVED', 'CASH_CHANGE', 'REFERRAL_REWARD']);
 const typeOf = (o: AwayOutcome): AppNotification['type'] =>
@@ -43,14 +46,14 @@ export function useUnreadNotifications() {
   const [readIds, setReadIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    Promise.all([AsyncStorage.getItem(NOTIFICATIONS_READ_KEY).catch(() => null), loadSeen()])
+    Promise.all([AsyncStorage.getItem(readKey()).catch(() => null), loadSeen()])
       .then(([raw, seen]) => setReadIds(new Set([...(raw ? (JSON.parse(raw) as string[]) : []), ...seen.keys])))
       .catch(() => {});
   }, []);
 
   const persistReadIds = useCallback((next: Set<string>) => {
     setReadIds(next);
-    AsyncStorage.setItem(NOTIFICATIONS_READ_KEY, JSON.stringify([...next].slice(-500))).catch(() => {});
+    AsyncStorage.setItem(readKey(), JSON.stringify([...next].slice(-500))).catch(() => {});
   }, []);
 
   const { data, isLoading, isError, isRefetching, refetch } = useQuery({

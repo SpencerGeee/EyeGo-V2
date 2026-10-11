@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { driverApi, type AwayOutcome } from '@eyego/api';
 import { formatGhs } from '@eyego/utils';
 import { OutcomeSheet, goDeeper } from '@eyego/ui';
+import { useDriverStore } from '../stores/driver.store';
 
 /**
  * WHAT HAPPENED WHILE THE DRIVER APP WAS CLOSED.
@@ -35,7 +36,8 @@ export type Present = {
   go?: string;
 };
 
-const SEEN_KEY = 'eyego.driver.awaySeen.v1';
+/** Per driver account, not per device — see seenKey in the rider's rideEnded.store. */
+const seenKey = () => `eyego.driver.awaySeen.v1:${useDriverStore.getState().driver?.id ?? 'anon'}`;
 const MIN_GAP_MS = 30_000;
 /** Inbox-only: the driver did these themselves. */
 const NOT_FOR_SHEET = new Set(['TRIP_COMPLETED']);
@@ -46,7 +48,7 @@ const toWhere = (o: AwayOutcome) => (o.destination ? ` to ${o.destination}` : ''
 type Seen = { keys: string[]; lastAtMs: number; liveFrom?: number; liveTo?: number };
 
 export async function loadDriverSeen(): Promise<Seen> {
-  const raw = await AsyncStorage.getItem(SEEN_KEY).catch(() => null);
+  const raw = await AsyncStorage.getItem(seenKey()).catch(() => null);
   try {
     return raw ? { keys: [], lastAtMs: 0, ...JSON.parse(raw) } : { keys: [], lastAtMs: 0 };
   } catch {
@@ -57,7 +59,7 @@ export async function loadDriverSeen(): Promise<Seen> {
 async function saveSeen(patch: Partial<Seen>): Promise<void> {
   const cur = await loadDriverSeen();
   const next = { ...cur, ...patch, keys: (patch.keys ?? cur.keys).slice(-300) };
-  await AsyncStorage.setItem(SEEN_KEY, JSON.stringify(next)).catch(() => {});
+  await AsyncStorage.setItem(seenKey(), JSON.stringify(next)).catch(() => {});
 }
 
 /** The words for one fact — shared by this sheet and the Alerts inbox. */
