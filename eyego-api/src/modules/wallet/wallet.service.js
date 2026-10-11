@@ -100,6 +100,13 @@ async function topUp(driverId, amountPesewas, { method: requestedMethod } = {}) 
  */
 async function creditTopUp(driverId, reference, amountPesewas, { description } = {}) {
   return prisma.$transaction(async (tx) => {
+    /**
+     * SERIALISED ON THE DRIVER ROW. The app's verify call and Paystack's webhook
+     * both land here for the same reference, often within a second. The
+     * existence check below is read-then-insert; without the lock both
+     * transactions saw "not yet" and the driver was credited twice.
+     */
+    await tx.$queryRaw`SELECT id FROM "Driver" WHERE id = ${driverId} FOR UPDATE`;
     const existing = await tx.walletTransaction.findFirst({
       where: { paystackRef: reference, type: 'TOP_UP' },
       select: { id: true, balanceAfterPesewas: true },
@@ -342,6 +349,9 @@ async function reverseWithdrawal(reference, description = 'Withdrawal reversal â
       select: { driverId: true, amountPesewas: true },
     });
     if (!original) return null;
+    // Same race as creditTopUp: a failed transfer is reported by our own call
+    // AND by `transfer.failed`, and both reverse. The row lock makes it once.
+    await tx.$queryRaw`SELECT id FROM "Driver" WHERE id = ${original.driverId} FOR UPDATE`;
     const done = await tx.walletTransaction.findFirst({
       where: { paystackRef: `${reference}_reversal`, type: 'WITHDRAWAL_REVERSAL' },
       select: { id: true },

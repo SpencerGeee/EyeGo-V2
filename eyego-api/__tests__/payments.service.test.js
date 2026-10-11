@@ -35,6 +35,8 @@ const mockPrisma = {
   trip: mockTrip,
   paymentTransaction: mockPaymentTransaction,
   walletTransaction: mockWalletTransaction,
+  // Wallet payments move money through the rider ledger (rider-wallet.service).
+  riderWalletTransaction: modelMock({ create: jest.fn() }),
   $transaction: jest.fn((cb) => cb(mockPrisma)),
 };
 
@@ -119,6 +121,8 @@ describe('payments.service logic', () => {
         user: { phone: '+233240000000' },
       });
       mockUser.updateMany.mockResolvedValue({ count: 1 });
+      // The friendly balance check, then the ledger's own before/after reads.
+      mockUser.findUnique.mockResolvedValue({ id: 'u2', walletBalancePesewas: 5000 });
 
       const result = await paymentsService.initiatePayment({ userId: 'u2', bookingId: 'b2' });
 

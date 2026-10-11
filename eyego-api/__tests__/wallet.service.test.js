@@ -42,6 +42,8 @@ const mockPrisma = {
   // The transaction client is the same object: every test here cares about
   // what was written, not about isolation semantics a mock cannot model.
   $transaction: jest.fn((cb) => cb(mockPrisma)),
+  // creditTopUp / reverseWithdrawal lock the driver row (SELECT … FOR UPDATE).
+  $queryRaw: jest.fn(async () => []),
 };
 
 jest.mock('../src/config/database', () => mockPrisma);

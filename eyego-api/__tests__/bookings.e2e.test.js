@@ -95,6 +95,8 @@ describe('E2E Booking Flow Simulation (Rider + Driver)', () => {
       user: { phone: '+233240000099' },
     });
     mockUser.updateMany.mockResolvedValue({ count: 1 });
+    // The wallet balance the payment checks and the rider ledger reads before/after.
+    mockUser.findUnique.mockResolvedValue({ id: 'rider-99', walletBalancePesewas: 5000 });
     mockTrip.findUnique.mockResolvedValue({ ...tripData, status: 'FILLING', confirmedSeats: 0 });
 
     const payResult = await paymentsService.initiatePayment({ userId: 'rider-99', bookingId: 'booking-99' });

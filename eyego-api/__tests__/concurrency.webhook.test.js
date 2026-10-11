@@ -183,12 +183,26 @@ describe('Concurrent wallet withdrawal — resource contention', () => {
   beforeEach(() => {
     jest.resetModules();
 
-    mockDriver = { findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn() };
-    mockWalletTx = { create: jest.fn(), findMany: jest.fn() };
+    mockDriver = {
+      findUnique: jest.fn(),
+      // The reversal credits through `update` and reads the post-update balance.
+      update: jest.fn(async () => ({ walletBalancePesewas: 200 })),
+      updateMany: jest.fn(),
+    };
+    mockWalletTx = {
+      create: jest.fn(),
+      findMany: jest.fn(),
+      // reverseWithdrawal: finds the WITHDRAWAL it is reversing; no reversal yet.
+      findFirst: jest.fn(async ({ where }) =>
+        where.type === 'WITHDRAWAL' ? { driverId: 'driver-recover', amountPesewas: 50 } : null),
+      updateMany: jest.fn(),
+    };
     mockPrisma = {
       driver: mockDriver,
       walletTransaction: mockWalletTx,
       $transaction: jest.fn(),
+      // The driver-row lock (SELECT … FOR UPDATE) that serialises credits.
+      $queryRaw: jest.fn(async () => []),
     };
     mockPaystack = {
       createTransferRecipient: jest.fn(),
