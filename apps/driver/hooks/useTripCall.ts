@@ -13,7 +13,9 @@ export function useTripCall() {
   const { maskedCalling } = usePlatformConfig();
   return useCallback(
     async ({ tripId, bookingId, phone, name }: { tripId?: string | null; bookingId?: string | null; phone?: string | null; name?: string }) => {
-      if (maskedCalling && tripId) {
+      // Masked, or the payload carried no number (room frames and masked
+      // snapshots never do): ask the server, which decides per caller.
+      if ((maskedCalling || !phone) && tripId) {
         try {
           const res = await contactApi.initiateCall({ tripId, calleeRole: 'PASSENGER', calleeBookingId: bookingId ?? undefined });
           const d = (res.data as any)?.data;

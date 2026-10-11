@@ -145,15 +145,22 @@ function attachFarePerSeat(trip) {
 function scrubBookingSecrets(trip) {
   if (!trip || !Array.isArray(trip.bookings)) return trip;
   const { ridePrefsOf } = require('../../utils/ride-prefs');
+  // With masked calling on, the driver never holds a rider's real number —
+  // `callable` says a call is possible and /contact/call bridges it.
+  const masked = require('../contact/contact.service').maskedCallingOn();
   return {
     ...trip,
     bookings: trip.bookings.map(({ boardingPin, ...b }) => {
       // The rider's ride switches (quiet / AC / luggage) — never their whole
       // preferences blob, which also carries app settings.
       const { preferences, ...user } = b.user ?? {};
+      const callable = !!(b.guestPhone || user.phone);
+      if (masked) delete user.phone;
       return {
         ...b,
+        ...(masked ? { guestPhone: null } : {}),
         ...(b.user ? { user } : {}),
+        callable,
         ridePrefs: ridePrefsOf(preferences),
         requiresBoardingPin: !!boardingPin && !b.pinVerifiedAt,
       };

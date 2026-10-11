@@ -5,6 +5,7 @@ const logger = require('../utils/logger');
 const tripState = require('../services/trip-state.service');
 const { buildTripSnapshotWithPath, TRIP_INCLUDE } = require('../services/trip-view');
 const publisher = require('../services/trip-events.publisher');
+const { SEAT_OCCUPYING_STATUSES } = require('../utils/booking-status');
 
 /**
  * Resume / replay — the half of the realtime channel that was missing.
@@ -68,7 +69,11 @@ function registerResumeProtocol(namespace, role) {
         const permitted =
           role === 'DRIVER'
             ? trip.driverId === viewerId
-            : trip.requesterId === viewerId || trip.bookings.some((b) => b.userId === viewerId);
+            : trip.requesterId === viewerId ||
+              // A seat that still counts — not any row. A hold released or a
+              // booking cancelled last week let the rider back into the trip's
+              // live feed and its passengers-only chat.
+              trip.bookings.some((b) => b.userId === viewerId && SEAT_OCCUPYING_STATUSES.includes(b.status));
         if (!permitted) {
           if (typeof callback === 'function') callback({ error: 'forbidden' });
           return;

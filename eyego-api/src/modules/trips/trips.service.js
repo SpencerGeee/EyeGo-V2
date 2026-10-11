@@ -322,21 +322,6 @@ async function createTrip(driverId, data) {
   return trip;
 }
 
-// Driver phone is deliberately excluded from every other trip/booking query
-// (privacy — trip listings are visible to any rider browsing, not just those
-// booked). The chat call button needs a real number to dial, so expose it
-// through a narrow, auth-gated lookup instead: only a rider with an active
-// booking on THIS trip can resolve it.
-async function getTripDriverPhone(tripId, userId) {
-  const booking = await prisma.booking.findFirst({
-    where: { tripId, userId, status: { notIn: ['CANCELLED', 'NO_SHOW'] } },
-  });
-  if (!booking) throw new AppError('You do not have an active booking on this trip', 403, 'NOT_BOOKED');
-  const trip = await prisma.trip.findUnique({ where: { id: tripId }, select: { driver: { select: { phone: true } } } });
-  if (!trip?.driver?.phone) throw new NotFoundError('Driver contact');
-  return trip.driver.phone;
-}
-
 /** Statuses at which a trip is still a public, joinable listing. */
 const PUBLICLY_VISIBLE_TRIP_STATUSES = ['SCHEDULED', 'FILLING'];
 
@@ -2392,4 +2377,4 @@ async function deleteTripAlert(userId, id) {
   return { deleted: true };
 }
 
-module.exports = { createTripAlert, listTripAlerts, deleteTripAlert, getNearbyAvailableDrivers, createTrip, getTrip, getTripDriverPhone, getTripByShareToken, getSeatMap, getPulseSchedules, searchTrips, getActiveTrip, completeTrip, getTripReceipt, driverNoShow, riderNoShow, scheduleTrip, getTrackingData, getScheduledRides, cancelScheduledRide, processScheduledRideIntents, saveLiveActivityToken, clearLiveActivityToken, estimateDeviationSurcharge };
+module.exports = { createTripAlert, listTripAlerts, deleteTripAlert, getNearbyAvailableDrivers, createTrip, getTrip, getTripByShareToken, getSeatMap, getPulseSchedules, searchTrips, getActiveTrip, completeTrip, getTripReceipt, driverNoShow, riderNoShow, scheduleTrip, getTrackingData, getScheduledRides, cancelScheduledRide, processScheduledRideIntents, saveLiveActivityToken, clearLiveActivityToken, estimateDeviationSurcharge };

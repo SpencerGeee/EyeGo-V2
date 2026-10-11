@@ -104,6 +104,12 @@ export interface TripSnapshot {
      * every consumer must handle its absence rather than assume a string.
      */
     phone: string | null;
+    /**
+     * A call is legitimate right now (live trip). True even when `phone` is
+     * null — masked calling, or a room frame — because useTripCall then asks
+     * POST /contact/call, which decides per caller.
+     */
+    callable?: boolean;
     photo: string | null;
     lat: number | null; lng: number | null; heading: number | null;
   } | null;

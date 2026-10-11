@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import {
   section, check, summary, info, GET, POST, PATCH, req, makeRider, makeDriver, goOnline, boardEveryone,
-  until, advanceTrip, ACCRA, BASE,
+  until, advanceTrip, connectSocket, sleep, ACCRA, BASE,
 } from './lib.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -188,6 +188,18 @@ async function main() {
     return `+${reward} each (rider also +500 change)`;
   });
 
+  await check('the receipt is the shape the app validates — and carries no driver number', async () => {
+    // packages/api getReceipt validates `data.receipt` against ReceiptSchema:
+    // bookingId, paymentMethod, receiptNumber (null for cash), fareBreakdown.
+    const { receipt } = await GET(`/receipts/${ctx.bookingId}`, { token: ctx.rider.token });
+    if (receipt?.bookingId !== ctx.bookingId) throw new Error(`bookingId ${receipt?.bookingId}`);
+    if (!receipt.paymentMethod) throw new Error('no paymentMethod');
+    if (!(receipt.receiptNumber === null || typeof receipt.receiptNumber === 'string')) throw new Error(`receiptNumber ${receipt.receiptNumber}`);
+    if (!Number.isFinite(receipt.fareBreakdown?.total)) throw new Error(`fareBreakdown ${JSON.stringify(receipt.fareBreakdown)}`);
+    if (JSON.stringify(receipt).includes(ctx.driver.phone.slice(-9))) throw new Error('the driver’s number is on the receipt');
+    return `${receipt.paymentMethod} · ${receipt.receiptNumber ?? 'no number (cash)'} · ${receipt.fareBreakdown.total}`;
+  });
+
   await check('calling after the ride is over is refused (no number harvesting)', () =>
     expectStatus('POST', '/contact/call', ctx.rider.token, { tripId: ctx.tripId, calleeRole: 'DRIVER' }, [409]));
 
@@ -256,6 +268,25 @@ async function main() {
       const held = await db.booking.count({ where: { tripId: ctx.busId, userId: ctx.stranger.id } });
       if (held) throw new Error(`${held} seats held in the stranger's name`);
       return out;
+    });
+    await check('a rider only BROWSING the bus hears its room — and no phone number in it', async () => {
+      const sock = await connectSocket('/passenger', ctx.stranger.token);
+      try {
+        sock.emit('passenger:join_trip_room', { tripId: ctx.busId });
+        await sleep(1500);
+        const guestPhone = '0249998877';
+        const second = await makeRider('E2E Guest Booker');
+        await POST('/bookings', { tripId: ctx.busId, seatNumber: 2, paymentMethod: 'CASH', guestName: 'Ama Guest', guestPhone }, { token: second.token });
+        // Every frame the browser receives — trip:event, trip:seat_update, all of it.
+        await sock.waitFor((f) => f.event.startsWith('trip:'), 15000, 'a room frame');
+        await sleep(2000);
+        const room = sock.frames.filter((f) => f.event.startsWith('trip:')).map((f) => JSON.stringify(f.payload));
+        const leaks = room.filter((t) => t.includes(ctx.busDriver.phone.slice(-9)) || t.includes(guestPhone.slice(-9)) || t.includes('Ama Guest'));
+        if (leaks.length) throw new Error(`${leaks.length}/${room.length} room frames carry a number or the guest: ${leaks[0].slice(0, 160)}`);
+        return `${room.length} frames, none personal`;
+      } finally {
+        sock.close();
+      }
     });
     await check('the seated host still can', async () => {
       await POST(`/trips/${ctx.busId}/group`, { isCoverAll: true }, { token: ctx.busRider.token });

@@ -7,7 +7,6 @@ import {
   ScrollView,
   Image,
   Platform,
-  Linking,
   } from 'react-native';
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import { useKeyboardState, useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
@@ -15,7 +14,7 @@ import Animated, { useAnimatedStyle } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { MotiView, goBack, notify } from '@eyego/ui';
+import { MotiView, goBack } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useChatUnread } from '../../../stores/chatUnread.store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -24,6 +23,7 @@ import NetInfo from '@react-native-community/netinfo';
 import { useAuthStore } from '../../../stores/auth.store';
 import { useShallow } from 'zustand/react/shallow';
 import { useRideStore } from '../../../stores/ride.store';
+import { useTripCall } from '../../../hooks/useTripCall';
 import { fonts, fontSizes, spacing, radii, withOpacity, springs } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
 import { scheduleLocalNotification } from '../../../utils/notifications';
@@ -163,6 +163,7 @@ export default function ChatScreen() {
   const autoClearTypingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const driver = syncedTrip?.driver;
+  const tripCall = useTripCall();
 
   const processOfflineOutbox = useCallback(async () => {
     if (!id) return;
@@ -647,21 +648,9 @@ export default function ChatScreen() {
           </View>
         </View>
         <Pressable
-          onPress={async () => {
-            // driver.phone is never included in the trip payload (privacy —
-            // trip listings are visible pre-booking), so this always used to
-            // be undefined and the button silently did nothing. Resolve it
-            // through the auth-gated contact endpoint instead.
-            if (!id) return;
-            try {
-              const res = await tripsApi.getContact(id);
-              const phone = (res.data as any)?.data?.phone;
-              if (phone) Linking.openURL(`tel:${phone}`);
-              else notify('Unavailable', "Driver's number isn't available right now.");
-            } catch {
-              notify('Unavailable', "Couldn't get the driver's number. Please try again.");
-            }
-          }}
+          // The one call path (useTripCall → POST /contact/call): live trips
+          // only, and masked through EyeGo's number when that is switched on.
+          onPress={() => void tripCall({ tripId: id, name: driver?.name })}
           style={styles.callBtn}
          accessibilityRole="button" accessibilityLabel="Call your driver">
           <Ionicons name="call-outline" size={20} color={colors.primary} />

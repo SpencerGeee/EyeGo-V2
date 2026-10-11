@@ -414,7 +414,7 @@ function PassengerRow({
           </Text>
         </View>
       </Pressable>
-      {p.phone ? (
+      {p.phone || p.callable ? (
         <Pressable
           onPress={() => void tripCall({ tripId, bookingId: p.bookingId, phone: p.phone, name: p.name })}
           hitSlop={8}

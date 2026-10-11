@@ -142,6 +142,8 @@ const TRIP_INCLUDE = Object.freeze({
  * attached and the ride has not finished. Deliberately excludes every terminal
  * status — the ride is over, so the reason to have the number is too.
  */
+const maskedCalling = () => require('../modules/contact/contact.service').maskedCallingOn();
+
 const CONTACTABLE_STATUSES = new Set([
   'DRIVER_ASSIGNED',
   'DRIVER_EN_ROUTE',
@@ -353,7 +355,10 @@ function buildTripSnapshot(trip, viewer = {}) {
            * a worse safety outcome than an exposed number — but there is no
            * argument at all for keeping it afterwards.
            */
-          phone: CONTACTABLE_STATUSES.has(trip.status) ? trip.driver.phone : null,
+          // Masked calling on: never the real number — `callable` and
+          // POST /contact/call (contact.service) bridge it instead.
+          phone: CONTACTABLE_STATUSES.has(trip.status) && !maskedCalling() ? trip.driver.phone : null,
+          callable: CONTACTABLE_STATUSES.has(trip.status),
           photo: trip.driver.profilePhoto,
           lat: trip.driver.currentLat,
           lng: trip.driver.currentLng,
@@ -542,7 +547,7 @@ function buildTripSnapshot(trip, viewer = {}) {
         (b) => b.guestName && !['CANCELLED'].includes(b.status),
       );
       return withGuest
-        ? { name: withGuest.guestName, phone: withGuest.guestPhone ?? null }
+        ? { name: withGuest.guestName, phone: maskedCalling() ? null : withGuest.guestPhone ?? null }
         : null;
     })(),
 

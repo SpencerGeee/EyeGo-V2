@@ -637,16 +637,18 @@ async function main() {
   if (ctx.tripId) {
     section('19 · trip-adjacent rider reads');
 
-    await check('GET /trips/:id/contact gives the rider a number to call', async () => {
-      const r = await GET(`/trips/${ctx.tripId}/contact`, T);
-      const p = r.phone ?? r;
-      if (!p) throw new Error(`no phone: ${JSON.stringify(r).slice(0, 160)}`);
-      return String(p).replace(/\d(?=\d{3})/g, '•');
+    // POST /contact/call is the one call path (GET /trips/:id/contact is gone:
+    // it gave the number out for ever after a ride and ignored masking).
+    await check('POST /contact/call gives the rider a way to reach the driver', async () => {
+      const r = await POST('/contact/call', { tripId: ctx.tripId, calleeRole: 'DRIVER' }, T);
+      if (r.mode === 'CALLBACK') return 'masked — EyeGo rings the rider';
+      if (!r.phone) throw new Error(`DIRECT with no phone: ${JSON.stringify(r).slice(0, 160)}`);
+      return String(r.phone).replace(/\d(?=\d{3})/g, '•');
     });
 
     await check("a rider not on the trip cannot read the driver's number", async () => {
       const other = await makeRider('Nosy Rider 3');
-      return refused('GET', `/trips/${ctx.tripId}/contact`, { token: other.token });
+      return refused('POST', '/contact/call', { token: other.token, body: { tripId: ctx.tripId, calleeRole: 'DRIVER' }, allow: [403] });
     });
 
     await check('GET /trips/:id returns a fare on a ROUTELESS on-demand trip', async () => {

@@ -3,7 +3,7 @@
 const redis = require('../config/redis');
 const { notifications: pushNotifications } = require('../services/push.service');
 const logger = require('../utils/logger');
-const { seatOccupyingWhere } = require('../utils/booking-status');
+const { seatOccupyingWhere, SEAT_OCCUPYING_STATUSES } = require('../utils/booking-status');
 
 const TRIP_ROOM = (tripId) => `trip:${tripId}`;
 /**
@@ -100,7 +100,8 @@ module.exports = function registerPassengerSocket(io, passengerNamespace) {
         tripDriverId = trip.driverId;
         const isPubliclyBooking = ['SCHEDULED', 'FILLING'].includes(trip.status);
         hasBooking = trip.bookings.some(
-          b => b.userId === userId && b.status !== 'CANCELLED'
+          // A seat that still counts (expired / no-show / refunded do not).
+          b => b.userId === userId && SEAT_OCCUPYING_STATUSES.includes(b.status)
         );
 
         if (!isPubliclyBooking && !hasBooking) {

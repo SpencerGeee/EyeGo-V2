@@ -314,8 +314,12 @@ async function main() {
     return 'scoped to the owner';
   });
 
-  await check('the masked contact relay answers for a rider on the trip', async () => {
-    const { status, body } = await req('GET', `/trips/${ctx.tripId}/contact`, { token: ctx.rider.token, raw: true });
+  await check('the one call path answers for a rider on the trip', async () => {
+    // POST /contact/call replaced GET /trips/:id/contact, which handed out the
+    // driver's real number for ever after a ride and ignored masked calling.
+    const { status, body } = await req('POST', '/contact/call', {
+      token: ctx.rider.token, raw: true, body: { tripId: ctx.tripId, calleeRole: 'DRIVER' },
+    });
     if (status >= 500) throw new Error(`contact 500'd: ${body?.message}`);
     // No driver has been assigned to a SCHEDULED bus in this test, so a stated
     // refusal is correct; a 500 or a silent empty string is not.

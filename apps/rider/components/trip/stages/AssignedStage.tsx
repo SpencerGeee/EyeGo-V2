@@ -284,7 +284,7 @@ function AssignedStageImpl() {
               // DriverInfoCard renders its call button only when given a
               // handler, so no number means no button — rather than a button
               // that opens the dialler on nothing.
-              onCall={driver.phone ? handleCall : undefined}
+              onCall={driver.phone || driver.callable ? handleCall : undefined}
               onChat={() => tripId && goDeeper(`/ride/${tripId}/chat` as Href)}
               unreadChats={unreadChats}
             />

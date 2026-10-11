@@ -31,6 +31,8 @@ export interface StopPassenger {
   /** Present when the booker is not the traveller. */
   bookedBy: string | null;
   phone: string | null;
+  /** A call is possible even with no number here (masked calling) — see useTripCall. */
+  callable: boolean;
   seatNumber: number | null;
   /** Extra seats this one booking occupies, anchor excluded. */
   extraSeats: number[];
@@ -129,6 +131,7 @@ function passengerFrom(b: any): StopPassenger {
     name: str(b?.guestName) ?? str(b?.user?.name) ?? 'Passenger',
     bookedBy: str(b?.guestName) ? str(b?.user?.name) : null,
     phone: str(b?.guestPhone) ?? str(b?.user?.phone),
+    callable: b?.callable === true || !!(str(b?.guestPhone) ?? str(b?.user?.phone)),
     seatNumber: num(b?.seatNumber),
     extraSeats: Array.isArray(b?.extraSeatNumbers)
       ? b.extraSeatNumbers.filter((n: unknown) => typeof n === 'number')

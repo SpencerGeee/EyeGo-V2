@@ -48,6 +48,8 @@ export interface PassengerSheetData {
   /** Who is paying for this seat, when somebody else is. */
   coveredBy?: string | null;
   phone?: string | null;
+  /** Masked calling: no number to show, and the call still works. */
+  callable?: boolean;
   photo?: string | null;
   seatNumber?: number | null;
   /** How many seats this one booking occupies. */
@@ -103,7 +105,7 @@ export function PassengerSheet({
   const paid = String(p.paymentStatus ?? '').toUpperCase() === 'PAID';
 
   const call = () => {
-    if (!p.phone) return;
+    if (!p.phone && !p.callable) return;
     void Haptics.selectionAsync().catch(() => {});
     void tripCall({ tripId, bookingId: p.bookingId, phone: p.phone, name: p.name });
   };
@@ -149,7 +151,7 @@ export function PassengerSheet({
                 </Text>
               ) : (
                 <Text style={styles.sub} numberOfLines={1}>
-                  No phone number on this booking
+                  {p.callable ? 'Calls go through EyeGo — numbers stay private' : 'No phone number on this booking'}
                 </Text>
               )}
             </View>
@@ -215,8 +217,8 @@ export function PassengerSheet({
           <View style={styles.reachRow}>
             <Pressable
               onPress={call}
-              disabled={!p.phone}
-              style={[styles.reachBtn, !p.phone && { opacity: 0.4 }]}
+              disabled={!p.phone && !p.callable}
+              style={[styles.reachBtn, !p.phone && !p.callable && { opacity: 0.4 }]}
               accessibilityRole="button"
               accessibilityLabel={`Call ${p.name}`}
             >

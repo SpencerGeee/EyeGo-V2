@@ -129,7 +129,14 @@ function publish(trip, event, snapshotOverride = null) {
      * frame cannot erase the code between two personal ones (see mergeSnapshot
      * in tripChannel.ts).
      */
-    const roomRiderView = driverView;
+    // …and no phone numbers. On a group bus this room includes riders only
+    // BROWSING the trip; it carried the driver's number and any booked
+    // guest's name and number to every one of them.
+    const roomRiderView = {
+      ...driverView,
+      passenger: null,
+      driver: driverView?.driver ? { ...driverView.driver, phone: null } : driverView?.driver,
+    };
     const personalRiderView =
       snapshotOverride ?? buildTripSnapshot(trip, { forUserId: trip.requesterId ?? null });
 
@@ -268,10 +275,12 @@ async function publishSeatUpdate(tripId) {
      * at the kerb (item 13) — and for exactly the same reason it must not ride
      * out to the other passengers. One field, two audiences, so two payloads.
      */
-    const riderSafe = {
-      ...payload,
-      bookings: payload.bookings.map(({ guestPhone, ...b }) => b),
-    };
+    //
+    // And no booking list at all. Stripping guestPhone still sent every
+    // passenger's name, user id, fare and payment status — and a guest's name
+    // — to every rider BROWSING the bus. The rider's seat picker reads
+    // `seatData` (and today only refetches); the list is the driver's.
+    const { bookings: _driverOnly, ...riderSafe } = payload;
     io.of('/passenger').to(`trip:${tripId}`).emit('trip:seat_update', riderSafe);
     if (trip.driverId) {
       io.of('/driver').to(`driver:${trip.driverId}`).emit('trip:seat_update', payload);

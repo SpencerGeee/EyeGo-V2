@@ -1536,6 +1536,8 @@ export default function ActiveTripScreen() {
       // reaches the person at the kerb. The booker's number reaches whoever
       // ordered the car, who may be across town.
       phone: b.guestPhone ?? b.user?.phone ?? null,
+      // Masked calling sends no number but the call still works.
+      callable: (b as any).callable === true || !!(b.guestPhone ?? b.user?.phone),
       // "Is somebody OTHER than the account holder travelling", which is what
       // every caller of this flag actually wants to know. `!b.user?.id` asked
       // "was this booked by a logged-out walk-up", so a named guest booked from
@@ -1578,6 +1580,7 @@ export default function ActiveTripScreen() {
       bookedBy: p.bookedBy,
       coveredBy: null,
       phone: p.phone,
+      callable: p.callable,
       photo: null,
       seatNumber: p.seatNumber,
       seatsHeld: p.seatCount,

@@ -49,7 +49,6 @@ router.get('/alerts', authenticate, tripsController.listTripAlerts);
 router.post('/alerts', authenticate, tripsController.createTripAlert);
 router.delete('/alerts/:id', authenticate, tripsController.deleteTripAlert);
 router.get('/:id', authenticate, tripsController.getTrip);
-router.get('/:id/contact', authenticate, tripsController.getTripContact);
 router.get('/:id/seats', authenticate, tripsController.getSeatMap);
 router.get('/:id/receipt', authenticate, tripsController.getTripReceipt);
 // Group-hub joiner picking their own pickup point — preview the deviation
