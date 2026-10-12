@@ -173,62 +173,51 @@ async function nominatimForwardGeocode(query) {
  * Results are cached in Redis for a day. A coordinate's name does not change,
  * and the SOS list re-renders on every operator poll.
  */
-async function placeNameFor(lat, lng) {
+/**
+ * BUGFIX ("the stops show 'Accra, Greater Accra, Ghana' — a rider wouldn't
+ * know where that is"). This had its own tier list — Mapbox address → poi →
+ * the CITY tier — and only then OSM. Over most of Accra Mapbox has no address
+ * or poi, so the city tier answered and OSM (which has the street) was never
+ * asked: every derived stop was named after the whole city. geo.service has
+ * the right order (precise Mapbox → OSM → city, flagged `approximate`); this
+ * now asks it instead of keeping a second, wrong copy.
+ *
+ * Returns `{ name, fullAddress, approximate }` or null. Cached a day under a
+ * new key — the old cache holds the wrong-order strings.
+ */
+async function placeFor(lat, lng) {
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-  const key = `geo:rev:${lat.toFixed(4)},${lng.toFixed(4)}`;
+  const key = `geo:rev2:${lat.toFixed(4)},${lng.toFixed(4)}`;
   let redis = null;
   try {
     redis = require('../config/redis');
     const hit = await redis.get(key);
     // Empty string is a cached MISS — distinct from no cache entry at all, so a
     // coordinate in the sea is not re-queried on every poll.
-    if (hit != null) return hit || null;
+    if (hit != null) return hit ? JSON.parse(hit) : null;
   } catch {
     /* cache is optional */
   }
 
-  let name = null;
-  const hasToken =
-    env.MAPBOX_SECRET_TOKEN && !/placeholder|your[-_]?token/i.test(env.MAPBOX_SECRET_TOKEN);
-  if (hasToken) {
-    /**
-     * NARROWEST TYPE FIRST — see REVERSE_TYPE_TIERS in modules/geo/geo.service.js
-     * for the full reasoning.
-     *
-     * `types=address,place,poi` in one call does NOT prefer the address: Mapbox
-     * ranks the response itself, and over most of Accra the `place` polygon
-     * (the city) outranks everything, so this returned "Accra, Greater Accra,
-     * Ghana" for a specific kerb. Asking one tier at a time is what makes the
-     * preference ours rather than the geocoder's.
-     */
-    for (const types of ['address', 'poi', 'neighborhood,locality,place']) {
-      try {
-        const url =
-          `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json` +
-          `?types=${types}&country=GH&limit=1&access_token=${env.MAPBOX_SECRET_TOKEN}`;
-        const { data } = await axios.get(url, { timeout: 5000 });
-        name = data.features?.[0]?.place_name ?? null;
-        if (name) break;
-      } catch (err) {
-        logger.warn(`reverse geocode (mapbox ${types}) failed for ${lat},${lng}: ${err.message}`);
-      }
+  let place = null;
+  try {
+    // Lazy: modules/geo is a consumer of this file's neighbours, not a dependency.
+    const hit = await require('../modules/geo/geo.service').reverseGeocode({ lat, lng });
+    if (hit?.name) {
+      place = { name: hit.name, fullAddress: hit.fullAddress ?? hit.name, approximate: hit.approximate === true };
     }
-  }
-  if (!name) {
-    try {
-      const { data } = await axios.get('https://nominatim.openstreetmap.org/reverse', {
-        params: { lat, lon: lng, format: 'json', zoom: 18, addressdetails: 1 },
-        headers: { 'User-Agent': 'EyeGo/2.0 (eyego.app)' },
-        timeout: 5000,
-      });
-      name = data?.display_name ?? null;
-    } catch (err) {
-      logger.warn(`reverse geocode (nominatim) failed for ${lat},${lng}: ${err.message}`);
-    }
+  } catch (err) {
+    logger.warn(`reverse geocode failed for ${lat},${lng}: ${err.message}`);
   }
 
-  if (redis) await redis.set(key, name ?? '', 'EX', 86_400).catch(() => {});
-  return name;
+  if (redis) await redis.set(key, place ? JSON.stringify(place) : '', 'EX', 86_400).catch(() => {});
+  return place;
 }
 
-module.exports = { getDirections, roadDistanceKm, forwardGeocode, reverseGeocode, placeNameFor, nominatimForwardGeocode, isWithinGhana };
+/** The full address line for a coordinate (SOS console), or null. */
+async function placeNameFor(lat, lng) {
+  const place = await placeFor(lat, lng);
+  return place ? place.fullAddress : null;
+}
+
+module.exports = { getDirections, roadDistanceKm, forwardGeocode, reverseGeocode, placeFor, placeNameFor, nominatimForwardGeocode, isWithinGhana };

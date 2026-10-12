@@ -1,6 +1,6 @@
 const prisma = require('../config/database');
 const logger = require('../utils/logger');
-const { getDirections, placeNameFor } = require('./mapbox.service');
+const { getDirections, placeFor } = require('./mapbox.service');
 const { haversineKm } = require('../modules/trips/fare.calculator');
 
 /**
@@ -63,6 +63,30 @@ function sampleAlong(coordinates, spacingKm) {
 }
 
 /**
+ * A stop's name: a place a rider can find, short enough for a chip.
+ *
+ * "Obuakon Avenue, Shiashie" — the first two parts. When the geocoder only
+ * knows the city (`approximate`), the city is NOT a name for a point on the
+ * road; the distance label is more useful than "Accra, Greater Accra, Ghana".
+ */
+async function stopNameFor(route, p) {
+  let place = null;
+  try {
+    place = await placeFor(p.lat, p.lng);
+  } catch {
+    /* falls back below */
+  }
+  if (place && !place.approximate) {
+    const short = String(place.fullAddress || place.name).split(',').map((s) => s.trim()).filter(Boolean).slice(0, 2).join(', ');
+    if (short) return short;
+  }
+  return `${Math.round(haversineKm(route.originLat, route.originLng, p.lat, p.lng))} km in`;
+}
+
+/** Names the old namer wrote: a full place_name/display_name down to the country. */
+const LEGACY_NAME = /,\s*ghana\s*$/i;
+
+/**
  * Derive and persist stops for a route that has none.
  *
  * Idempotent: a route that already has stops is left exactly as it is, so this
@@ -76,9 +100,23 @@ async function ensureVirtualStops(routeId) {
   try {
     const route = await prisma.route.findUnique({
       where: { id: routeId },
-      include: { virtualStops: { select: { id: true } } },
+      include: { virtualStops: { select: { id: true, name: true, lat: true, lng: true } } },
     });
-    if (!route || route.virtualStops.length > 0) return;
+    if (!route) return;
+    if (route.virtualStops.length > 0) {
+      /**
+       * Self-heal stops named by the old namer ("Accra, Greater Accra, Ghana").
+       * Renamed IN PLACE — bookings point at these ids. Once per route: a
+       * healed name never ends in ", Ghana", so this is a no-op afterwards.
+       */
+      const stale = route.virtualStops.filter((s) => LEGACY_NAME.test(s.name || ''));
+      for (const s of stale) {
+        const name = await stopNameFor(route, s);
+        await prisma.virtualStop.update({ where: { id: s.id }, data: { name } });
+      }
+      if (stale.length) logger.info('[stops] renamed legacy stop names', { routeId, count: stale.length });
+      return;
+    }
 
     // Too short to have a meaningful middle: both ends would be inside the
     // clearance, so there is nothing to offer.
@@ -114,23 +152,13 @@ async function ensureVirtualStops(routeId) {
      * off, it just has a duller name.
      */
     const named = await Promise.all(
-      candidates.map(async (p, i) => {
-        let name = null;
-        try {
-          // Redis-cached and tier-aware — see placeNameFor. Null for a point
-          // nothing can name, which the fallback below handles.
-          name = await placeNameFor(p.lat, p.lng);
-        } catch {
-          /* falls back below */
-        }
-        return {
-          routeId,
-          name: name ?? `${Math.round(haversineKm(route.originLat, route.originLng, p.lat, p.lng))} km in`,
-          lat: p.lat,
-          lng: p.lng,
-          sequence: i + 1,
-        };
-      }),
+      candidates.map(async (p, i) => ({
+        routeId,
+        name: await stopNameFor(route, p),
+        lat: p.lat,
+        lng: p.lng,
+        sequence: i + 1,
+      })),
     );
 
     await prisma.virtualStop.createMany({ data: named });
