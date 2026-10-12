@@ -922,7 +922,7 @@ function TripChip({
   return (
     <View style={styles.tripChip}>
       <Ionicons name={icon} size={13} color={colors.onSurfaceVariant} />
-      <Text style={styles.tripChipText}>{text}</Text>
+      <Text style={styles.tripChipText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>{text}</Text>
     </View>
   );
 }
