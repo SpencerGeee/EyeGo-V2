@@ -1,12 +1,13 @@
 ﻿import React, { useCallback, useMemo, useEffect, useRef, useState } from 'react';
-import { View, StyleSheet, Pressable, useWindowDimensions, type LayoutChangeEvent } from 'react-native';
-import Animated, { FadeInDown, ReduceMotion } from 'react-native-reanimated';
+import { View, StyleSheet, Pressable, ScrollView, useWindowDimensions, type LayoutChangeEvent } from 'react-native';
+import Animated, { FadeInDown, LinearTransition, ReduceMotion } from 'react-native-reanimated';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { expectTripSurfaceReturn } from '../../../utils/tripSurfaceReturn';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
-import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, springs, withOpacity } from '@eyego/config';
 import {
   Text, Button, GlassSurface, MorphTarget, AppBackground, GradientGlowBorder,
   goDeeper, goBack, notify, goOut, goFresh, Pressable as HapticPressable, getTierTheme, useSheetMetrics,
@@ -92,9 +93,7 @@ function ActionTile({
       accessibilityRole="button"
       accessibilityLabel={label}
     >
-      <View style={[styles.tileIcon, { backgroundColor: withOpacity(tone, 0.1) }]}>
-        <Ionicons name={icon} size={18} color={tone} />
-      </View>
+      <Ionicons name={icon} size={17} color={tone} />
       <Text style={[styles.tileLabel, { color: tone }]} numberOfLines={1}>
         {label}
       </Text>
@@ -160,6 +159,27 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
    * primary — leaving should be the deliberate choice, not the default.
    */
   const [confirmCancel, setConfirmCancel] = useState(false);
+  /**
+   * PEEK, THEN EXPAND ("the card is way too tall and is covering 90% of the
+   * screen … make it much smaller and scrollable"). The peek is the status,
+   * the price and the three actions; the route, the booking's facts and the
+   * leave-in-the-background link are one drag (or tap) up, and scroll.
+   */
+  const [expanded, setExpanded] = useState(false);
+  const grabGesture = useMemo(
+    () =>
+      Gesture.Exclusive(
+        Gesture.Pan()
+          .runOnJS(true)
+          .activeOffsetY([-12, 12])
+          .onEnd((e) => {
+            if (e.translationY < -24 || e.velocityY < -500) setExpanded(true);
+            else if (e.translationY > 24 || e.velocityY > 500) setExpanded(false);
+          }),
+        Gesture.Tap().runOnJS(true).onEnd(() => setExpanded((v) => !v)),
+      ),
+    [],
+  );
   /**
    * The money on the table: what the ride was requested at, and how much the
    * rider has added since. Null until known (a resumed search reads it back
@@ -1131,6 +1151,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
           </>
         ) : (
           <SearchingPanel
+            compact={variant === 'stage' && !expanded}
             status={status as any}
             originText={originLabel}
             destinationText={destinationLabel}
@@ -1311,16 +1332,18 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                   style={{ width: '100%', marginTop: spacing.xl }}
                 />
               )}
-              <Pressable
-                style={styles.activityBtn}
-                onPress={() => goOut('/(tabs)/home')}
-                accessibilityRole="button"
-                accessibilityLabel="Leave without cancelling"
-              >
-                <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ textDecorationLine: 'underline' }}>
-                  Leave without cancelling — keep searching in the background
-                </Text>
-              </Pressable>
+              {(variant === 'route' || expanded) && (
+                <Pressable
+                  style={styles.activityBtn}
+                  onPress={() => goOut('/(tabs)/home')}
+                  accessibilityRole="button"
+                  accessibilityLabel="Leave without cancelling"
+                >
+                  <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ textDecorationLine: 'underline' }} numberOfLines={1}>
+                    Keep searching in the background
+                  </Text>
+                </Pressable>
+              )}
             </>
           )
         ) : variant === 'stage' && (status === 'timeout' || (status === 'error' && !conflict)) && journeyRef.current ? (
@@ -1481,9 +1504,32 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
         pointerEvents="box-none"
         onLayout={onCardLayout}
       >
-        <View style={styles.panel}>
-          {body('stage')}
-        </View>
+        <Animated.View
+          style={styles.panel}
+          layout={LinearTransition.springify()
+            .stiffness(springs.emphasized.stiffness)
+            .damping(springs.emphasized.damping)
+            .mass(springs.emphasized.mass)}
+        >
+          <GestureDetector gesture={grabGesture}>
+            <View
+              style={styles.grabZone}
+              accessible
+              accessibilityRole="button"
+              accessibilityLabel={expanded ? 'Show less' : 'Show trip details'}
+            >
+              <View style={styles.grabber} />
+            </View>
+          </GestureDetector>
+          <ScrollView
+            style={{ maxHeight: expanded ? screenH * 0.58 - insets.top : screenH * 0.42 }}
+            bounces={false}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.panelScroll}
+          >
+            {body('stage')}
+          </ScrollView>
+        </Animated.View>
       </Animated.View>
     </View>
     </MorphTarget>
@@ -1569,11 +1615,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderRadius: radii['3xl'],
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: withOpacity(colors.onSurface, 0.12),
-    paddingTop: spacing.lg,
-    paddingBottom: spacing.lg,
-    paddingHorizontal: spacing.xl,
-    alignItems: 'center',
-    gap: spacing.md,
+    paddingBottom: spacing.md,
+    paddingHorizontal: spacing.lg,
+    overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.32,
@@ -1591,8 +1635,12 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   /* Stretch, not centre — the panel is a full-width block now. */
   panelBody: {
     alignSelf: 'stretch',
-    gap: spacing.lg,
+    gap: spacing.md,
   },
+  panelScroll: { paddingBottom: spacing.xs },
+  /** The whole strip above the content is the target, not the 36×4 bar. */
+  grabZone: { height: 28, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.xs },
+  grabber: { width: 36, height: 4, borderRadius: 2, backgroundColor: withOpacity(colors.onSurface, 0.22) },
   /**
    * NOT a sheet stage, deliberately.
    *
@@ -1686,10 +1734,13 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   actionRow: { flexDirection: 'row', gap: spacing.sm },
   tile: {
     flex: 1,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 6,
-    paddingVertical: spacing.md,
-    borderRadius: radii.lg,
+    minHeight: 44,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radii.full,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.outline,
     backgroundColor: colors.surfaceContainer,

@@ -1,5 +1,6 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   Easing,
   cancelAnimation,
@@ -443,6 +444,32 @@ export function DispatchOfferCard({
    */
   const [declineArmed, setDeclineArmed] = useState(false);
   const [armSeconds, setArmSeconds] = useState(0);
+
+  /**
+   * PEEK, THEN EXPAND — the same rule as the rider's search card ("the card is
+   * way too tall … the map showing only small at the top"). The peek is what a
+   * driver decides on in two seconds: the money, the two distances, a short
+   * wallet, and the two actions. The commission split, the queue position, the
+   * rider's note and the house rules are one drag (or tap) up.
+   */
+  const [expanded, setExpanded] = useState(false);
+  const peek = isSheet && !expanded;
+  const { height: screenH } = useWindowDimensions();
+  const grab = useMemo(
+    () =>
+      Gesture.Exclusive(
+        Gesture.Pan()
+          .runOnJS(true)
+          .activeOffsetY([-12, 12])
+          .onEnd((e) => {
+            if (e.translationY < -24 || e.velocityY < -500) setExpanded(true);
+            else if (e.translationY > 24 || e.velocityY > 500) setExpanded(false);
+          }),
+        Gesture.Tap().runOnJS(true).onEnd(() => setExpanded((v) => !v)),
+      ),
+    [],
+  );
+  const asksCount = (offer.pickupNote ? 1 : 0) + (offer.ridePrefs?.length ?? 0);
   useEffect(() => {
     if (!declineArmed) {
       setArmSeconds(0);
@@ -554,6 +581,25 @@ export function DispatchOfferCard({
       {/* ── The glass panel ── */}
       <View style={[styles.panel, isSheet && styles.sheetPanel]}>
         <GlassSurface style={StyleSheet.absoluteFill} borderRadius={0} intensity="high" />
+        {isSheet ? (
+          <GestureDetector gesture={grab}>
+            <View
+              style={styles.grabZone}
+              accessible
+              accessibilityRole="button"
+              accessibilityLabel={expanded ? 'Show less' : 'Show ride details'}
+            >
+              <View style={[styles.grabber, { backgroundColor: colors.onSurface + '38' }]} />
+            </View>
+          </GestureDetector>
+        ) : null}
+        <ScrollView
+          style={isSheet && expanded ? { maxHeight: screenH * 0.5 } : undefined}
+          scrollEnabled={isSheet && expanded}
+          bounces={false}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={peek ? styles.bodyPeek : styles.body}
+        >
         {/*
           ── THE HERO: MONEY, ON ITS OWN GROUND ──────────────────────────────
           "Beautify the dispatch page of the driver app before the driver
@@ -620,7 +666,7 @@ export function DispatchOfferCard({
                   driver's — and a commission split is a thing a driver wants to
                   see BEFORE they swipe, not a footnote under a figure that is
                   not theirs. */}
-              {earnings != null && offer.farePesewas != null && offer.farePesewas > earnings ? (
+              {!peek && earnings != null && offer.farePesewas != null && offer.farePesewas > earnings ? (
                 <View style={[styles.chip, { backgroundColor: colors.surfaceContainerHigh, borderColor: colors.outline }]}>
                   <Text style={[styles.chipText, { color: colors.onSurfaceVariant }]}>
                     {Math.round((earnings / offer.farePesewas) * 100)}% OF {formatGhs(offer.farePesewas)}
@@ -638,7 +684,7 @@ export function DispatchOfferCard({
                 </View>
               ) : null}
 
-              {tripKm != null && tripKm >= LONG_TRIP_KM ? (
+              {!peek && tripKm != null && tripKm >= LONG_TRIP_KM ? (
                 <View style={[styles.chip, { backgroundColor: colors.surfaceContainerHigh, borderColor: colors.outline }]}>
                   <Ionicons name="time-outline" size={10} color={colors.onSurface} />
                   <Text style={[styles.chipText, { color: colors.onSurface }]}>LONG TRIP</Text>
@@ -666,7 +712,7 @@ export function DispatchOfferCard({
               eighth means seven drivers already passed. It was on the payload
               and had nowhere to go.
             */}
-            {offer.attempt != null && offer.totalCandidates != null && offer.totalCandidates > 0 ? (
+            {!peek && offer.attempt != null && offer.totalCandidates != null && offer.totalCandidates > 0 ? (
               <Text style={[styles.cascade, { color: colors.onSurfaceVariant }]}>
                 {offer.attempt === 1
                   ? 'You are the closest driver'
@@ -756,9 +802,26 @@ export function DispatchOfferCard({
           </View>
         </View>
 
-        <RiderAsks note={offer.pickupNote} prefs={offer.ridePrefs} />
+        {peek ? (
+          asksCount > 0 ? (
+            <Pressable
+              onPress={() => setExpanded(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Show the rider's note and requests"
+              style={[styles.asksPill, { borderColor: colors.outline, backgroundColor: colors.surfaceContainerHigh }]}
+            >
+              <Ionicons name="chatbox-ellipses-outline" size={13} color={colors.onSurface} />
+              <Text variant="caption" color={colors.onSurface}>
+                {offer.pickupNote ? 'Rider left a note' : `${asksCount} rider request${asksCount === 1 ? '' : 's'}`}
+              </Text>
+              <Ionicons name="chevron-up" size={13} color={colors.onSurfaceVariant} />
+            </Pressable>
+          ) : null
+        ) : (
+          <RiderAsks note={offer.pickupNote} prefs={offer.ridePrefs} />
+        )}
 
-        {isReassignment || isRequest ? (
+        {!peek && (isReassignment || isRequest) ? (
           <Text variant="caption" color={colors.onSurfaceVariant} style={styles.rule}>
             First driver to accept gets it — this one is not being held for you.
           </Text>
@@ -782,7 +845,7 @@ export function DispatchOfferCard({
               board. You are {formatGhs(walletShortfall)} short.
             </Text>
           </View>
-        ) : walletRequired > 0 ? (
+        ) : !peek && walletRequired > 0 ? (
           <View style={styles.walletHint}>
             <Ionicons name="cash-outline" size={13} color={colors.onSurfaceVariant} />
             <Text variant="caption" color={colors.onSurfaceVariant}>
@@ -791,8 +854,13 @@ export function DispatchOfferCard({
           </View>
         ) : null}
 
-        {/* ── Actions ── */}
+        </ScrollView>
+
+        {/* ── Actions ── Pass beside the swipe in the sheet, so the two decisions
+            sit on one line and the card gives the height back to the map. */}
         <View style={styles.actions}>
+          <View style={isSheet ? styles.actionPair : styles.actions}>
+          <View style={isSheet ? { flex: 1 } : undefined}>
           <SwipeToConfirm
             label={accepted ? 'Accepted' : 'Swipe to accept'}
             loadingLabel="Claiming…"
@@ -807,6 +875,7 @@ export function DispatchOfferCard({
             borderColor={colors.outline}
             height={58}
           />
+          </View>
 
           <Pressable
             onPress={() => {
@@ -831,6 +900,7 @@ export function DispatchOfferCard({
             accessibilityLabel={declineArmed ? 'Confirm pass on this trip' : 'Pass on this trip'}
             style={({ pressed }) => [
               styles.decline,
+              isSheet && styles.declineSide,
               declineArmed && {
                 borderColor: colors.error,
                 backgroundColor: colors.error,
@@ -852,11 +922,12 @@ export function DispatchOfferCard({
                 {busy === 'decline'
                   ? 'Passing…'
                   : declineArmed
-                    ? `Tap again to pass · ${armSeconds}`
+                    ? isSheet ? `Sure? ${armSeconds}` : `Tap again to pass · ${armSeconds}`
                     : 'Pass'}
               </Text>
             </View>
           </Pressable>
+          </View>
 
           {/* Says out loud what passing now costs, because it is no longer
               permanent — see `declineCooldownSeconds` on the server. The old
@@ -1008,6 +1079,20 @@ const makeStyles = (colors: DriverColors) =>
     kindLabel: { fontFamily: fonts.bold, fontSize: 9.5, letterSpacing: 0.9 },
 
     panel: { padding: spacing.xl, gap: spacing.lg, overflow: 'hidden' },
+    body: { gap: spacing.lg },
+    bodyPeek: { gap: spacing.md },
+    grabZone: { height: 24, alignItems: 'center', justifyContent: 'center', marginTop: -spacing.sm, marginBottom: -spacing.sm },
+    grabber: { width: 36, height: 4, borderRadius: 2 },
+    asksPill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      alignSelf: 'flex-start',
+      gap: spacing.xs,
+      minHeight: 32,
+      paddingHorizontal: spacing.md,
+      borderRadius: 999,
+      borderWidth: StyleSheet.hairlineWidth,
+    },
 
     headRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.base },
     /**
@@ -1166,6 +1251,9 @@ const makeStyles = (colors: DriverColors) =>
       paddingHorizontal: spacing.xs,
     },
     actions: { gap: spacing.md },
+    actionPair: { flexDirection: 'row-reverse', alignItems: 'center', gap: spacing.sm },
+    /** Beside the swipe: as tall as it, wide enough for "Sure? 3". */
+    declineSide: { alignSelf: 'auto', minHeight: 58, minWidth: 84, paddingHorizontal: spacing.md },
     decline: {
       alignSelf: 'center',
       paddingHorizontal: spacing.xl,

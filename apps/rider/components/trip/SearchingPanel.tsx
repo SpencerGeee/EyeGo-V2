@@ -113,6 +113,13 @@ export interface SearchingPanelProps {
    * tick keeps it current without re-rendering the whole stage.
    */
   searchEndsAtMs?: number | null;
+  /**
+   * The peek card ("the card is way too tall and is covering 90% of the
+   * screen"): status, then the price with the booking's facts on ONE line.
+   * The itinerary and the chip row are what the expanded card is for — the
+   * map behind it already shows where the ride goes.
+   */
+  compact?: boolean;
 }
 
 /** How long the rider has been waiting, in whole seconds. */
@@ -137,7 +144,7 @@ export function useElapsed(active: boolean): number {
  * is what makes it read as a search rather than as a progress bar that keeps
  * resetting. `withRepeat(..., true)` reverses rather than jumping back.
  */
-function ProgressSweep({ colors, active }: { colors: Colors; active: boolean }) {
+function ProgressSweep({ colors, active, compact }: { colors: Colors; active: boolean; compact?: boolean }) {
   const reduceMotion = useReducedMotion();
   const t = useSharedValue(0);
 
@@ -166,7 +173,7 @@ function ProgressSweep({ colors, active }: { colors: Colors; active: boolean }) 
   }));
 
   return (
-    <View style={[styles.sweepTrack, { backgroundColor: withOpacity(colors.primary, 0.14) }]}>
+    <View style={[styles.sweepTrack, compact && { marginBottom: 0 }, { backgroundColor: withOpacity(colors.primary, 0.14) }]}>
       <Animated.View style={[styles.sweepHead, { backgroundColor: colors.primary }, style]} />
     </View>
   );
@@ -253,6 +260,7 @@ export function SearchingPanel({
   boostedPesewas = 0,
   waiting = false,
   searchEndsAtMs = null,
+  compact = false,
 }: SearchingPanelProps) {
   const colors = useColors();
   const styles2 = useMemo(() => makeStyles(colors), [colors]);
@@ -347,10 +355,10 @@ export function SearchingPanel({
   }, [headline]);
 
   return (
-    <View style={styles2.root}>
+    <View style={[styles2.root, compact && styles2.rootCompact]}>
       {/* THE SEARCH, ON THE EDGE. See the header — this is the move all three
           products share, and it keeps the middle of the sheet for content. */}
-      <ProgressSweep colors={colors} active={live} />
+      <ProgressSweep colors={colors} active={live} compact={compact} />
 
       <View style={styles2.headRow}>
         <RadarChip colors={colors} status={status} />
@@ -383,7 +391,7 @@ export function SearchingPanel({
 
       {/* THE ITINERARY. Shown, not described — the rider's question in this
           minute is "is this going where I said". */}
-      {(originText || destinationText) && (
+      {!compact && (originText || destinationText) && (
         <View style={styles2.itinerary}>
           <View style={styles2.rail}>
             <View style={[styles2.railDot, { borderColor: colors.onSurface }]} />
@@ -409,7 +417,7 @@ export function SearchingPanel({
 
       {/* The facts of the booking, as chips. Small, quiet, and only the ones
           that exist — an empty row of placeholders is worse than no row. */}
-      {(tierLabel || seats > 1 || scheduledFor || paymentLabel) && (
+      {!compact && (tierLabel || seats > 1 || scheduledFor || paymentLabel) && (
         <View style={styles2.chips}>
           {tierLabel ? (
             <View style={styles2.chip}>
@@ -461,6 +469,11 @@ export function SearchingPanel({
               </Text>
             </View>
           ) : null}
+          {compact ? (
+            <Text style={styles2.factsLine} numberOfLines={1}>
+              {[tierLabel, paymentLabel, seats > 1 ? `${seats} seats` : null, scheduledFor].filter(Boolean).join(' · ')}
+            </Text>
+          ) : null}
         </View>
       )}
     </View>
@@ -497,6 +510,13 @@ const styles = StyleSheet.create({
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     root: { gap: spacing.lg },
+    rootCompact: { gap: spacing.md },
+    factsLine: {
+      flexShrink: 1,
+      fontFamily: fonts.medium,
+      fontSize: fontSizes.bodySmall,
+      color: colors.onSurfaceVariant,
+    },
     headRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
     headText: { flex: 1, gap: 2 },
     /* Large, tight and LEFT-aligned. See the header: a centred headline is what
