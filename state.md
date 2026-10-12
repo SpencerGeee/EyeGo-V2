@@ -1,7 +1,18 @@
-# State — 2026-10-10/11 (completeness + rival-parity pass)
+# State — 2026-10-12 (4-item request: sched expiry, driver uri crash, request card, share page + premium UI pass)
 
-## Current Goal
-Close the "while you were away" holes, make both inboxes real, build the rival-parity gaps. DONE — not pushed.
+## Current pass (2026-10-12) — committed locally (19 commits since abc3a76), NOT pushed (ask user)
+Grilled: peek+expand cards · share page immersive auto-theme · maps tilt-intro + orbit-on-waits · audit-first,
+ full redesigns/native OK · 3D journey = hero bus + depth page turns · auto-degrade by perf tier · Where-to
+ focused (no map) · bus LANDS on pickup (never poses as a car) · driver bus tells the story.
+Key commits: 8a549c4 sched settle · 867377b MLRN Images {uri} crash · 0f5a975 peek cards · 22db970/0b1ffaa share
+ page + web 3D bus · 3c8871b neutral highways · 4f2bc12 puck drives road · daa9be3 tilt-in · b861ae9 RidePicker ·
+ a4f1f49 invite page · d2a5685 EAS Firebase file env · e8d7532 widget pill · b04ff6d quiet live-trip channel ·
+ 0242c0c READ_MEDIA_IMAGES · c9337a6 abandoned sessions/vanished bookings · ff81581 rider 3D journey ·
+ 367d885 driver create + bus-booking path journey.
+Verified: tsc rider/driver 0 · API jest 209 · test:maps 37 · static suites green · web pages in real Chrome.
+NOT device-verified: every RN visual (HeroBus flights, depth turns, RidePicker, Where-to, driver create).
+User must: push approval · eas env:create GOOGLE_SERVICES_JSON / GOOGLE_SERVICE_INFO_PLIST (type file) per app ·
+ new EAS builds (widget, permissions, Firebase) · Play declarations (background location, contacts).
 
 ## Decisions (grilled with user 2026-10-10)
 - Inbox (both apps) = away-outcomes.service facts over 30 days in the sheets' words; read state per device.

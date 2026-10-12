@@ -571,3 +571,15 @@ Decisions:
 - Admin Next upgraded within major 15 only; both locks regenerated, no RN/Expo version moved.
 Rejected: firebase-admin / @sentry/node major upgrades (cannot verify push/Sentry locally); per-field length validators (global body cap instead).
 Open: device testing; OTA for the app-side changes (FleetMap only touched in admin); flag the now-live acceptance gate to the client.
+
+## 2026-10-12 [saved]
+Goal: four reported bugs, premium UI pass, 3D booking journey, Android readiness.
+Decisions:
+- Scheduled intents: status is DERIVED from the ride it became (utils/scheduled-intent); sweep persists it.
+- MapLibre 11 Images takes a URI as a bare string; any object is read as {source}.
+- One HeroBus (packages/maps three/HeroBus): slots draw at rest, one transit layer flies between them.
+- Depth page turn = motion/depth (perspective first); low tier / Reduce Motion fall back to fades.
+- Firebase files reach EAS as file env vars (GOOGLE_SERVICES_JSON, GOOGLE_SERVICE_INFO_PLIST).
+Rejected: a fake vehicle on the request map; continuous orbit on every map (battery); hand-coded web bus.
+Open: device-verify every RN visual; push not yet approved.
+
