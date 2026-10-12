@@ -15,6 +15,7 @@ const STATUS_LABEL: Record<string, string> = {
   PENDING: 'Waiting for a match',
   DISPATCHED: 'Looking for a nearby driver',
   MATCHED: 'Confirmed',
+  COMPLETED: 'Completed',
   CANCELLED: 'Cancelled',
   EXPIRED: 'Expired',
 };
@@ -175,7 +176,7 @@ export default function ScheduledRidesScreen() {
         renderItem={({ item }) => {
           const tone =
             item.status === 'MATCHED' ? colors.statusSuccess
-            : item.status === 'CANCELLED' || item.status === 'EXPIRED' ? colors.onSurfaceVariant
+            : !LIVE_STATUSES.includes(item.status) ? colors.onSurfaceVariant
             : colors.primary;
           const [dd, mon] = dayMonth(item.scheduledAt).split(' ');
           return (

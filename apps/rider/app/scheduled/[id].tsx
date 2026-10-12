@@ -45,6 +45,7 @@ const STATUS_COPY: Record<string, { label: string; detail: string; tone: 'live' 
     detail: 'Your driver is booked. Live tracking opens closer to pickup time.',
     tone: 'good',
   },
+  COMPLETED: { label: 'Completed', detail: 'This ride has been taken. Your receipt is in Activity.', tone: 'good' },
   CANCELLED: { label: 'Cancelled', detail: 'This ride was cancelled.', tone: 'dead' },
   EXPIRED: {
     label: 'Expired',

@@ -17,6 +17,7 @@ const mapboxService = require('../../services/mapbox.service');
 const ratingIntegrity = require('../../services/rating-integrity.service');
 const tripState = require('../../services/trip-state.service');
 const { seatOccupyingWhere, sumSeats } = require('../../utils/booking-status');
+const { settledIntentStatus, LIVE_INTENT_STATUSES } = require('../../utils/scheduled-intent');
 const routeGeometry = require('../../services/route-geometry.service');
 const { ensureVirtualStops } = require('../../services/virtual-stops.service');
 
@@ -1813,6 +1814,7 @@ async function getScheduledRides(userId) {
   // there's a real Trip (driver, vehicle, fare) behind it that was never surfaced, so the card
   // looked identical (and detail-less) whether it was still pending or already confirmed.
   const matchedTripIds = intents.map((i) => i.matchedTripId).filter(Boolean);
+  const ridesOf = await intentRides(intents);
   const matchedTrips = matchedTripIds.length
     ? await prisma.trip.findMany({
         where: { id: { in: matchedTripIds } },
@@ -1862,8 +1864,51 @@ async function getScheduledRides(userId) {
 
   return intents.map((intent) => ({
     ...intent,
+    status: settledIntentStatus(intent, ridesOf(intent)),
     matchedTrip: intent.matchedTripId ? tripById.get(intent.matchedTripId) ?? null : null,
   }));
+}
+
+/**
+ * For each intent, the ride it became: its trip's status and whether the rider
+ * still holds a seat on it (see utils/scheduled-intent). Two queries for any
+ * number of intents. Returns a lookup `intent → { tripStatus, riderOn } | null`.
+ */
+async function intentRides(intents) {
+  const tripIds = [...new Set(intents.map((i) => i.matchedTripId).filter(Boolean))];
+  if (!tripIds.length) return () => null;
+  const [trips, seats] = await Promise.all([
+    prisma.trip.findMany({ where: { id: { in: tripIds } }, select: { id: true, status: true } }),
+    prisma.booking.findMany({
+      where: { tripId: { in: tripIds }, userId: { in: [...new Set(intents.map((i) => i.userId))] }, ...seatOccupyingWhere() },
+      select: { tripId: true, userId: true },
+    }),
+  ]);
+  const statusOf = new Map(trips.map((t) => [t.id, t.status]));
+  const on = new Set(seats.map((b) => `${b.tripId}|${b.userId}`));
+  return (intent) => (statusOf.has(intent.matchedTripId)
+    ? { tripStatus: statusOf.get(intent.matchedTripId), riderOn: on.has(`${intent.matchedTripId}|${intent.userId}`) }
+    : null);
+}
+
+/**
+ * Write the settled status back for intents whose time has passed, so the
+ * admin counts and anything else reading the column agree with the rider's
+ * screen. The read path above never depends on this having run.
+ */
+async function settlePastIntents(now) {
+  const open = await prisma.scheduledRideIntent.findMany({
+    where: { status: { in: LIVE_INTENT_STATUSES }, scheduledAt: { lt: now } },
+    select: { id: true, userId: true, status: true, scheduledAt: true, matchedTripId: true },
+    take: 500,
+  });
+  const ridesOf = await intentRides(open);
+  for (const intent of open) {
+    const next = settledIntentStatus(intent, ridesOf(intent), now.getTime());
+    // PENDING → EXPIRED stays with the sweep below: it tells the rider.
+    if (next === intent.status || (intent.status === 'PENDING' && !intent.matchedTripId)) continue;
+    await prisma.scheduledRideIntent.updateMany({ where: { id: intent.id, status: intent.status }, data: { status: next } });
+  }
 }
 
 /**
@@ -1897,6 +1942,7 @@ class TripFull extends Error {}
 
 async function processScheduledRideIntents() {
   const now = new Date();
+  await settlePastIntents(now).catch((err) => logger.warn('Scheduled intent settle failed (non-blocking):', err.message));
   const lookAheadMs = 15 * 60 * 1000; // start trying to match 15 min before departure
   const dispatchHorizon = new Date(now.getTime() + lookAheadMs);
 

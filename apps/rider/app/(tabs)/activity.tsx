@@ -39,6 +39,7 @@ const SCHEDULED_STATUS_LABEL: Record<string, string> = {
   PENDING: 'Waiting for a match',
   DISPATCHED: 'Looking for a nearby driver',
   MATCHED: 'Confirmed',
+  COMPLETED: 'Completed',
   CANCELLED: 'Cancelled',
   EXPIRED: 'Expired',
 };
