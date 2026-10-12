@@ -1,12 +1,13 @@
 import React, { useMemo } from 'react';
-import { View, StyleSheet, Pressable } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import Animated, { FadeIn, FadeOut, LinearTransition, ReduceMotion } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { Model3D, minibus, HeroBusSlot, SHOWROOM_YAW, SHOWROOM_PITCH } from '@eyego/maps';
 import { fonts, fontSizes, spacing, springs } from '@eyego/config';
-import { Text, RollingDigits, getTierTheme } from '@eyego/ui';
+// Pressable from @eyego/ui: NativeWind drops a FUNCTION style on RN's own (the tile drew unstyled).
+import { Text, RollingDigits, getTierTheme, Pressable } from '@eyego/ui';
 import { formatGhs } from '@eyego/utils';
 import { useColors, type Colors } from '../../utils/useColors';
 
@@ -195,6 +196,7 @@ function Tile({
   return (
     <Pressable
       onPress={onPress}
+      haptic="none" // `pick` already ticks; two buzzes per tap felt broken
       style={({ pressed }) => [styles.tile, pressed && { transform: [{ scale: 0.97 }] }]}
       accessibilityRole="radio"
       accessibilityState={{ selected: false }}

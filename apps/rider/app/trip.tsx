@@ -8,7 +8,6 @@ import Animated, {
   useAnimatedStyle,
   withSpring,
   runOnJS,
-  useReducedMotion,
 } from 'react-native-reanimated';
 import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -16,13 +15,13 @@ import { bookingsApi } from '@eyego/api';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { withOpacity, springs, fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { SheetMetricsProvider, useCreateSheetMetrics, AppBackground, Pressable, goBack, goOut, afterTransition, morphSurfaceHidden, depthIncoming, depthOutgoing, usePerformanceTier, getTierTheme } from '@eyego/ui';
+import { SheetMetricsProvider, useCreateSheetMetrics, AppBackground, Pressable, goBack, goOut, afterTransition, morphSurfaceHidden, depthIncoming, depthOutgoing, useDepthMotion, getTierTheme } from '@eyego/ui';
 import { HeroBusProvider, minibus } from '@eyego/maps';
 import { LIVERY, type RideTierId } from '../components/trip/RidePicker';
 import { useRideEnded } from '../stores/rideEnded.store';
 import { useColors } from '../utils/useColors';
 import { useThemeStore } from '../stores/theme.store';
-import { useTripFlow, CLIENT_OWNED_STAGES, type TripStage } from '../stores/tripFlow.store';
+import { useTripFlow, CLIENT_OWNED_STAGES, TRIP_STAGE_ORDER, type TripStage } from '../stores/tripFlow.store';
 import { useTripStore, stageForStatus, isTerminal } from '../stores/trip.store';
 import { useRideStore } from '../stores/ride.store';
 import { consumeTripSurfaceReturn, noteTripSurfaceBlur } from '../utils/tripSurfaceReturn';
@@ -798,13 +797,21 @@ export default function TripScreen() {
    * page tilts back and recedes while the new one rises flat into place — see
    * motion/depth. A low-tier phone or Reduce Motion keeps the flat dissolve.
    */
-  const perfTier = usePerformanceTier();
-  const reduceMotion = useReducedMotion();
-  const depthOn = perfTier !== 'low' && !reduceMotion;
+  const depthOn = useDepthMotion();
+  /**
+   * Forward or back through the flow — Back from Configure to Where-to turns
+   * the deck the other way instead of replaying the forward move.
+   *
+   * And with depth on, EVERY swap turns — including the three "same panel"
+   * swaps above (select → request → assigned → tracking). Those dissolved in
+   * place, which is why the request and live pages "didn't do anything".
+   */
+  const depthDir =
+    rendered.previous != null && TRIP_STAGE_ORDER.indexOf(rendered.current) < TRIP_STAGE_ORDER.indexOf(rendered.previous) ? -1 : 1;
 
   const incomingStyle = useAnimatedStyle(() => {
+    if (depthOn) return depthIncoming(progress.value, depthDir);
     if (!isContainerTransform) {
-      if (depthOn) return depthIncoming(progress.value);
       // Paged: rises the last 16 pt as it fades in.
       return {
         opacity: progress.value,
@@ -817,11 +824,11 @@ export default function TripScreen() {
       opacity: interpolate(progress.value, [FADE_THROUGH_PIVOT, 1], [0, 1], 'clamp'),
       transform: [{ translateY: 0 }],
     };
-  }, [isContainerTransform, depthOn]);
+  }, [isContainerTransform, depthOn, depthDir]);
 
   const outgoingStyle = useAnimatedStyle(() => {
+    if (depthOn) return depthOutgoing(progress.value, depthDir);
     if (!isContainerTransform) {
-      if (depthOn) return depthOutgoing(progress.value);
       return {
         opacity: 1 - progress.value,
         transform: [{ translateY: progress.value * -12 }],
@@ -837,7 +844,7 @@ export default function TripScreen() {
       opacity: interpolate(progress.value, [0, FADE_THROUGH_PIVOT], [1, 0], 'clamp'),
       transform: [{ translateY: 0 }, { scale: 1 }],
     };
-  }, [isContainerTransform, depthOn]);
+  }, [isContainerTransform, depthOn, depthDir]);
 
   /**
    * The hero bus, in the livery of the class the rider has chosen — one object
@@ -904,7 +911,7 @@ export default function TripScreen() {
       entering={FadeIn.duration(420)}
     >
       <SheetMetricsProvider value={sheetMetrics}>
-      <HeroBusProvider model={heroModel} spinKey={heroTier} spring={springs.morph} reduced={!depthOn}>
+      <HeroBusProvider model={heroModel} spinKey={heroTier} reduced={!depthOn}>
       {/*
         THE FLOOR OF THIS SCREEN — AND WHY IT IS NOT SIMPLY TRANSPARENT.
 

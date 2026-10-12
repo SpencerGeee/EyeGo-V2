@@ -6,10 +6,7 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withDelay,
-  withSequence,
-  withSpring,
   withTiming,
-  type WithSpringConfig,
 } from 'react-native-reanimated';
 import { Model3D } from './Model3D';
 import type { Model } from './engine';
@@ -33,12 +30,31 @@ import type { Model } from './engine';
  * touches down there, shrinks and dissolves.
  */
 
-const FRAME = 140;
+/**
+ * The flight layer's frame. Fixed and generous so a bus can grow into a
+ * full-width cabin without being upscaled; the model is a vector picture, so a
+ * large frame shrunk to a 60 pt slot costs nothing in sharpness.
+ */
+const FRAME = 300;
+/** One flight, wall clock. Long enough to read as a drive, short enough not to wait on. */
+const FLIGHT_MS = 780;
 export const SHOWROOM_YAW = 228;
 export const SHOWROOM_PITCH = 58;
 
+/**
+ * How a `land` slot receives the bus.
+ *  'shrink' — touches down on a point (the pickup pin) and dissolves into it.
+ *  'into'   — arrives at full size over what it becomes (the seat cabin, seen
+ *             from above) and fades as that is drawn underneath.
+ */
+type Land = false | 'shrink' | 'into';
+
 interface Rect { x: number; y: number }
-interface SlotEntry { id: string; seq: number; at: Rect | null; size: number; yaw: number; pitch: number; land: boolean; model?: Model }
+interface SlotEntry { id: string; seq: number; at: Rect | null; size: number; yaw: number; pitch: number; land: Land; model?: Model }
+
+/** Shortest way round from a to b, k of the way. */
+const lerpAngle = (a: number, b: number, k: number) => a + ((((b - a) % 360) + 540) % 360 - 180) * k;
+const easeInOut = (k: number) => (k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2);
 
 type Store = {
   slots: Map<string, SlotEntry>;
@@ -71,15 +87,13 @@ function target(s: Store): SlotEntry | null {
 export function HeroBusProvider({
   model,
   spinKey,
-  spring,
   reduced = false,
   children,
 }: {
   model: Model;
   /** Changing it plays one turntable revolution (e.g. the chosen tier). */
   spinKey: string;
-  spring: WithSpringConfig;
-  /** Low-tier device or Reduce Motion: no flight, no spin — the bus just appears. */
+  /** Reduce Motion / a phone measured as slow: no flight, no spin — the bus just appears. */
   reduced?: boolean;
   children: React.ReactNode;
 }) {
@@ -88,7 +102,7 @@ export function HeroBusProvider({
   return (
     <Ctx.Provider value={value}>
       {children}
-      <Transit store={store} model={model} spring={spring} reduced={reduced} />
+      <Transit store={store} model={model} reduced={reduced} />
     </Ctx.Provider>
   );
 }
@@ -102,16 +116,46 @@ function useStore(store: Store | undefined) {
   return useSyncExternalStore(store ? subscribe : noop, () => store?.version ?? 0);
 }
 
-/** The one layer that carries the bus between slots. */
-function Transit({ store, model, spring, reduced }: { store: Store; model: Model; spring: WithSpringConfig; reduced: boolean }) {
+/**
+ * The one layer that carries the bus between slots.
+ *
+ * ── A DRIVE, NOT A SLIDE ────────────────────────────────────────────────────
+ *
+ * BUGFIX ("the bus morphs and comes at the top very wrong and that's not even
+ * the 3D immersive feel I was talking about"). The flight was a flat sprite
+ * translated and scaled on a spring, holding the DESTINATION's pose from the
+ * first frame — so it snapped to its final angle and slid there. And it was
+ * positioned in window coordinates inside a layer that is not at the window's
+ * origin (driver Create is an iOS sheet), so it flew to the wrong place.
+ *
+ * Now the bus behaves like a vehicle: it pulls away from its old pose, turns
+ * to face where it is going, travels on a lifted arc while swelling toward
+ * the camera and banking into the turn, then turns into its new pose as it
+ * parks. Position, arc, swell and bank run on the UI thread off one progress
+ * value; the heading and tilt are a JS tween over cached model frames. The
+ * layer measures its own origin before every flight.
+ */
+function Transit({ store, model, reduced }: { store: Store; model: Model; reduced: boolean }) {
   useStore(store);
   const goal = target(store);
-  const x = useSharedValue(0);
-  const y = useSharedValue(0);
-  const scale = useSharedValue(1);
+  const originRef = useRef<View>(null);
+  const t = useSharedValue(1);
+  const fx = useSharedValue(0);
+  const fy = useSharedValue(0);
+  const fsz = useSharedValue(FRAME);
+  const gx = useSharedValue(0);
+  const gy = useSharedValue(0);
+  const gsz = useSharedValue(FRAME);
+  const arc = useSharedValue(0);
+  const bank = useSharedValue(0);
+  const shrink = useSharedValue(1);
   const opacity = useSharedValue(0);
   const last = useRef<SlotEntry | null>(null);
+  const tween = useRef(0);
+  const poseNow = useRef({ yaw: SHOWROOM_YAW, pitch: SHOWROOM_PITCH });
+  const originAt = useRef({ x: 0, y: 0 });
   const [pose, setPose] = useState<{ yaw: number; pitch: number; model?: Model }>({ yaw: SHOWROOM_YAW, pitch: SHOWROOM_PITCH });
+  useEffect(() => () => cancelAnimationFrame(tween.current), []);
 
   const settle = useCallback((id: string) => {
     if (target(store)?.id !== id) return; // a newer slot took over mid-flight
@@ -127,7 +171,13 @@ function Transit({ store, model, spring, reduced }: { store: Store; model: Model
     if (!goal || !goal.at) { last.current = goal; return; }
     if (from && from.id === goal.id && from.at && goal.at.x === from.at.x && goal.at.y === from.at.y) return;
     last.current = goal;
-    const toScale = goal.size / FRAME;
+    // The slot was re-measured while the bus is still flying to it (its second
+    // measure lands mid-flight): steer to the corrected spot, don't cut the flight.
+    if (from && from.id === goal.id && opacity.value > 0 && t.value < 1) {
+      gx.value = goal.at.x - originAt.current.x;
+      gy.value = goal.at.y - originAt.current.y;
+      return;
+    }
     // Nowhere to fly from (first slot), or flights are off: rest in place.
     if (!from || !from.at || reduced || from.id === goal.id) {
       opacity.value = 0;
@@ -135,45 +185,114 @@ function Transit({ store, model, spring, reduced }: { store: Store; model: Model
       if (store.resting !== goal.id) { store.resting = goal.id; emit(store); }
       return;
     }
-    // Pick it up where it was drawn…
-    x.value = from.at.x;
-    y.value = from.at.y;
-    scale.value = from.size / FRAME;
-    opacity.value = 1;
-    setPose({ yaw: goal.yaw, pitch: goal.pitch, model: goal.model ?? from.model });
+
+    // Retargeted mid-flight: pick it up where it IS, not where it set off from.
+    const p0 = t.value;
+    const flying = opacity.value > 0 && p0 < 1;
+    const start = flying
+      ? {
+          x: fx.value + (gx.value - fx.value) * p0 + originAt.current.x,
+          y: fy.value + (gy.value - fy.value) * p0 - Math.sin(Math.PI * p0) * arc.value + originAt.current.y,
+          size: fsz.value + (gsz.value - fsz.value) * p0,
+          yaw: poseNow.current.yaw,
+          pitch: poseNow.current.pitch,
+        }
+      : { x: from.at.x, y: from.at.y, size: from.size, yaw: from.yaw, pitch: from.pitch };
+    const to = goal.at;
+    const dx = to.x - start.x;
+    const dy = to.y - start.y;
+    const dist = Math.hypot(dx, dy);
+    // Model heading 0 is nose-up the screen, clockwise.
+    const travel = (Math.atan2(dx, -dy) * 180) / Math.PI;
+    const turns = dist > 48;
+
     store.resting = null;
     emit(store);
-    // …and fly it to the new slot on the stage's own spring.
-    x.value = withSpring(goal.at.x, spring);
-    y.value = withSpring(goal.at.y, spring, (done) => {
-      'worklet';
-      if (done && !goal.land) runOnJS(settle)(goal.id);
-    });
-    if (goal.land) {
-      // Touch down, then shrink into the point and dissolve.
-      scale.value = withSequence(
-        withSpring(toScale, spring),
-        withTiming(toScale * 0.2, { duration: 420, easing: Easing.in(Easing.cubic) }),
-      );
-      opacity.value = withDelay(700, withTiming(0, { duration: 360 }));
-    } else {
-      scale.value = withSpring(toScale, spring);
-    }
-  }, [goal, reduced, spring, store, settle, x, y, scale, opacity]);
 
-  const style = useAnimatedStyle(() => ({
-    opacity: opacity.value,
-    transform: [
-      { translateX: x.value - FRAME / 2 },
-      { translateY: y.value - FRAME / 2 },
-      { scale: scale.value },
-    ],
-  }));
+    const begin = (ox: number, oy: number) => {
+      originAt.current = { x: ox, y: oy };
+      fx.value = start.x - ox;
+      fy.value = start.y - oy;
+      fsz.value = start.size;
+      gx.value = to.x - ox;
+      gy.value = to.y - oy;
+      gsz.value = goal.size;
+      arc.value = Math.min(110, Math.max(28, dist * 0.22));
+      bank.value = Math.max(-1, Math.min(1, dx / 140));
+      shrink.value = 1;
+      opacity.value = 1;
+      t.value = 0;
+      t.value = withTiming(1, { duration: FLIGHT_MS, easing: Easing.inOut(Easing.cubic) }, (done) => {
+        'worklet';
+        if (done && !goal.land) runOnJS(settle)(goal.id);
+      });
+      if (goal.land === 'shrink') {
+        // Touch down on the point, then sink into it and dissolve.
+        shrink.value = withDelay(FLIGHT_MS, withTiming(0.2, { duration: 420, easing: Easing.in(Easing.cubic) }));
+        opacity.value = withDelay(FLIGHT_MS + 120, withTiming(0, { duration: 340 }));
+      } else if (goal.land === 'into') {
+        // Arrive full size over what it becomes, and give way to it.
+        opacity.value = withDelay(FLIGHT_MS - 80, withTiming(0, { duration: 340 }));
+      }
+
+      // The heading: pull away turning toward the road, hold it, turn into the slot's pose.
+      cancelAnimationFrame(tween.current);
+      const t0 = Date.now();
+      let shown = '';
+      const step = () => {
+        const k = Math.min(1, (Date.now() - t0) / FLIGHT_MS);
+        const yaw = !turns
+          ? lerpAngle(start.yaw, goal.yaw, easeInOut(k))
+          : k < 0.38
+            ? lerpAngle(start.yaw, travel, easeInOut(k / 0.38))
+            : k > 0.62
+              ? lerpAngle(travel, goal.yaw, easeInOut((k - 0.62) / 0.38))
+              : travel;
+        // Mid-flight the camera drops a little lower — the bus is seen moving, not posed.
+        const pitch = start.pitch + (goal.pitch - start.pitch) * easeInOut(k) - Math.sin(Math.PI * k) * (turns ? 10 : 0);
+        poseNow.current = { yaw, pitch };
+        const key = `${Math.round(yaw / 3)}:${Math.round(pitch / 2)}`;
+        if (key !== shown) {
+          shown = key;
+          setPose({ yaw, pitch: Math.max(0, pitch), model: goal.model ?? from.model });
+        }
+        if (k < 1) tween.current = requestAnimationFrame(step);
+      };
+      tween.current = requestAnimationFrame(step);
+    };
+
+    const node = originRef.current;
+    if (node) {
+      node.measureInWindow((ox, oy) => begin(Number.isFinite(ox) ? ox : 0, Number.isFinite(oy) ? oy : 0));
+    } else {
+      begin(0, 0);
+    }
+  }, [goal, reduced, store, settle, t, fx, fy, fsz, gx, gy, gsz, arc, bank, shrink, opacity]);
+
+  const style = useAnimatedStyle(() => {
+    const p = t.value;
+    const lift = Math.sin(Math.PI * p);
+    const x = fx.value + (gx.value - fx.value) * p;
+    const y = fy.value + (gy.value - fy.value) * p - lift * arc.value;
+    const size = fsz.value + (gsz.value - fsz.value) * p;
+    return {
+      opacity: opacity.value,
+      transform: [
+        { translateX: x - FRAME / 2 },
+        { translateY: y - FRAME / 2 },
+        { rotateZ: `${bank.value * 9 * lift}deg` },
+        // Swells toward the camera at the top of the arc.
+        { scale: (size / FRAME) * (1 + 0.18 * lift) * shrink.value },
+      ],
+    };
+  });
 
   return (
-    <Animated.View pointerEvents="none" style={[styles.transit, style]}>
-      <Model3D model={pose.model ?? model} heading={pose.yaw} pitch={pose.pitch} size={FRAME} />
-    </Animated.View>
+    <View ref={originRef} collapsable={false} pointerEvents="none" style={StyleSheet.absoluteFill}>
+      <Animated.View style={[styles.transit, style]}>
+        <Model3D model={pose.model ?? model} heading={pose.yaw} pitch={pose.pitch} size={FRAME} />
+      </Animated.View>
+    </View>
   );
 }
 
@@ -186,7 +305,7 @@ export function HeroBusSlot({
   size,
   yaw = SHOWROOM_YAW,
   pitch = SHOWROOM_PITCH,
-  land = false,
+  land: landProp = false,
   model: ownModel,
   settleMs = 0,
   style,
@@ -195,8 +314,12 @@ export function HeroBusSlot({
   size: number;
   yaw?: number;
   pitch?: number;
-  /** A destination: the bus touches down here and dissolves. */
-  land?: boolean;
+  /**
+   * A destination, not a home. `true` — the bus touches down on this point and
+   * dissolves into it. `'into'` — it arrives full size over this spot and gives
+   * way to what is drawn there (the seat cabin is the same bus from above).
+   */
+  land?: boolean | 'into';
   /** This slot's own livery (a trip's tier); otherwise the provider's. */
   model?: Model;
   /**
@@ -209,6 +332,7 @@ export function HeroBusSlot({
 }) {
   const ctx = useContext(Ctx);
   const ref = useRef<View>(null);
+  const land: Land = landProp === true ? 'shrink' : landProp || false;
   // onLayout fires on mount; a settling slot ignores it until its delay is up.
   const readyAt = useRef(Date.now() + settleMs);
   const store = ctx?.store;

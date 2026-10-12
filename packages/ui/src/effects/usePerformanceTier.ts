@@ -69,15 +69,46 @@ function staticTier(): PerformanceTier {
  *   - it discards the samples either side of a background/foreground flip,
  *     because a suspended app produces enormous frame gaps that mean nothing.
  */
-const PROBE_SETTLE_MS = 4000;
-const PROBE_SAMPLES = 90;
-const PROBE_WARMUP = 12;
+/**
+ * ── WHY ONE WINDOW WAS NOT ENOUGH ───────────────────────────────────────────
+ *
+ * BUGFIX ("the device performance tier is flawed and doesn't accurately work";
+ * "the only thing that does the 3D is the ride types"). The probe sampled the
+ * JS thread ONCE, four seconds after the first component asked — which is the
+ * middle of launch on every phone: auth hydration, the first socket connect,
+ * the first map tiles and the splash all land on the JS thread then. A fast
+ * iPhone measured busy, latched 'low' for the whole session, and every gated
+ * effect (the 3D page turns, the hero-bus flights) silently switched off while
+ * the ungated ones (the ride-type models) kept working — exactly the report.
+ *
+ * Now: three windows spread over the first half-minute, and the device is
+ * judged by its BEST window. A phone that is merely busy for a moment has at
+ * least one quiet window and keeps its tier; a phone that is genuinely slow is
+ * slow in all three. Nothing is published until all three are in, so the tier
+ * no longer flips mid-launch either.
+ *
+ * The measured verdict is also kept APART from the static ceiling. The Android
+ * API-level rule exists for full-screen shaders; it says nothing about whether
+ * a phone can tilt a card, which is a transform the GPU does for free. The 3D
+ * flow asks `useMeasuredPerformanceTier`, which only the probe can lower.
+ */
+const PROBE_WINDOWS_AT_MS = [6_000, 16_000, 30_000];
+const PROBE_SAMPLES = 60;
+const PROBE_WARMUP = 10;
+/** A window interrupted by backgrounding is retried this much later, this many times. */
+const PROBE_RETRY_MS = 10_000;
+const PROBE_MAX_RETRIES = 4;
 /** Above this p75 frame time the device is visibly missing frames. */
 const MID_THRESHOLD_MS = 20.5;
 /** Above this it is not merely dropping frames, it is stuttering. */
 const LOW_THRESHOLD_MS = 34;
 
 let probeStarted = false;
+let ceilingTier: PerformanceTier = 'high';
+let measuredTier: PerformanceTier = 'high';
+const measuredListeners = new Set<(t: PerformanceTier) => void>();
+const RANK: Record<PerformanceTier, number> = { low: 0, mid: 1, high: 2 };
+const lower = (a: PerformanceTier, b: PerformanceTier) => (RANK[a] <= RANK[b] ? a : b);
 
 function publish(tier: PerformanceTier) {
   if (cachedTier === tier) return;
@@ -85,72 +116,89 @@ function publish(tier: PerformanceTier) {
   listeners.forEach((notify) => notify(tier));
 }
 
-function startProbe(ceiling: PerformanceTier) {
-  if (probeStarted) return;
-  probeStarted = true;
-  // Nothing to learn: 'low' is already the floor.
-  if (ceiling === 'low') return;
-  if (typeof requestAnimationFrame !== 'function') return;
-
-  const begin = () => {
-    const deltas: number[] = [];
-    let last = 0;
-    let frames = 0;
-    let aborted = false;
-
-    // A backgrounded app stops producing frames; the gap on return would read
-    // as a catastrophically slow device. Abandon the run rather than trust it.
-    const sub = AppState.addEventListener('change', (s) => {
-      if (s !== 'active') aborted = true;
-    });
-
-    const finish = () => {
-      sub.remove();
-      if (aborted || deltas.length < 20) return;
-      const sorted = [...deltas].sort((a, b) => a - b);
-      const p75 = sorted[Math.floor(sorted.length * 0.75)];
-      if (!Number.isFinite(p75)) return;
-      if (p75 >= LOW_THRESHOLD_MS) publish('low');
-      else if (p75 >= MID_THRESHOLD_MS) publish('mid');
-      // Below both thresholds the device keeps the ceiling it already had.
-    };
-
-    const step = (t: number) => {
-      if (aborted) {
-        finish();
-        return;
-      }
-      if (last > 0) {
-        frames += 1;
-        // Skip the warm-up frames: the first few after a settle still carry
-        // the tail of whatever work triggered the settle callback.
-        if (frames > PROBE_WARMUP) deltas.push(t - last);
-      }
-      last = t;
-      if (deltas.length >= PROBE_SAMPLES) {
-        finish();
-        return;
-      }
-      requestAnimationFrame(step);
-    };
-
+/** One window of frame deltas → its p75, or null when the window was spoiled. */
+function sampleWindow(done: (p75: number | null) => void) {
+  const deltas: number[] = [];
+  let last = 0;
+  let frames = 0;
+  let aborted = false;
+  // A backgrounded app stops producing frames; the gap on return would read
+  // as a catastrophically slow device. Abandon the window rather than trust it.
+  const sub = AppState.addEventListener('change', (s) => {
+    if (s !== 'active') aborted = true;
+  });
+  const finish = () => {
+    sub.remove();
+    if (aborted || deltas.length < 20) return done(null);
+    const sorted = [...deltas].sort((a, b) => a - b);
+    const p75 = sorted[Math.floor(sorted.length * 0.75)];
+    done(Number.isFinite(p75) ? p75 : null);
+  };
+  const step = (t: number) => {
+    if (aborted) return finish();
+    if (last > 0) {
+      frames += 1;
+      if (frames > PROBE_WARMUP) deltas.push(t - last);
+    }
+    last = t;
+    if (deltas.length >= PROBE_SAMPLES) return finish();
     requestAnimationFrame(step);
   };
+  requestAnimationFrame(step);
+}
 
-  // A plain timer, not `InteractionManager`: the work that actually distorts a
-  // launch-time measurement here is asynchronous (auth hydration, the first
-  // socket connect, the first map tiles) and never registers as an
-  // interaction, so waiting on interactions would return too early and
-  // `runAfterInteractions` is deprecated besides. The warm-up frames and the
-  // p75 below absorb whatever is still in flight.
-  setTimeout(begin, PROBE_SETTLE_MS);
+function startProbe() {
+  if (probeStarted) return;
+  probeStarted = true;
+  if (typeof requestAnimationFrame !== 'function') return;
+
+  const results: number[] = [];
+  let retries = 0;
+  const conclude = () => {
+    const best = Math.min(...results);
+    measuredTier = best >= LOW_THRESHOLD_MS ? 'low' : best >= MID_THRESHOLD_MS ? 'mid' : 'high';
+    measuredListeners.forEach((notify) => notify(measuredTier));
+    publish(lower(ceilingTier, measuredTier));
+  };
+  const run = (i: number, delay: number) => {
+    setTimeout(() => sampleWindow((p75) => {
+      if (p75 == null) {
+        if (retries++ < PROBE_MAX_RETRIES) run(i, PROBE_RETRY_MS);
+        else if (results.length) conclude();
+        return;
+      }
+      results.push(p75);
+      if (i + 1 < PROBE_WINDOWS_AT_MS.length) run(i + 1, PROBE_WINDOWS_AT_MS[i + 1] - PROBE_WINDOWS_AT_MS[i]);
+      else conclude();
+    }), delay);
+  };
+  // A plain timer, not `InteractionManager`: the work that distorts a launch
+  // measurement (hydration, sockets, tiles) never registers as an interaction.
+  run(0, PROBE_WINDOWS_AT_MS[0]);
 }
 
 function computeTier(): PerformanceTier {
   if (cachedTier) return cachedTier;
-  const tier = staticTier();
-  cachedTier = tier;
-  startProbe(tier);
+  ceilingTier = staticTier();
+  cachedTier = ceilingTier;
+  startProbe();
+  return cachedTier;
+}
+
+/**
+ * The probe's verdict alone, without the static shader ceiling — 'high' until
+ * three windows say otherwise. For cheap transform-only motion (the 3D flow).
+ */
+export function useMeasuredPerformanceTier(): PerformanceTier {
+  computeTier();
+  const [tier, setTier] = useState<PerformanceTier>(measuredTier);
+  useEffect(() => {
+    measuredListeners.add(setTier);
+    if (measuredTier !== tier) setTier(measuredTier);
+    return () => {
+      measuredListeners.delete(setTier);
+    };
+  }, [tier]);
   return tier;
 }
 
@@ -184,7 +232,10 @@ export function __setPerformanceTierForTest(tier: PerformanceTier | null) {
   probeStarted = true;
   if (tier == null) {
     cachedTier = null;
+    measuredTier = 'high';
     return;
   }
+  measuredTier = tier;
+  measuredListeners.forEach((notify) => notify(tier));
   publish(tier);
 }

@@ -11,13 +11,13 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated, { FadeIn, useAnimatedStyle, useDerivedValue, useReducedMotion, withTiming } from 'react-native-reanimated';
+import Animated, { FadeIn, useAnimatedStyle, useDerivedValue, withTiming } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { ridesApi, tripsApi } from '@eyego/api';
 import { formatGhs, clockTime } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii, MAX_SEATS_PER_BOOKING } from '@eyego/config';
-import { Text, Button, GradientGlowBorder, getTierTheme, normalizeTier, depthEnter, usePerformanceTier } from '@eyego/ui';
+import { Text, Button, GradientGlowBorder, getTierTheme, normalizeTier, depthEnter, depthEnterBack, depthExit, useDepthMotion } from '@eyego/ui';
 import { HeroBusSlot } from '@eyego/maps';
 import { useColors, Colors } from '../../../utils/useColors';
 import { MapGestureHint } from '../MapGestureHint';
@@ -156,10 +156,15 @@ function ConfigureStageImpl() {
   const coverAll = useRideStore((s) => s.requestCoverAll);
 
   const [step, setStep] = useState(STEP_FIRST);
-  // Each step rises in from depth, the same page turn as the stages around it.
-  const perfTier = usePerformanceTier();
-  const reduceMotion = useReducedMotion();
-  const stepEnter = perfTier !== 'low' && !reduceMotion ? depthEnter : FadeIn.duration(200);
+  /**
+   * Each step is a card in the same deck as the stages around it: forward, the
+   * old step tips back and sinks while the next swings up from below; Back
+   * reverses it. The old step used to have no exit at all — it was simply cut.
+   */
+  const [stepDir, setStepDir] = useState<1 | -1>(1);
+  const depthOn = useDepthMotion();
+  const stepEnter = depthOn ? (stepDir < 0 ? depthEnterBack : depthEnter) : FadeIn.duration(200);
+  const stepExit = depthOn ? depthExit : undefined;
 
   /**
    * What the quote said about the pickup pin — see the doorstep block in the
@@ -204,6 +209,7 @@ function ConfigureStageImpl() {
   const back = useCallback(() => {
     void Haptics.selectionAsync();
     if (step > STEP_FIRST) {
+      setStepDir(-1);
       setStep((n) => n - 1);
       return;
     }
@@ -408,8 +414,10 @@ function ConfigureStageImpl() {
 
   const next = useCallback(() => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    if (step < STEP_LAST) setStep((n) => n + 1);
-    else {
+    if (step < STEP_LAST) {
+      setStepDir(1);
+      setStep((n) => n + 1);
+    } else {
       // Commit the seat count the same way SearchStage's Order Ride did, then
       // hand off. RequestStage owns everything from here.
       setRequestSeats(seats, coverAll);
@@ -540,7 +548,7 @@ function ConfigureStageImpl() {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          <Animated.View key={`title-${step}`} entering={stepEnter}>
+          <Animated.View key={`title-${step}`} entering={stepEnter} exiting={stepExit}>
             <View style={styles.titleRow}>
               <Text style={[styles.title, { flex: 1 }]}>{stepTitle}</Text>
               {/* Step 4: the bus waits beside the question, then docks into the review. */}
@@ -573,7 +581,7 @@ function ConfigureStageImpl() {
             shadow passes per frame.
           */}
           {step === 3 && (
-            <Animated.View key="step3" entering={stepEnter} style={styles.list}>
+            <Animated.View key="step3" entering={stepEnter} exiting={stepExit} style={styles.list}>
               <RidePicker
                 options={TIER_ORDER.map((id): RideOption => {
                   const km = nearestKm[id];
@@ -599,7 +607,7 @@ function ConfigureStageImpl() {
           )}
 
           {step === 4 && (
-            <Animated.View key="step4" entering={stepEnter} style={styles.list}>
+            <Animated.View key="step4" entering={stepEnter} exiting={stepExit} style={styles.list}>
               {/*
                 On the group flow the party size IS the booking, so it leads the
                 step with its own banner and a set of quick picks — a rider with
@@ -765,7 +773,7 @@ function ConfigureStageImpl() {
           )}
 
           {step === 5 && (
-            <Animated.View key="step5" entering={stepEnter} style={styles.list}>
+            <Animated.View key="step5" entering={stepEnter} exiting={stepExit} style={styles.list}>
               <GradientGlowBorder
                 palette="brandGreen"
                 fillColor={colors.surfaceContainerHigh}

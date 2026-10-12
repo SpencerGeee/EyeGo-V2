@@ -113,7 +113,8 @@ export {
   contentEnter,
   contentExit,
 } from './motion/layoutTransitions';
-export { depthIncoming, depthOutgoing, depthEnter } from './motion/depth';
+export { depthIncoming, depthOutgoing, depthEnter, depthEnterAfter, depthEnterBack, depthExit, useDepthMotion } from './motion/depth';
+export type { DepthDirection } from './motion/depth';
 
 /**
  * THE SMOOTHNESS SYSTEM — one import path for the whole of it.

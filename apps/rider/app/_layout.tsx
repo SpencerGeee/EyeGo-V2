@@ -16,8 +16,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { springs } from '@eyego/config';
 import { HeroBusProvider, minibus } from '@eyego/maps';
-import { useReducedMotion } from 'react-native-reanimated';
-import { usePerformanceTier } from '@eyego/ui';
+import { useDepthMotion } from '@eyego/ui';
 
 /** The fleet's own paint, until a screen names a trip's class. */
 const ROOT_HERO = minibus({ accent: '#4BE277' });
@@ -284,9 +283,7 @@ export default function RootLayout() {
   // ride/[id]/seat, etc.) are at depth ≥ 3 — no blur layer behind them to run.
   const isOpaqueDetail = segments.length >= 3;
   // The hero bus flies only where depth is affordable (see motion/depth).
-  const heroPerfTier = usePerformanceTier();
-  const heroReduce = useReducedMotion();
-  const heroMotion = heroPerfTier !== 'low' && !heroReduce;
+  const heroMotion = useDepthMotion();
   /**
    * Offline banner, on Reanimated like everything else that moves in this app.
    *
@@ -696,7 +693,7 @@ export default function RootLayout() {
           {/* The hero bus across ROUTES (trip detail -> seat -> payment): each
               screen's slot names its trip's livery; see @eyego/maps HeroBus.
               The booking surface (/trip) nests its own. */}
-          <HeroBusProvider model={ROOT_HERO} spinKey="" spring={springs.morph} reduced={!heroMotion}>
+          <HeroBusProvider model={ROOT_HERO} spinKey="" reduced={!heroMotion}>
           <Stack
             /**
              * THE SMOOTHNESS SYSTEM, ON EVERY SCREEN AT ONCE.

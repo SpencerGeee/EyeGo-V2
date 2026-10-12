@@ -23,8 +23,8 @@ import { useRideStore } from '../../../stores/ride.store';
 import { useAuthStore } from '../../../stores/auth.store';
 import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
-import { Text, Button, AnimatedFareText, getTierTheme, depthEnter, usePerformanceTier } from '@eyego/ui';
-import Animated, { FadeIn, useReducedMotion } from 'react-native-reanimated';
+import { Text, Button, AnimatedFareText, getTierTheme, depthEnter, useDepthMotion } from '@eyego/ui';
+import Animated, { FadeIn } from 'react-native-reanimated';
 import { HeroBusSlot, minibus } from '@eyego/maps';
 import { LIVERY } from '../../../components/trip/RidePicker';
 import { formatGhs, ghanaLocalDigits } from '@eyego/utils';
@@ -44,9 +44,7 @@ export default function PaymentScreen() {
     dropoffLng?: string;
     dropoffAddress?: string;
   }>();
-  const amountPerf = usePerformanceTier();
-  const amountReduce = useReducedMotion();
-  const amountEnter = amountPerf !== 'low' && !amountReduce ? depthEnter : FadeIn.duration(200);
+  const amountEnter = useDepthMotion() ? depthEnter : FadeIn.duration(200);
   const busTier = String(busTierParam ?? 'ECO').toUpperCase() as keyof typeof LIVERY;
   const busModel = useMemo(
     () => minibus({ accent: getTierTheme(colors, busTier).accent, body: (LIVERY[busTier] ?? LIVERY.ECO).body }),

@@ -7,7 +7,7 @@ import {
   Platform,
   useWindowDimensions,
 } from 'react-native';
-import Animated, { FadeIn, useAnimatedProps, useReducedMotion, useSharedValue, withSpring } from 'react-native-reanimated';
+import Animated, { FadeIn, useAnimatedProps, useSharedValue, withSpring } from 'react-native-reanimated';
 import Svg, { Circle } from 'react-native-svg';
 import { HeroBusProvider, HeroBusSlot, minibus } from '@eyego/maps';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -21,7 +21,7 @@ import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
 // that shadowed the shared one — harmless while money was cedis, a 100x
 // misquote to the driver the moment it became pesewas.
 import { formatGhs } from '@eyego/utils';
-import { Text, Button, GlassSurface, GradientGlowBorder, AppBackground, getTierTheme, goDeeper, goBack, notify, goOut, depthEnter, usePerformanceTier } from '@eyego/ui';
+import { Text, Button, GlassSurface, GradientGlowBorder, AppBackground, getTierTheme, goDeeper, goBack, notify, goFresh, depthEnter, depthEnterBack, depthExit, useDepthMotion } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
@@ -78,12 +78,20 @@ export default function CreateTripScreen() {
   };
   const [seats, setSeats] = useState(14);
   const [published, setPublished] = useState(false);
-  // Each step rises in from depth, as the rider's booking flow does; low-tier
-  // phones and Reduce Motion get a plain fade and a still bus.
-  const perfTier = usePerformanceTier();
-  const reduceMotion = useReducedMotion();
-  const depthOn = perfTier !== 'low' && !reduceMotion;
-  const stepEnter = depthOn ? depthEnter : FadeIn.duration(200);
+  /**
+   * Each step is a card in the rider's deck: forward, the old step tips back
+   * and sinks as the next swings up from below; Back reverses it. Steps used to
+   * enter only — the old one was cut, so nothing "morphed". Reduce Motion and a
+   * phone measured as genuinely slow get a plain fade and a still bus.
+   */
+  const depthOn = useDepthMotion();
+  const [stepDir, setStepDir] = useState<1 | -1>(1);
+  const stepEnter = depthOn ? (stepDir < 0 ? depthEnterBack : depthEnter) : FadeIn.duration(200);
+  const stepExit = depthOn ? depthExit : undefined;
+  const goStep = (d: 1 | -1) => {
+    setStepDir(d);
+    setStep((s) => s + d);
+  };
   const { width: screenW } = useWindowDimensions();
   const [tier, setTier] = useState<'ECONOMY' | 'COMFORT' | 'PREMIUM'>('ECONOMY');
 
@@ -324,7 +332,13 @@ export default function CreateTripScreen() {
       // screen goes — the publish is seen happening, not just a navigation.
       setPublished(true);
       notify('Trip is live', 'Riders heading your way can book it now.', { tone: 'success' });
-      setTimeout(() => goOut('/(tabs)/home'), depthOn ? 950 : 0);
+      // To the trip just published, not home ("if I schedule a trip it
+      // shouldn't bring me back to the homepage"). goFresh closes this modal
+      // first, so home is one back away.
+      setTimeout(
+        () => goFresh({ pathname: '/(trip)/active/[id]', params: { id: tripId } }),
+        depthOn ? 950 : 0,
+      );
     },
     onError: (err) => {
       const axiosErr = err as { response?: { data?: { code?: string; message?: string } } };
@@ -351,7 +365,7 @@ export default function CreateTripScreen() {
   };
 
   const handleNext = () => {
-    if (step < MAX_STEPS) setStep((s) => s + 1);
+    if (step < MAX_STEPS) goStep(1);
     else publishTrip.mutate();
   };
 
@@ -366,12 +380,12 @@ export default function CreateTripScreen() {
   });
 
   return (
-    <HeroBusProvider model={heroModel} spinKey={`${step}`} spring={springs.morph} reduced={!depthOn}>
+    <HeroBusProvider model={heroModel} spinKey={`${step}`} reduced={!depthOn}>
     <SafeAreaView style={styles.safe}>
       <AppBackground isDark={theme !== 'light'} />
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => (step > 1 ? setStep((s) => s - 1) : goBack())} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
+        <Pressable onPress={() => (step > 1 ? goStep(-1) : goBack())} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
           <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
         </Pressable>
         <Text style={styles.headerTitle}>Publish a trip</Text>
@@ -387,7 +401,7 @@ export default function CreateTripScreen() {
       >
         {/* STEP 1: Pickup + Destination — ad-hoc map locations, not a predefined route */}
         {step === 1 && (
-          <Animated.View key="step1" entering={stepEnter}>
+          <Animated.View key="step1" entering={stepEnter} exiting={stepExit}>
             <View style={styles.titleRow}>
               <Text style={[styles.stepTitle, { flex: 1 }]}>Where is this trip going?</Text>
               <HeroBusSlot id="drv-route" size={84} />
@@ -465,7 +479,7 @@ export default function CreateTripScreen() {
 
         {/* STEP 2: Departure time */}
         {step === 2 && (
-          <Animated.View key="step2" entering={stepEnter}>
+          <Animated.View key="step2" entering={stepEnter} exiting={stepExit}>
             <View style={styles.titleRow}>
               <Text style={[styles.stepTitle, { flex: 1 }]}>When do you leave?</Text>
               <ClockRing date={departureTime} color={colors.primary} track={colors.outlineVariant} size={100}>
@@ -546,7 +560,7 @@ export default function CreateTripScreen() {
 
         {/* STEP 3: Seats */}
         {step === 3 && (
-          <Animated.View key="step3" entering={stepEnter}>
+          <Animated.View key="step3" entering={stepEnter} exiting={stepExit}>
             <View style={styles.titleRow}>
               <Text style={[styles.stepTitle, { flex: 1 }]}>How many seats are free?</Text>
               {/* The cabin lights up as seats are offered — see heroModel. */}
@@ -596,7 +610,7 @@ export default function CreateTripScreen() {
 
         {/* STEP 4: Summary */}
         {step === 4 && origin && destination && (
-          <Animated.View key="step4" entering={stepEnter}>
+          <Animated.View key="step4" entering={stepEnter} exiting={stepExit}>
             <View style={styles.titleRow}>
               <Text style={[styles.stepTitle, { flex: 1 }]}>Review and publish</Text>
               <HeroBusSlot id="drv-review" size={88} />

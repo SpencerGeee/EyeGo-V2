@@ -1,7 +1,7 @@
 import React from 'react';
 import { MapSheetHost, type SheetChrome } from '@eyego/ui';
 import { useColors } from '../../utils/useColors';
-import type { TripStage } from '../../stores/tripFlow.store';
+import { TRIP_STAGE_ORDER, type TripStage } from '../../stores/tripFlow.store';
 
 /**
  * SHIM. The host itself moved to `packages/ui/src/shell/MapSheetHost.tsx` so
@@ -60,6 +60,7 @@ export function TripSheetHost({ current, previous, retired = false }: TripSheetH
       fallbackChrome={SHEET_STYLE.tracking}
       auroraColor={colors.primary}
       solidBackground={colors.background}
+      stageOrder={TRIP_STAGE_ORDER}
     />
   );
 }

@@ -22,6 +22,9 @@ import { create } from 'zustand';
  */
 export type TripStage = 'search' | 'configure' | 'select' | 'request' | 'assigned' | 'tracking';
 
+/** The flow's order, first to last — a swap to an earlier stage turns the 3D deck backwards. */
+export const TRIP_STAGE_ORDER: readonly TripStage[] = ['search', 'configure', 'select', 'request', 'assigned', 'tracking'];
+
 /** Stages the client may still navigate itself — no server trip exists yet. */
 export const CLIENT_OWNED_STAGES: TripStage[] = ['search', 'configure', 'select'];
 

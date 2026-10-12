@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { View, StyleSheet, Pressable, ScrollView } from 'react-native';
+import { View, StyleSheet, Pressable, ScrollView, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, type Href } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
-import Animated, { FadeIn, FadeInDown, useReducedMotion } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
@@ -28,7 +28,8 @@ import {
   notify,
   PulseRing,
   depthEnter,
-  usePerformanceTier,
+  depthEnterAfter,
+  useDepthMotion,
 } from '@eyego/ui';
 import { HeroBusSlot, minibus } from '@eyego/maps';
 import { LIVERY } from '../../../components/trip/RidePicker';
@@ -85,9 +86,11 @@ export default function SeatPickerScreen() {
   const colors = useColors();
   const isDark = useThemeStore((s) => s.isDark);
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const cabinPerf = usePerformanceTier();
-  const cabinReduce = useReducedMotion();
-  const cabinEnter = cabinPerf !== 'low' && !cabinReduce ? depthEnter : FadeIn.duration(200);
+  const cabinDepth = useDepthMotion();
+  // The cabin waits for the bus to arrive over it (settle + flight), then rises.
+  const cabinEnter = useMemo(() => (cabinDepth ? depthEnterAfter(820) : FadeIn.duration(200)), [cabinDepth]);
+  const { width: winW } = useWindowDimensions();
+  const cabinHeroSize = Math.min(winW * 0.82, 320);
   const { id, pickupStopId } = useLocalSearchParams<{ id: string; pickupStopId?: string }>();
   const queryClient = useQueryClient();
   const { setSelectedSeat, selectedTrip } = useRideStore(
@@ -271,6 +274,8 @@ export default function SeatPickerScreen() {
   const [dropoffStopId, setDropoffStopId] = useState<string | null>(null);
   /** A free pin on the route — see RouteDropoffMap. Exclusive with a named stop. */
   const [dropoff, setDropoff] = useState<RouteDropoff | null>(null);
+  /** Finger on the drop-off map → the page holds still so the pan moves the map. */
+  const [mapTouch, setMapTouch] = useState(false);
   const chooseStop = (stopId: string | null) => {
     setDropoffStopId(stopId);
     if (stopId) setDropoff(null);
@@ -358,14 +363,12 @@ export default function SeatPickerScreen() {
         colors={colors}
         styles={styles}
         subtitle={routeLabel}
-        // The same bus, carried on from the trip page (HeroBus).
-        hero={<HeroBusSlot id={`seat-${id}`} size={72} model={busModel} settleMs={380} />}
       />
 
       {/* The trip at a glance — when it leaves, how many seats are left (live),
           and what you are getting into. */}
       {seats.length ? (
-        <Animated.View entering={FadeInDown.duration(320)} style={styles.facts}>
+        <Animated.View entering={cabinDepth ? depthEnter : FadeInDown.duration(320)} style={styles.facts}>
           {departs && departs !== '—' ? (
             <View style={styles.fact}>
               <Ionicons name="time-outline" size={14} color={colors.onSurfaceVariant} />
@@ -396,6 +399,7 @@ export default function SeatPickerScreen() {
         content-sized so the common 14-seat minibus never scrolls at all.
       */}
       <ScrollView
+        scrollEnabled={!mapTouch}
         contentContainerStyle={styles.cabinScroll}
         showsVerticalScrollIndicator={false}
       >
@@ -410,7 +414,19 @@ export default function SeatPickerScreen() {
           <LegendItem colors={colors} tone="taken" label="Occupied" />
         </View>
 
-        {/* The cabin rises into place from depth, like every page of the booking flow. */}
+        {/*
+          THE BUS BECOMES THE CABIN.
+
+          BUGFIX ("the bus morphs and comes at the top very wrong — that's not
+          the 3D immersive feel"). It flew from the trip page into a 72 pt
+          header badge and parked in the corner. The cabin below IS that bus —
+          seen from straight above with the roof off — so that is where it
+          lands now: it drives down off the trip page, turns nose-up as the
+          camera rises overhead, grows to the cabin's size and gives way to it
+          as the cabin swings up into place underneath. Checkout and Back fly
+          it out of the cabin again.
+        */}
+        <View>
         <Animated.View entering={cabinEnter}>
         <VehicleCabin
           seats={seats}
@@ -426,6 +442,10 @@ export default function SeatPickerScreen() {
           tierLabel={tierLabel}
         />
         </Animated.View>
+        <View style={styles.cabinHero} pointerEvents="none">
+          <HeroBusSlot id={`seat-${id}`} size={cabinHeroSize} model={busModel} yaw={0} pitch={0} land="into" settleMs={380} />
+        </View>
+        </View>
 
         {/*
           WHERE YOU GET OFF, ON THE ROAD. The whole route, a pin that snaps to
@@ -446,6 +466,8 @@ export default function SeatPickerScreen() {
               isDark={isDark}
               accent={colors.primary}
               colors={colors as unknown as Record<string, string>}
+              destinationName={toName}
+              onInteract={setMapTouch}
             />
             <Text variant="caption" color={colors.onSurfaceVariant}>
               {dropoff
@@ -740,6 +762,8 @@ const makeStyles = (colors: Colors) =>
      * button that confirms it.
      */
     alight: { gap: spacing.sm, marginTop: spacing.lg },
+    // Centred over the cabin's top half — where the bus's nose and roof sit.
+    cabinHero: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'flex-start', paddingTop: spacing.xl },
     alightRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     cabinScroll: { paddingHorizontal: spacing.xl, paddingTop: spacing.xs, paddingBottom: 220, gap: spacing.xl },
     cabin: {

@@ -6,6 +6,7 @@ import { CardAuroraGlow } from '../effects/CardAuroraGlow';
 import { GlassSurface } from '../effects/GlassSurface';
 import { MorphSheet } from '../panel/MorphSheet';
 import { useSheetSlots } from './sheetSlot';
+import { depthIncoming, depthOutgoing, useDepthMotion, type DepthDirection } from '../motion/depth';
 
 /**
  * The one sheet, hosted above every stage.
@@ -59,6 +60,8 @@ export interface MapSheetHostProps<TStage extends string = string> {
   /** Extra body style, merged after the standard gutter. */
   bodyStyle?: ViewStyle;
   grabberColor?: string;
+  /** The flow's order — a swap to an EARLIER stage turns the deck backwards. */
+  stageOrder?: readonly TStage[];
 }
 
 export function MapSheetHost<TStage extends string = string>({
@@ -71,6 +74,7 @@ export function MapSheetHost<TStage extends string = string>({
   retired = false,
   bodyStyle,
   grabberColor = 'rgba(255,255,255,0.18)',
+  stageOrder,
 }: MapSheetHostProps<TStage>) {
   const slots = useSheetSlots((s) => s.slots);
 
@@ -82,14 +86,32 @@ export function MapSheetHost<TStage extends string = string>({
   // 0 → 1 across a panel swap. One value drives both bodies, so they cannot
   // drift apart and show a gap or a double-exposure.
   const swap = useSharedValue(1);
+  const dir = useSharedValue<DepthDirection>(1);
   useEffect(() => {
     if (!previous) return;
+    const a = stageOrder?.indexOf(previous) ?? -1;
+    const b = stageOrder?.indexOf(current) ?? -1;
+    dir.value = a >= 0 && b >= 0 && b < a ? -1 : 1;
     swap.value = 0;
     swap.value = withSpring(1, springs.morph);
-  }, [current, previous, swap]);
+  }, [current, previous, swap, dir, stageOrder]);
 
-  const incomingStyle = useAnimatedStyle(() => ({ opacity: swap.value }));
-  const ghostStyle = useAnimatedStyle(() => ({ opacity: 1 - swap.value }));
+  /**
+   * BUGFIX ("the rest don't do anything … it needs to be morphing from one
+   * stage to the next"). Every panel the rider and driver actually read lives
+   * in THIS sheet, and the swap here was an opacity crossfade — so while the
+   * map-level chrome turned in 3D, the card you were looking at just faded.
+   * The panel bodies now turn on the same card-deck move as the pages.
+   */
+  const depthOn = useDepthMotion();
+  const incomingStyle = useAnimatedStyle(
+    () => (depthOn ? depthIncoming(swap.value, dir.value) : { opacity: swap.value }),
+    [depthOn],
+  );
+  const ghostStyle = useAnimatedStyle(
+    () => (depthOn ? depthOutgoing(swap.value, dir.value) : { opacity: 1 - swap.value }),
+    [depthOn],
+  );
 
   /**
    * THE SHEET'S OWN FILL — glass, and the wash where a stage asks for one.
