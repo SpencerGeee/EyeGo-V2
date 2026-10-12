@@ -361,3 +361,41 @@ describe('distance helper', () => {
     assert.equal(metresBetween(5.6, -0.19, 5.6, -0.19), 0);
   });
 });
+
+describe('puck drives the road, not the chord', () => {
+  // An L-shaped road: east along the bottom, then north. [lng, lat].
+  const corner: [number, number][] = [[-0.2, 5.6], [-0.199, 5.6], [-0.199, 5.601]];
+
+  test('a move across a corner stays on the road', () => {
+    const p = new PuckInterpolator();
+    p.setRoute(corner);
+    p.push({ latitude: 5.6, longitude: -0.1995, at: 0 });
+    p.push({ latitude: 5.6005, longitude: -0.199, at: 2000 });
+    const mid = p.at(500)!;
+    // On the road the midpoint is on one of its two legs; the chord's midpoint
+    // is inside the block, off both.
+    const onBottom = Math.abs(mid.latitude - 5.6) < 1e-6;
+    const onSide = Math.abs(mid.longitude - -0.199) < 1e-6;
+    assert.ok(onBottom || onSide, `off the road at ${mid.latitude},${mid.longitude}`);
+  });
+
+  test('a fresh route starting at the new fix does not hop the puck forward', () => {
+    const p = new PuckInterpolator();
+    p.setRoute(corner);
+    p.push({ latitude: 5.6, longitude: -0.1995, at: 0 });
+    p.setRoute([[-0.199, 5.6005], [-0.199, 5.601]]); // re-sent from the driver's new spot
+    p.push({ latitude: 5.6005, longitude: -0.199, at: 2000 });
+    const start = p.at(2000)!;
+    // Still driving the old line from where it was, not teleported to the new start.
+    lt(metresBetween(start.latitude, start.longitude, 5.6, -0.1995), 1);
+  });
+
+  test('a fix off the route goes straight there', () => {
+    const p = new PuckInterpolator();
+    p.setRoute(corner);
+    p.push({ latitude: 5.6, longitude: -0.1995, at: 0 });
+    p.push({ latitude: 5.6, longitude: -0.1995 + 0.002, at: 2000 }); // ~200 m past the corner, off the road
+    const end = p.at(10_000)!;
+    lt(metresBetween(end.latitude, end.longitude, 5.6, -0.1975), 1);
+  });
+});

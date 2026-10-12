@@ -660,6 +660,8 @@ function TripMapImpl() {
      */
     center: followMe && canFollowMe ? userCoords : null,
     fitIncludesPuck: true,
+    // The live route only: the vehicle drives the road the server routed it on.
+    route: path?.geometry?.coordinates as [number, number][] | undefined,
     padding: getPadding,
     active: isFocused,
   });

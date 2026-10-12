@@ -97,6 +97,12 @@ export interface UseMapCameraArgs {
    * since it uses the interpolated value rather than the last sampled one.
    */
   fitIncludesPuck?: boolean;
+  /**
+   * The road the vehicle is driving, `[lng, lat]` — the server's route. Between
+   * fixes on it the puck moves along it instead of cutting corners; see
+   * `PuckInterpolator.setRoute`.
+   */
+  route?: [number, number][] | null;
 }
 
 export interface MapCamera {
@@ -127,11 +133,12 @@ export function useMapCamera(args: UseMapCameraArgs): MapCamera {
   const {
     mode, fit, center, padding, fitMinSpanDeg,
     publishEveryMs = 400, active = true, fitIncludesPuck = false,
-    autoResumeMs = RESUME_AFTER_MS,
+    autoResumeMs = RESUME_AFTER_MS, route,
   } = args;
 
   const cameraRef = useRef<any>(null);
   const interpolatorRef = useRef(new PuckInterpolator());
+  useEffect(() => { interpolatorRef.current.setRoute(route); }, [route]);
   const lastOverviewKeyRef = useRef('');
   /** Timestamp the in-flight `fitBounds` animation is expected to land at. */
   const fitSettlesAtRef = useRef(0);

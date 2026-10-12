@@ -155,6 +155,65 @@ export function metresBetween(
   return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+// ── Driving along the road ──────────────────────────────────────────────────
+
+/** A fix farther than this from the route is off it (a detour, a bad fix). */
+export const ROAD_SNAP_M = 40;
+
+interface Road {
+  /** [lng, lat], as the server sends it. */
+  coords: [number, number][];
+  /** Metres from the start to each vertex. */
+  cum: number[];
+  total: number;
+}
+
+function measureRoad(coords: [number, number][]): Road {
+  const cum = [0];
+  for (let i = 1; i < coords.length; i++) {
+    cum.push(cum[i - 1] + metresBetween(coords[i - 1][1], coords[i - 1][0], coords[i][1], coords[i][0]));
+  }
+  return { coords, cum, total: cum[cum.length - 1] };
+}
+
+/** Nearest point on the road: metres along it, and metres off it. */
+function snapToRoad(road: Road, lat: number, lng: number): { along: number; off: number } {
+  const k = Math.cos((lat * Math.PI) / 180);
+  const M = (Math.PI / 180) * 6_371_000;
+  let best = { along: 0, off: Infinity };
+  for (let i = 1; i < road.coords.length; i++) {
+    const [aLng, aLat] = road.coords[i - 1];
+    const [bLng, bLat] = road.coords[i];
+    const ax = (aLng - lng) * k, ay = aLat - lat;
+    const dx = (bLng - aLng) * k, dy = bLat - aLat;
+    const len2 = dx * dx + dy * dy;
+    const t = len2 ? clamp01(-(ax * dx + ay * dy) / len2) : 0;
+    const off = Math.hypot(ax + t * dx, ay + t * dy) * M;
+    if (off < best.off) best = { along: road.cum[i - 1] + t * (road.cum[i] - road.cum[i - 1]), off };
+  }
+  return best;
+}
+
+function roadPointAt(road: Road, along: number): { latitude: number; longitude: number } {
+  const d = Math.min(Math.max(along, 0), road.total);
+  let i = 1;
+  while (i < road.cum.length - 1 && road.cum[i] < d) i++;
+  const seg = road.cum[i] - road.cum[i - 1] || 1;
+  const t = (d - road.cum[i - 1]) / seg;
+  const [aLng, aLat] = road.coords[i - 1];
+  const [bLng, bLat] = road.coords[i];
+  return { latitude: aLat + (bLat - aLat) * t, longitude: aLng + (bLng - aLng) * t };
+}
+
+/** The road's direction at a point, read across ±6 m so a corner is a sweep, not a snap. */
+function roadBearingAt(road: Road, along: number, fallback: number): number {
+  const a = roadPointAt(road, along - 6);
+  const b = roadPointAt(road, along + 6);
+  return metresBetween(a.latitude, a.longitude, b.latitude, b.longitude) > 1
+    ? bearingBetween(a.latitude, a.longitude, b.latitude, b.longitude)
+    : fallback;
+}
+
 /**
  * The interpolator.
  *
@@ -171,6 +230,36 @@ export class PuckInterpolator {
   private lastSampleAt = 0;
   /** Interval between the last two fixes, used to size the next animation. */
   private observedGapMs = 1_000;
+  /**
+   * DRIVE THE ROAD, NOT THE CHORD. BUGFIX ("the bus wasn't following the route
+   * polyline"). Two fixes either side of a corner were joined by a straight
+   * line, so the vehicle cut across the block. When both ends of a move lie on
+   * the route, the move is made ALONG it. `road` is the line being driven;
+   * `nextRoad` is the server's latest, adopted only when a fix leaves the old
+   * one — a fresh geometry usually starts at the driver's newest fix, and
+   * switching to it eagerly would hop the vehicle forward to its start.
+   */
+  private road: Road | null = null;
+  private nextRoad: Road | null = null;
+  private fromAlong: number | null = null;
+  private toAlong: number | null = null;
+
+  /** The route being driven, `[lng, lat]` (the server's line). Null clears it. */
+  setRoute(coords: [number, number][] | null | undefined): void {
+    const next = coords && coords.length > 1 ? measureRoad(coords) : null;
+    if (!next) { this.road = this.nextRoad = null; this.fromAlong = this.toAlong = null; return; }
+    if (!this.road) this.road = next;
+    else this.nextRoad = next;
+  }
+
+  /** Both ends of this move on `road`, forwards (or a jitter's worth back)? */
+  private along(road: Road, from: PuckState, to: PuckSample): [number, number] | null {
+    const a = snapToRoad(road, from.latitude, from.longitude);
+    const b = snapToRoad(road, to.latitude, to.longitude);
+    if (a.off > ROAD_SNAP_M || b.off > ROAD_SNAP_M) return null;
+    if (b.along < a.along - 25) return null; // a real reversal is not the road's
+    return [a.along, Math.max(b.along, a.along)];
+  }
 
   /** Feed a new GPS fix. */
   push(sample: PuckSample): void {
@@ -225,6 +314,16 @@ export class PuckInterpolator {
       moving: true,
     };
     this.startedAt = now;
+    this.fromAlong = this.toAlong = null;
+    if (current && this.road) {
+      let span = this.along(this.road, current, sample);
+      if (!span && this.nextRoad) {
+        this.road = this.nextRoad;
+        this.nextRoad = null;
+        span = this.along(this.road, current, sample);
+      }
+      if (span) [this.fromAlong, this.toAlong] = span;
+    }
     // Animate over roughly the gap we have been seeing, so the puck arrives
     // just as the next fix lands and motion looks continuous rather than
     // stop-start.
@@ -237,6 +336,14 @@ export class PuckInterpolator {
     if (!this.from) return this.to;
 
     const t = this.durationMs <= 0 ? 1 : (now - this.startedAt) / this.durationMs;
+    if (this.road && this.fromAlong != null && this.toAlong != null) {
+      const along = this.fromAlong + (this.toAlong - this.fromAlong) * easeOut(t);
+      return {
+        ...roadPointAt(this.road, along),
+        bearing: roadBearingAt(this.road, along, this.to.bearing),
+        moving: t < 1,
+      };
+    }
     if (t >= 1) return { ...this.to, moving: false };
 
     const e = easeOut(t);
@@ -253,6 +360,7 @@ export class PuckInterpolator {
     this.from = null;
     this.to = null;
     this.lastSampleAt = 0;
+    this.fromAlong = this.toAlong = null;
   }
 
   /** True once at least one fix has been seen. */
