@@ -1379,10 +1379,13 @@ export const UserLocation = ({ visible = true, mode = 'default', vehicleImage, v
     const uri = modelDataUri(vehicleModel, yaw, tilt, px);
     if (uri) {
       // One image per frame, keyed by it: MapLibre swaps the icon atomically.
+      // BUGFIX ("cannot read property uri of undefined" — driver would not
+      // start): v11's Images takes a URI as a bare STRING. Any object is read as
+      // `{ source }`, so `{ uri }` became resolveAssetSource(undefined).uri.
       const key = `eyego-3d-${vehicleModel.id}-${yaw}-${tilt}`;
       return (
         <>
-          <NativeImages images={{ [key]: { uri } }} />
+          <NativeImages images={{ [key]: uri }} />
           <NativeUserLocation>
             <NativeLayer
               id="eyego-vehicle-puck"
