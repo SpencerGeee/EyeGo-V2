@@ -21,10 +21,20 @@ module.exports = ({ config }) => {
   // Get it from Firebase Console → Project settings → Android app, then place
   // it at eyego/apps/rider/google-services.json (gitignored). See
   // NOTIFICATIONS_SETUP.md.
-  const googleServicesPath = path.join(__dirname, 'google-services.json');
-  const hasGoogleServices = fs.existsSync(googleServicesPath);
-  const googleServicesInfoPath = path.join(__dirname, 'GoogleService-Info.plist');
-  const hasGoogleServicesInfo = fs.existsSync(googleServicesInfoPath);
+  // EAS CLOUD BUILDS NEVER SEE THESE FILES. Both are gitignored, and EAS
+  // uploads what git tracks — so a store build came out with no Firebase at all
+  // and Android never minted an FCM token (no push, silently). On EAS they
+  // arrive as FILE environment variables instead, whose value is the path EAS
+  // wrote the file to:
+  //   eas env:create --name GOOGLE_SERVICES_JSON --type file --value ./google-services.json
+  //   eas env:create --name GOOGLE_SERVICE_INFO_PLIST --type file --value ./GoogleService-Info.plist
+  // A local file still works for local builds.
+  const googleServicesFile = process.env.GOOGLE_SERVICES_JSON
+    || (fs.existsSync(path.join(__dirname, 'google-services.json')) ? './google-services.json' : null);
+  const googleServicesInfoFile = process.env.GOOGLE_SERVICE_INFO_PLIST
+    || (fs.existsSync(path.join(__dirname, 'GoogleService-Info.plist')) ? './GoogleService-Info.plist' : null);
+  const hasGoogleServices = !!googleServicesFile;
+  const hasGoogleServicesInfo = !!googleServicesInfoFile;
 
   // KEEP googleServicesFile OUT OF app.json. Both keys below are spread from
   // app.json first and only conditionally re-added, so a value written there
@@ -46,11 +56,11 @@ module.exports = ({ config }) => {
     ...baseConfig.expo,
     android: {
       ...baseConfig.expo.android,
-      ...(hasGoogleServices ? { googleServicesFile: './google-services.json' } : {}),
+      ...(hasGoogleServices ? { googleServicesFile } : {}),
     },
     ios: {
       ...baseConfig.expo.ios,
-      ...(hasGoogleServicesInfo ? { googleServicesFile: './GoogleService-Info.plist' } : {}),
+      ...(hasGoogleServicesInfo ? { googleServicesFile: googleServicesInfoFile } : {}),
       ...(appleTeamId ? { appleTeamId } : {}),
       infoPlist: {
         ...baseConfig.expo.ios.infoPlist,
