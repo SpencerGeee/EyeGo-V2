@@ -7,7 +7,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import MapboxGL from '../../utils/mapbox';
-import { useRouter, type Href } from 'expo-router';
+import { useRouter, useLocalSearchParams, type Href } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi, walletApi, heatmapApi, connectDriverSocket, disconnectDriverSocket, getDriverSocket, driverSocketEvents } from '@eyego/api';
@@ -653,7 +653,7 @@ export default function HomeScreen() {
     // before the round trip, and deliberately never blocks going OFFLINE.
     if (!platformConfig.driverOnlineEnabled) {
       notify(
-        'Temporarily Unavailable',
+        'Temporarily unavailable',
         'Going online is paused while EyeGo is under maintenance. Please try again shortly.'
       );
       return;
@@ -662,7 +662,7 @@ export default function HomeScreen() {
     const walletBalancePesewas = walletData?.balancePesewas ?? 0;
     if (walletBalancePesewas < 0) {
       notify(
-        'Account Suspended',
+        'Account suspended',
         `Account suspended — ${formatGhs(Math.abs(walletBalancePesewas))} outstanding. Top up your wallet to go back online.`
       );
       return;
@@ -672,13 +672,28 @@ export default function HomeScreen() {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
         notify(
-          'Location Required',
+          'Location required',
           'EyeGo needs your location to go online and accept trips. Please enable location access in your device settings.');
         return;
       }
     }
     goOnline.mutate();
   }, [isOnline, hasPermission, location, walletData, goOnline, goOffline, platformConfig.driverOnlineEnabled]);
+
+  /**
+   * The home-screen widget's Online/Offline pill (eyego-driver://home?go=…).
+   * It names the state to reach, so a tap that lands before this screen's own
+   * state is loaded cannot flip the driver the wrong way; every go-online gate
+   * above still applies.
+   */
+  const { go } = useLocalSearchParams<{ go?: string }>();
+  useEffect(() => {
+    if (go !== 'online' && go !== 'offline') return;
+    router.setParams({ go: undefined });
+    if ((go === 'online') !== isOnline) void handleToggleOnline();
+    // Only a new link should act — not every change of the handler.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [go]);
 
   const initialCenter: [number, number] = useMemo(
     () => (location ? [location.longitude, location.latitude] : [-0.187, 5.6037]),

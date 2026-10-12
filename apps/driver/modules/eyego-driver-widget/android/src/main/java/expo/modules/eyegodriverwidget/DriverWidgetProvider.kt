@@ -6,6 +6,7 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.widget.RemoteViews
 
 /**
@@ -49,18 +50,6 @@ class DriverWidgetProvider : AppWidgetProvider() {
     /** Broadcast the app sends to force a redraw after writing new data. */
     const val ACTION_REFRESH = "com.eyego.driver.widget.REFRESH"
 
-    /**
-     * The online/offline toggle.
-     *
-     * A widget cannot run app code, so tapping this cannot flip the switch by
-     * itself. It opens the app with an intent the JS side reads and acts on —
-     * which is the honest behaviour: going online has server-side
-     * preconditions (documents approved, no unfinished trip) that a widget has
-     * no way to evaluate, and a toggle that silently failed would be worse than
-     * one that takes the driver to the screen that can explain why.
-     */
-    const val ACTION_TOGGLE = "com.eyego.driver.widget.TOGGLE_ONLINE"
-
     fun refresh(context: Context) {
       val manager = AppWidgetManager.getInstance(context)
       val ids = manager.getAppWidgetIds(ComponentName(context, DriverWidgetProvider::class.java))
@@ -94,22 +83,41 @@ class DriverWidgetProvider : AppWidgetProvider() {
       // Whole widget opens the app; the status pill opens it on the toggle
       // intent. Both go through the launcher intent so the app's own routing
       // and auth gate decide where the driver actually lands.
-      views.setOnClickPendingIntent(R.id.widget_root, launchIntent(context, null))
-      views.setOnClickPendingIntent(R.id.widget_status_pill, launchIntent(context, ACTION_TOGGLE))
+      views.setOnClickPendingIntent(R.id.widget_root, launchIntent(context))
+      views.setOnClickPendingIntent(R.id.widget_status_pill, toggleIntent(context, online))
 
       manager.updateAppWidget(widgetId, views)
     }
 
-    private fun launchIntent(context: Context, action: String?): PendingIntent {
+    /**
+     * The pill is a promise ("tap to go online") the app never kept: it sent an
+     * extra nothing read, so it only opened the app. It now opens a deep link
+     * the home screen acts on, naming the state to GO TO rather than "toggle",
+     * so an app whose own state has not loaded yet cannot flip the wrong way.
+     * A widget cannot run app code — going online has server-side gates a
+     * widget cannot evaluate — so it opens the screen that can, and explain.
+     */
+    private fun toggleIntent(context: Context, online: Boolean): PendingIntent {
+      val uri = Uri.parse("eyego-driver://home?go=" + if (online) "offline" else "online")
+      val intent = Intent(Intent.ACTION_VIEW, uri).setPackage(context.packageName)
+      intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+      return PendingIntent.getActivity(
+        context,
+        1,
+        intent,
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+      )
+    }
+
+    private fun launchIntent(context: Context): PendingIntent {
       val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
         ?: Intent(Intent.ACTION_MAIN)
       intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
-      if (action != null) intent.putExtra("eyegoWidgetAction", action)
       // FLAG_IMMUTABLE is required from Android 12 (S) and is correct here: the
       // receiver never needs to fill anything in. Omitting it is a crash on 12+.
       return PendingIntent.getActivity(
         context,
-        if (action == null) 0 else 1,
+        0,
         intent,
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
       )
