@@ -2,6 +2,7 @@
 import { View, StyleSheet, Pressable, ScrollView, useWindowDimensions, type LayoutChangeEvent } from 'react-native';
 import Animated, { FadeInDown, LinearTransition, ReduceMotion } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { HeroBusSlot } from '@eyego/maps';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { expectTripSurfaceReturn } from '../../../utils/tripSurfaceReturn';
@@ -267,13 +268,16 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
    * if nobody has taken the channel over since (the next stage's sheet).
    */
   const sheetMetrics = useSheetMetrics();
-  const { height: screenH } = useWindowDimensions();
+  const { height: screenH, width: screenW } = useWindowDimensions();
   const cardTopRef = useRef<number | null>(null);
+  /** Where the pickup sits on screen: the middle of the map above the card. */
+  const [pickupY, setPickupY] = useState<number | null>(null);
   const onCardLayout = useCallback(
     (e: LayoutChangeEvent) => {
       if (mode !== 'stage') return;
       const top = screenH - (insets.bottom + spacing.sm) - e.nativeEvent.layout.height;
       cardTopRef.current = top;
+      setPickupY((prev) => prev ?? Math.round((insets.top + top) / 2));
       sheetMetrics.retired.value = false;
       sheetMetrics.top.value = top;
     },
@@ -1484,6 +1488,13 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
     // arrived any other way.
     <MorphTarget id="home-pending-request" borderRadius={0} style={styles.safe}>
     <View style={styles.safe} pointerEvents="box-none">
+      {/* The hero bus's destination: it flies down from the review, touches the
+          pickup and dissolves into the search pulse there — the map camera
+          orbits the pickup in the middle of the strip above the card. It never
+          poses as a car: the only vehicles on the map are real ones. */}
+      {pickupY != null ? (
+        <HeroBusSlot id="request-pickup" size={60} land style={{ position: 'absolute', left: screenW / 2 - 30, top: pickupY - 30 }} />
+      ) : null}
       <Pressable
         onPress={handleBack}
         style={[styles.floatingBack, { top: insets.top + spacing.sm }]}

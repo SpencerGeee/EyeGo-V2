@@ -11,13 +11,14 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated, { useAnimatedStyle, useDerivedValue, withTiming } from 'react-native-reanimated';
+import Animated, { FadeIn, useAnimatedStyle, useDerivedValue, useReducedMotion, withTiming } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { ridesApi, tripsApi } from '@eyego/api';
 import { formatGhs, clockTime } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii, MAX_SEATS_PER_BOOKING } from '@eyego/config';
-import { Text, Button, Entrance, GradientGlowBorder, getTierTheme, normalizeTier } from '@eyego/ui';
+import { Text, Button, GradientGlowBorder, getTierTheme, normalizeTier, depthEnter, usePerformanceTier } from '@eyego/ui';
+import { HeroBusSlot } from '@eyego/maps';
 import { useColors, Colors } from '../../../utils/useColors';
 import { MapGestureHint } from '../MapGestureHint';
 import { RidePicker, type RideOption } from '../RidePicker';
@@ -155,6 +156,10 @@ function ConfigureStageImpl() {
   const coverAll = useRideStore((s) => s.requestCoverAll);
 
   const [step, setStep] = useState(STEP_FIRST);
+  // Each step rises in from depth, the same page turn as the stages around it.
+  const perfTier = usePerformanceTier();
+  const reduceMotion = useReducedMotion();
+  const stepEnter = perfTier !== 'low' && !reduceMotion ? depthEnter : FadeIn.duration(200);
 
   /**
    * What the quote said about the pickup pin — see the doorstep block in the
@@ -535,8 +540,12 @@ function ConfigureStageImpl() {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          <Entrance key={`title-${step}`} animation="slideRight">
-            <Text style={styles.title}>{stepTitle}</Text>
+          <Animated.View key={`title-${step}`} entering={stepEnter}>
+            <View style={styles.titleRow}>
+              <Text style={[styles.title, { flex: 1 }]}>{stepTitle}</Text>
+              {/* Step 4: the bus waits beside the question, then docks into the review. */}
+              {step === 4 ? <HeroBusSlot id="configure-extras" size={76} /> : null}
+            </View>
             {step === 3 ? (
               // The journey in chips — the same road every price below is for.
               <View style={styles.tripChips}>
@@ -547,7 +556,7 @@ function ConfigureStageImpl() {
             ) : (
               <Text style={styles.blurb}>{stepBlurb}</Text>
             )}
-          </Entrance>
+          </Animated.View>
 
           {/*
             EACH TIER WEARS ITS OWN COLOUR AND ITS OWN RING.
@@ -564,7 +573,7 @@ function ConfigureStageImpl() {
             shadow passes per frame.
           */}
           {step === 3 && (
-            <Entrance key="step3" animation="slideRight" style={styles.list}>
+            <Animated.View key="step3" entering={stepEnter} style={styles.list}>
               <RidePicker
                 options={TIER_ORDER.map((id): RideOption => {
                   const km = nearestKm[id];
@@ -586,11 +595,11 @@ function ConfigureStageImpl() {
                 quoting={quoting}
                 nearbyKnown={nearbyKnown}
               />
-            </Entrance>
+            </Animated.View>
           )}
 
           {step === 4 && (
-            <Entrance key="step4" animation="slideRight" style={styles.list}>
+            <Animated.View key="step4" entering={stepEnter} style={styles.list}>
               {/*
                 On the group flow the party size IS the booking, so it leads the
                 step with its own banner and a set of quick picks — a rider with
@@ -752,11 +761,11 @@ function ConfigureStageImpl() {
                   accessibilityLabel="Note for your driver"
                 />
               </View>
-            </Entrance>
+            </Animated.View>
           )}
 
           {step === 5 && (
-            <Entrance key="step5" animation="slideRight" style={styles.list}>
+            <Animated.View key="step5" entering={stepEnter} style={styles.list}>
               <GradientGlowBorder
                 palette="brandGreen"
                 fillColor={colors.surfaceContainerHigh}
@@ -764,6 +773,19 @@ function ConfigureStageImpl() {
                 glow
                 style={styles.review}
               >
+                <View style={styles.ticketHead}>
+                  <HeroBusSlot id="configure-review" size={92} />
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={[styles.ticketEyebrow, { color: tierTheme.accent }]}>{tierTheme.label.toUpperCase()}</Text>
+                    <Text style={styles.ticketPrice} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+                      {fare != null ? formatGhs(fare) : quoting ? 'Pricing…' : '—'}
+                    </Text>
+                    <Text variant="caption" color={colors.onSurfaceVariant} numberOfLines={1}>
+                      {[`${seats} ${seats === 1 ? 'seat' : 'seats'}`, tripInfo.min != null ? `${tripInfo.min} min drive` : null, 'Cash'].filter(Boolean).join(' · ')}
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.reviewDivider} />
                 <View style={styles.routeBlock}>
                   <View style={styles.routeRow}>
                     <View style={[styles.routeDot, { backgroundColor: colors.onSurfaceVariant }]} />
@@ -841,7 +863,7 @@ function ConfigureStageImpl() {
                   </View>
                 </View>
               </GradientGlowBorder>
-            </Entrance>
+            </Animated.View>
           )}
         </ScrollView>
 
@@ -1093,6 +1115,17 @@ const makeStyles = (colors: Colors) =>
       opacity: 0.86,
     },
     list: { gap: spacing.sm },
+    titleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    ticketHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+    ticketEyebrow: { fontFamily: fonts.semiBold, fontSize: 10.5, letterSpacing: 1.6 },
+    ticketPrice: {
+      fontFamily: fonts.displayBold,
+      fontSize: 30,
+      lineHeight: 36,
+      letterSpacing: -0.8,
+      color: colors.onSurface,
+      fontVariant: ['tabular-nums'],
+    },
     option: {
       flexDirection: 'row',
       alignItems: 'center',

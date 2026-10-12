@@ -719,6 +719,8 @@ const GLASS = '#121822';
 const TRIM = '#2A2E36';
 const HEADLIGHT = '#FFF3D1';
 const TAILLIGHT = '#E5484D';
+/** A lit cabin seen through a window. */
+const CABIN = '#FFE3A1';
 const memo = new Map();
 function once(key, build) {
     let m = memo.get(key);
@@ -733,10 +735,11 @@ function once(key, build) {
  * on their faces; wheels, mirrors and the EyeGo roof sign are their own parts.
  */
 function minibus(livery = {}) {
-    var _a, _b;
+    var _a, _b, _c;
     const body = (_a = livery.body) !== null && _a !== void 0 ? _a : '#F3F4F6';
     const accent = (_b = livery.accent) !== null && _b !== void 0 ? _b : '#22C55E';
-    return once(`minibus|${body}|${accent}`, () => {
+    const lit = Math.max(0, Math.min(3, Math.round((_c = livery.lit) !== null && _c !== void 0 ? _c : 0)));
+    return once(`minibus|${body}|${accent}|${lit}`, () => {
         const faces = [];
         // Lower body: bumper to beltline, short sloped bonnet at the front.
         faces.push(...prism([[-3.0, 0.3], [3.0, 0.3], [3.0, 1.02], [2.72, 1.26], [-3.0, 1.26]], 1.02, body, {
@@ -783,9 +786,10 @@ function minibus(livery = {}) {
         const win = (y0, y1) => [[y0, 1.36], [y1, 1.36], [y1, 2.14], [y0, 2.14]];
         faces.push(...prism([[-2.95, 1.26], [2.68, 1.26], [1.86, 2.26], [-2.95, 2.26]], 0.97, body, {
             sides: [
-                { yz: win(-2.8, -1.66), color: GLASS, glass: true },
-                { yz: win(-1.54, -0.4), color: GLASS, glass: true },
-                { yz: win(-0.28, 0.86), color: GLASS, glass: true },
+                // Rear to front; lit from the front, the way seats fill.
+                lit >= 3 ? { yz: win(-2.8, -1.66), color: CABIN, glow: true } : { yz: win(-2.8, -1.66), color: GLASS, glass: true },
+                lit >= 2 ? { yz: win(-1.54, -0.4), color: CABIN, glow: true } : { yz: win(-1.54, -0.4), color: GLASS, glass: true },
+                lit >= 1 ? { yz: win(-0.28, 0.86), color: CABIN, glow: true } : { yz: win(-0.28, 0.86), color: GLASS, glass: true },
                 { yz: [[0.98, 1.36], [slopeY(1.36) - 0.1, 1.36], [slopeY(2.14) - 0.1, 2.14], [0.98, 2.14]], color: GLASS, glass: true },
             ],
             band: (i) => {
@@ -811,7 +815,7 @@ function minibus(livery = {}) {
             faces.push(...cylinderX(y, 0.33, 0.33, -0.9, -1.07, TIRE, HUB));
         }
         faces.push(...box(1.0, 1.16, 2.38, 2.5, 1.44, 1.64, TRIM), ...box(-1.16, -1.0, 2.38, 2.5, 1.44, 1.64, TRIM));
-        return { id: `minibus|${body}|${accent}`, faces, radius: radiusOf(faces), shadow: { w: 2.4, l: 6.5 } };
+        return { id: `minibus|${body}|${accent}|${lit}`, faces, radius: radiusOf(faces), shadow: { w: 2.4, l: 6.5 } };
     });
 }
 /** Pickup: a faceted sphere on a stem over a ground ring — "here". */

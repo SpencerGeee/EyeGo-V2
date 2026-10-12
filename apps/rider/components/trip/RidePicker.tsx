@@ -1,10 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { View, StyleSheet, Pressable } from 'react-native';
-import Animated, { FadeIn, FadeOut, LinearTransition, ReduceMotion, useReducedMotion } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeOut, LinearTransition, ReduceMotion } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { Model3D, minibus, type Model } from '@eyego/maps';
+import { Model3D, minibus, HeroBusSlot, SHOWROOM_YAW, SHOWROOM_PITCH } from '@eyego/maps';
 import { fonts, fontSizes, spacing, springs } from '@eyego/config';
 import { Text, RollingDigits, getTierTheme } from '@eyego/ui';
 import { formatGhs } from '@eyego/utils';
@@ -37,14 +37,11 @@ export interface RideOption {
 }
 
 /** The fleet is one minibus; the class is its paint. */
-const LIVERY: Record<RideTierId, { body: string }> = {
+export const LIVERY: Record<RideTierId, { body: string }> = {
   ECO: { body: '#F3F4F6' },
   COMFORT: { body: '#DCE6F2' },
   PREMIUM: { body: '#1B1D22' },
 };
-/** Three-quarter front view, looking down — the showroom angle. */
-const SHOWROOM_YAW = 228;
-const SHOWROOM_PITCH = 58;
 
 const layout = LinearTransition.springify()
   .stiffness(springs.emphasized.stiffness)
@@ -85,7 +82,9 @@ export function RidePicker({
 
   return (
     <View style={styles.wrap}>
-      <Animated.View key={`hero-${hero.id}`} layout={layout} entering={FadeIn.duration(280).reduceMotion(ReduceMotion.System)} exiting={FadeOut.duration(140)}>
+      {/* Not keyed by tier: the card (and the bus in it) stays mounted, so a
+          new choice turns the same bus once instead of swapping it out. */}
+      <Animated.View layout={layout}>
         <Spotlight option={hero} badge={badgeOf(hero.id)} quoting={quoting} nearbyKnown={nearbyKnown} colors={colors} styles={styles} />
       </Animated.View>
       <Animated.View layout={layout} style={styles.tiles}>
@@ -134,15 +133,16 @@ function Spotlight({
           pointerEvents="none"
         />
         <View style={styles.heroTop}>
-          <View style={{ flex: 1, minWidth: 0 }}>
+          <Animated.View key={`copy-${option.id}`} entering={FadeIn.duration(260).reduceMotion(ReduceMotion.System)} exiting={FadeOut.duration(120)} style={{ flex: 1, minWidth: 0 }}>
             <View style={styles.eyebrowRow}>
               <View style={[styles.eyebrowDot, { backgroundColor: t.accent }]} />
               <Text style={[styles.eyebrow, { color: t.accent }]}>{badge ? badge.toUpperCase() : 'YOUR RIDE'}</Text>
             </View>
             <Text style={styles.heroTitle} numberOfLines={1}>{t.label}</Text>
             <Text style={styles.heroBlurb} numberOfLines={2}>{t.blurb}</Text>
-          </View>
-          <SpinningVehicle model={model} size={124} spinKey={option.id} />
+          </Animated.View>
+          {/* The hero bus rests here on this stage — see HeroBus. */}
+          <HeroBusSlot id="ride-spotlight" size={124} model={model} />
         </View>
 
         <View style={styles.heroBottom}>
@@ -243,36 +243,6 @@ function Fact({
       </Text>
     </View>
   );
-}
-
-/**
- * The bus turns once — a full turntable revolution, easing out — each time a
- * class is chosen, then rests at the showroom angle. Once, not forever: an
- * idle spin is a loop running on a screen the rider may sit on for a minute,
- * and it would pull the eye off the price. Frames are cached by the engine, so
- * a revolution is ~90 cheap picture swaps in one small canvas.
- */
-function SpinningVehicle({ model, size, spinKey }: { model: Model; size: number; spinKey: string }) {
-  const reduce = useReducedMotion();
-  const [turn, setTurn] = useState(0);
-  useEffect(() => {
-    if (reduce) return;
-    let raf = 0;
-    let last = -1;
-    const t0 = Date.now();
-    const tick = () => {
-      const p = Math.min(1, (Date.now() - t0) / 1400);
-      const deg = Math.round(((1 - Math.pow(1 - p, 3)) * 360) / 4) * 4;
-      if (deg !== last) {
-        last = deg;
-        setTurn(deg % 360);
-      }
-      if (p < 1) raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [spinKey, reduce]);
-  return <Model3D model={model} heading={SHOWROOM_YAW + turn} pitch={SHOWROOM_PITCH} size={size} />;
 }
 
 const makeStyles = (colors: Colors) =>

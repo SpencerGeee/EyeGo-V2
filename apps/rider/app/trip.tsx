@@ -8,6 +8,7 @@ import Animated, {
   useAnimatedStyle,
   withSpring,
   runOnJS,
+  useReducedMotion,
 } from 'react-native-reanimated';
 import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -15,7 +16,9 @@ import { bookingsApi } from '@eyego/api';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { withOpacity, springs, fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { SheetMetricsProvider, useCreateSheetMetrics, AppBackground, Pressable, goBack, goOut, afterTransition, morphSurfaceHidden } from '@eyego/ui';
+import { SheetMetricsProvider, useCreateSheetMetrics, AppBackground, Pressable, goBack, goOut, afterTransition, morphSurfaceHidden, depthIncoming, depthOutgoing, usePerformanceTier, getTierTheme } from '@eyego/ui';
+import { HeroBusProvider, minibus } from '@eyego/maps';
+import { LIVERY, type RideTierId } from '../components/trip/RidePicker';
 import { useRideEnded } from '../stores/rideEnded.store';
 import { useColors } from '../utils/useColors';
 import { useThemeStore } from '../stores/theme.store';
@@ -789,8 +792,19 @@ export default function TripScreen() {
     rendered.previous != null &&
     (CONTAINER_TRANSFORM_INTO[rendered.current]?.includes(rendered.previous) ?? false);
 
+  /**
+   * THE PAGE TURN IS 3D ("from the where to page to the live request page,
+   * everything should be having a 3D effect that morphs and moves"): the old
+   * page tilts back and recedes while the new one rises flat into place — see
+   * motion/depth. A low-tier phone or Reduce Motion keeps the flat dissolve.
+   */
+  const perfTier = usePerformanceTier();
+  const reduceMotion = useReducedMotion();
+  const depthOn = perfTier !== 'low' && !reduceMotion;
+
   const incomingStyle = useAnimatedStyle(() => {
     if (!isContainerTransform) {
+      if (depthOn) return depthIncoming(progress.value);
       // Paged: rises the last 16 pt as it fades in.
       return {
         opacity: progress.value,
@@ -803,10 +817,11 @@ export default function TripScreen() {
       opacity: interpolate(progress.value, [FADE_THROUGH_PIVOT, 1], [0, 1], 'clamp'),
       transform: [{ translateY: 0 }],
     };
-  }, [isContainerTransform]);
+  }, [isContainerTransform, depthOn]);
 
   const outgoingStyle = useAnimatedStyle(() => {
     if (!isContainerTransform) {
+      if (depthOn) return depthOutgoing(progress.value);
       return {
         opacity: 1 - progress.value,
         transform: [{ translateY: progress.value * -12 }],
@@ -822,7 +837,17 @@ export default function TripScreen() {
       opacity: interpolate(progress.value, [0, FADE_THROUGH_PIVOT], [1, 0], 'clamp'),
       transform: [{ translateY: 0 }, { scale: 1 }],
     };
-  }, [isContainerTransform]);
+  }, [isContainerTransform, depthOn]);
+
+  /**
+   * The hero bus, in the livery of the class the rider has chosen — one object
+   * carried from Where-to to the pickup. See @eyego/maps three/HeroBus.
+   */
+  const heroTier = (useRideStore((s) => s.rideTier) ?? 'ECO') as RideTierId;
+  const heroModel = useMemo(
+    () => minibus({ accent: getTierTheme(colors, heroTier).accent, body: (LIVERY[heroTier] ?? LIVERY.ECO).body }),
+    [colors, heroTier],
+  );
 
   /**
    * The scrim behind the top chips.
@@ -879,6 +904,7 @@ export default function TripScreen() {
       entering={FadeIn.duration(420)}
     >
       <SheetMetricsProvider value={sheetMetrics}>
+      <HeroBusProvider model={heroModel} spinKey={heroTier} spring={springs.morph} reduced={!depthOn}>
       {/*
         THE FLOOR OF THIS SCREEN — AND WHY IT IS NOT SIMPLY TRANSPARENT.
 
@@ -1116,6 +1142,7 @@ export default function TripScreen() {
         announce. See components/BoardedCelebration.tsx.
       */}
       <BoardedCelebration />
+      </HeroBusProvider>
       </SheetMetricsProvider>
     </Animated.View>
   );

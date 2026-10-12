@@ -40,6 +40,7 @@ import { consumePickedPlace } from '../../../utils/placePickerResult';
 import { expectTripSurfaceReturn } from '../../../utils/tripSurfaceReturn';
 import { slotOfPlace } from '../../../utils/savedPlaceSlots';
 import { goDeeper, goBack } from '@eyego/ui';
+import { HeroBusSlot } from '@eyego/maps';
 
 /**
  * Search stage of the persistent trip surface — the where-to card.
@@ -532,25 +533,33 @@ function SearchStageImpl() {
           <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
         </Pressable>
 
-        <Text style={styles.headerTitle}>Plan your ride</Text>
-
-        {/* Steps 1-2 of the same 5-step flow ConfigureStage continues, so the
-            rider can see how much is left rather than discovering it. Pickup is
-            step 1; a confirmed destination is step 2. */}
-        <View style={styles.stepDots} accessibilityLabel={`Step ${selectedPlace ? 2 : 1} of 5`}>
+        {/* Steps 1-2 of the same 5-step flow ConfigureStage continues — the
+            same segmented bar, so the two halves read as one journey. */}
+        <View style={styles.stepBar} accessibilityLabel={`Step ${selectedPlace ? 2 : 1} of 5`}>
           {[1, 2, 3, 4, 5].map((n) => (
             <View
               key={n}
-              style={[
-                styles.stepDot,
-                n <= (selectedPlace ? 2 : 1) && {
-                  backgroundColor: colors.primary,
-                  width: n === (selectedPlace ? 2 : 1) ? 16 : 5,
-                },
-              ]}
+              style={[styles.stepSeg, n <= (selectedPlace ? 2 : 1) && { backgroundColor: colors.primary }]}
             />
           ))}
         </View>
+        <View style={styles.headerSpacer} />
+      </View>
+
+      {/* The question, large — and the bus that will carry the answer, waiting
+          beside it. It travels from here to the ride you choose (HeroBus). */}
+      <View style={[styles.heroRow, { width: cardWidth }]}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={styles.heroTitle} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+            {selectedPlace ? 'Ready to go' : 'Where to?'}
+          </Text>
+          <Text style={styles.heroSub} numberOfLines={2}>
+            {selectedPlace
+              ? `To ${(destText || 'your destination').split(',')[0]}. Pick a ride next.`
+              : 'Choose a drop-off and we will price every ride for it.'}
+          </Text>
+        </View>
+        <HeroBusSlot id="where-to" size={96} />
       </View>
 
       {/* The dismiss gesture is scoped to the CARD, not to `flex: 1`.
@@ -595,16 +604,8 @@ function SearchStageImpl() {
                 background quietly lighting the card's edge, not as a light
                 source of its own.
               */}
-              <GradientGlowBorder
-                palette="brandGreen"
-                borderRadius={radii.xl}
-                thickness="thin"
-                fillColor={colors.surfaceCard}
-                glow
-                glowIntensity={0.5}
-                maxGlowRadius={12}
-              >
-                <View style={styles.fieldsGroup}>
+              <View style={styles.fieldsShell}>
+                <View style={[styles.fieldsGroup, styles.fieldsCore]}>
                   <Pressable
                     style={({ pressed }) => [
                       styles.locationRow,
@@ -673,7 +674,7 @@ function SearchStageImpl() {
                     <Ionicons name="search" size={FIELD_TRAIL_W} color={colors.primary} />
                   </Pressable>
                 </View>
-              </GradientGlowBorder>
+              </View>
 
               {/*
                 CTAs, once a destination is confirmed.
@@ -742,40 +743,36 @@ function SearchStageImpl() {
           {/* Home + Work always have a row. A missing one is an invitation to
               add it, not an absence — and once added it IS the row, so the
               prompt can never sit next to the address it was asking for. */}
-          <View style={styles.sectionCard}>
-            <GlassSurface style={StyleSheet.absoluteFill} borderRadius={20} intensity="high" />
-            {showHome && (
-              <SlotRow
-                styles={styles}
-                colors={colors}
-                icon="home"
-                // The slot names the row, never the stored label — see the
-                // Work row below for the "Accra" this replaced.
-                title={homePlace ? 'Home' : 'Add home address'}
-                subtitle={homePlace ? shortAddress(homePlace.address, 3) ?? homePlace.address : undefined}
-                meta={homePlace ? fromPickup(homePlace.lat, homePlace.lng) : undefined}
-                isPrompt={!homePlace}
-                onPress={() => (homePlace ? commitSaved(homePlace) : openSavedPlaces())}
-              />
-            )}
-            {showHome && showWork && <View style={styles.rowDivider} />}
-            {showWork && (
-              <SlotRow
-                styles={styles}
-                colors={colors}
-                icon="briefcase"
-                // BUGFIX ("my new Work address shows as Accra, not Work like
-                // Home does"). The title was the stored label, and a Work place
-                // saved through the old typed-address form carried the
-                // geocoder's town name as its label. A shortcut is its slot.
-                title={workPlace ? 'Work' : 'Add work address'}
-                subtitle={workPlace ? shortAddress(workPlace.address, 3) ?? workPlace.address : undefined}
-                meta={workPlace ? fromPickup(workPlace.lat, workPlace.lng) : undefined}
-                isPrompt={!workPlace}
-                onPress={() => (workPlace ? commitSaved(workPlace) : openSavedPlaces())}
-              />
-            )}
-          </View>
+          {/* Home and Work are the two shortcuts most rides start from, so they
+              are tiles — one tap each, side by side — not rows in a list. The
+              slot names the tile, never the stored label (the "Accra" Work bug).
+              A missing one is an invitation to add it. */}
+          {(showHome || showWork) && (
+            <View style={styles.bentoRow}>
+              {showHome && (
+                <BentoTile
+                  styles={styles}
+                  colors={colors}
+                  icon="home"
+                  title={homePlace ? 'Home' : 'Add home'}
+                  subtitle={homePlace ? shortAddress(homePlace.address, 2) ?? homePlace.address : 'Save it once'}
+                  meta={homePlace ? fromPickup(homePlace.lat, homePlace.lng) : undefined}
+                  onPress={() => (homePlace ? commitSaved(homePlace) : openSavedPlaces())}
+                />
+              )}
+              {showWork && (
+                <BentoTile
+                  styles={styles}
+                  colors={colors}
+                  icon="briefcase"
+                  title={workPlace ? 'Work' : 'Add work'}
+                  subtitle={workPlace ? shortAddress(workPlace.address, 2) ?? workPlace.address : 'Save it once'}
+                  meta={workPlace ? fromPickup(workPlace.lat, workPlace.lng) : undefined}
+                  onPress={() => (workPlace ? commitSaved(workPlace) : openSavedPlaces())}
+                />
+              )}
+            </View>
+          )}
 
           {/*
             ── THE SAVED PLACES THAT ARE NOT HOME OR WORK ────────────────────
@@ -843,6 +840,41 @@ function SearchStageImpl() {
         </ScrollView>
       </View>
     </View>
+  );
+}
+
+/** A Home/Work shortcut tile — see the bento row in the render. */
+function BentoTile({
+  styles,
+  colors,
+  icon,
+  title,
+  subtitle,
+  meta,
+  onPress,
+}: {
+  styles: ReturnType<typeof makeStyles>;
+  colors: Colors;
+  icon: keyof typeof Ionicons.glyphMap;
+  title: string;
+  subtitle?: string;
+  meta?: string | null;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      style={({ pressed }) => [styles.bentoTile, pressed && { transform: [{ scale: 0.97 }] }]}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={[title, subtitle, meta].filter(Boolean).join(', ')}
+    >
+      <View style={styles.bentoIcon}>
+        <Ionicons name={icon} size={17} color={colors.primary} />
+      </View>
+      <Text style={styles.bentoTitle} numberOfLines={1}>{title}</Text>
+      {subtitle ? <Text style={styles.bentoSub} numberOfLines={1}>{subtitle}</Text> : null}
+      {meta ? <Text style={styles.bentoMeta} numberOfLines={1}>{meta}</Text> : null}
+    </Pressable>
   );
 }
 
@@ -1046,15 +1078,51 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     letterSpacing: -0.3,
   },
   headerSpacer: { width: 44, height: 44 },
-  stepDots: {
-    width: 44,
-    height: 44,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    gap: 4,
+  stepBar: { flex: 1, flexDirection: 'row', justifyContent: 'center', gap: 6, paddingHorizontal: 18 },
+  stepSeg: { flex: 1, maxWidth: 52, height: 3, borderRadius: 2, backgroundColor: withOpacity(colors.onSurface, 0.12) },
+
+  heroRow: { flexDirection: 'row', alignItems: 'center', alignSelf: 'center', gap: 8, marginTop: 6, marginBottom: 10 },
+  heroTitle: { fontFamily: fonts.displayBold, fontSize: 38, lineHeight: 44, letterSpacing: -1.4, color: colors.onSurface },
+  heroSub: { marginTop: 4, fontFamily: fonts.regular, fontSize: fontSizes.bodyMedium, lineHeight: 20, color: colors.onSurfaceVariant },
+
+  /** The double bezel: a tinted tray, the fields set into it. */
+  fieldsShell: {
+    padding: 5,
+    borderRadius: radii.xl + 5,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: withOpacity(colors.primary, 0.3),
+    backgroundColor: withOpacity(colors.primary, 0.07),
   },
-  stepDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: colors.outline },
+  fieldsCore: {
+    borderRadius: radii.xl,
+    backgroundColor: colors.surfaceCard,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255,255,255,0.10)',
+    overflow: 'hidden',
+  },
+
+  bentoRow: { flexDirection: 'row', gap: 10, marginBottom: 6 },
+  bentoTile: {
+    flex: 1,
+    minHeight: 104,
+    padding: 14,
+    borderRadius: 22,
+    backgroundColor: colors.surfaceCard,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.rimLight,
+  },
+  bentoIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: withOpacity(colors.primary, 0.14),
+    marginBottom: 10,
+  },
+  bentoTitle: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodyLarge, color: colors.onSurface },
+  bentoSub: { marginTop: 2, fontFamily: fonts.regular, fontSize: 12.5, color: colors.onSurfaceVariant },
+  bentoMeta: { marginTop: 2, fontFamily: fonts.medium, fontSize: 11.5, color: colors.primary, fontVariant: ['tabular-nums'] },
 
   /** Dismiss-gesture area: exactly the card's box, never the whole screen —
    *  otherwise the detector owns every pan over the map behind the card. */

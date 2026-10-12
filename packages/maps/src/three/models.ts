@@ -11,6 +11,8 @@ const GLASS = '#121822';
 const TRIM = '#2A2E36';
 const HEADLIGHT = '#FFF3D1';
 const TAILLIGHT = '#E5484D';
+/** A lit cabin seen through a window. */
+const CABIN = '#FFE3A1';
 
 const memo = new Map<string, Model>();
 function once(key: string, build: () => Model): Model {
@@ -24,6 +26,11 @@ export interface Livery {
   body?: string;
   /** Tier stripe + roof sign. */
   accent?: string;
+  /**
+   * Passenger windows lit warm, 0–3 per side, front first — the driver's
+   * "seats" step lights the bus as it fills. Undefined = all glass.
+   */
+  lit?: number;
 }
 
 /**
@@ -35,7 +42,8 @@ export interface Livery {
 export function minibus(livery: Livery = {}): Model {
   const body = livery.body ?? '#F3F4F6';
   const accent = livery.accent ?? '#22C55E';
-  return once(`minibus|${body}|${accent}`, () => {
+  const lit = Math.max(0, Math.min(3, Math.round(livery.lit ?? 0)));
+  return once(`minibus|${body}|${accent}|${lit}`, () => {
     const faces: Face[] = [];
 
     // Lower body: bumper to beltline, short sloped bonnet at the front.
@@ -96,9 +104,10 @@ export function minibus(livery: Livery = {}): Model {
         body,
         {
           sides: [
-            { yz: win(-2.8, -1.66), color: GLASS, glass: true },
-            { yz: win(-1.54, -0.4), color: GLASS, glass: true },
-            { yz: win(-0.28, 0.86), color: GLASS, glass: true },
+            // Rear to front; lit from the front, the way seats fill.
+            lit >= 3 ? { yz: win(-2.8, -1.66), color: CABIN, glow: true } : { yz: win(-2.8, -1.66), color: GLASS, glass: true },
+            lit >= 2 ? { yz: win(-1.54, -0.4), color: CABIN, glow: true } : { yz: win(-1.54, -0.4), color: GLASS, glass: true },
+            lit >= 1 ? { yz: win(-0.28, 0.86), color: CABIN, glow: true } : { yz: win(-0.28, 0.86), color: GLASS, glass: true },
             { yz: [[0.98, 1.36], [slopeY(1.36) - 0.1, 1.36], [slopeY(2.14) - 0.1, 2.14], [0.98, 2.14]], color: GLASS, glass: true },
           ],
           band: (i) => {
@@ -129,7 +138,7 @@ export function minibus(livery: Livery = {}): Model {
     }
     faces.push(...box(1.0, 1.16, 2.38, 2.5, 1.44, 1.64, TRIM), ...box(-1.16, -1.0, 2.38, 2.5, 1.44, 1.64, TRIM));
 
-    return { id: `minibus|${body}|${accent}`, faces, radius: radiusOf(faces), shadow: { w: 2.4, l: 6.5 } };
+    return { id: `minibus|${body}|${accent}|${lit}`, faces, radius: radiusOf(faces), shadow: { w: 2.4, l: 6.5 } };
   });
 }
 
