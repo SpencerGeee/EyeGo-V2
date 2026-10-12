@@ -400,7 +400,7 @@ export default function ScanPayScreen() {
                 Couldn't load your payment code.
               </Text>
               <Pressable style={styles.permBtn} onPress={() => refetchProfile()} accessibilityRole="button">
-                <Text variant="label" color={colors.onPrimary}>Try Again</Text>
+                <Text variant="label" color={colors.onPrimary}>Try again</Text>
               </Pressable>
             </>
           ) : (

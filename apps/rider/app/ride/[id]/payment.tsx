@@ -659,7 +659,7 @@ export default function PaymentScreen() {
           <Pressable onPress={() => void closeCheckout()} hitSlop={12} accessibilityRole="button" accessibilityLabel="Close checkout">
             <Ionicons name="close" size={24} color={colors.onSurface} />
           </Pressable>
-          <Text variant="titleSmall">Card Payment</Text>
+          <Text variant="titleSmall">Card payment</Text>
           <View style={{ width: 24 }} />
         </View>
         <WebView
@@ -714,7 +714,7 @@ export default function PaymentScreen() {
           <View style={[styles.successIcon, { backgroundColor: colors.errorContainer }]}>
             <Ionicons name="close" size={36} color={colors.error} />
           </View>
-          <Text variant="headlineMedium" style={{ marginTop: spacing.xl }}>Payment Failed</Text>
+          <Text variant="headlineMedium" style={{ marginTop: spacing.xl }}>Payment failed</Text>
           <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={{ marginTop: spacing.sm, textAlign: 'center' }}>
             Please try again or use a different method.
           </Text>

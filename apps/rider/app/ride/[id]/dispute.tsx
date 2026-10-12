@@ -113,7 +113,7 @@ export default function DisputeScreen() {
           <Pressable onPress={() => goBack()} style={styles.iconBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Go back">
             <Ionicons name="close" size={22} color={colors.onSurface} />
           </Pressable>
-          <Text variant="titleSmall">Report Issue</Text>
+          <Text variant="titleSmall">Report issue</Text>
           <View style={{ width: 40 }} />
         </View>
 

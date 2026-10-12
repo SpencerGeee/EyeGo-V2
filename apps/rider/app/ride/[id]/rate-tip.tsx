@@ -283,7 +283,7 @@ export default function RateTipScreen() {
         <Pressable onPress={handleSkip} style={styles.headerBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Close">
           <Ionicons name="close" size={22} color={colors.onSurface} />
         </Pressable>
-        <Text variant="titleSmall" style={{ color: colors.onSurface }}>Rate Driver</Text>
+        <Text variant="titleSmall" style={{ color: colors.onSurface }}>Rate driver</Text>
         <View style={{ width: 44 }} />
       </View>
 

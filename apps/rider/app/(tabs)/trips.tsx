@@ -125,7 +125,7 @@ export default function TripsScreen() {
         transition={{ type: 'spring', ...springs.standard }}
         style={styles.header}
       >
-        <Text variant="headlineMedium">My Trips</Text>
+        <Text variant="headlineMedium">My trips</Text>
       </MotiView>
 
       {/* Active booking banner */}

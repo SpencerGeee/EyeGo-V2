@@ -93,7 +93,7 @@ class AppErrorBoundary extends Component<{ children: React.ReactNode }, ErrorBou
             style={errStyles.button}
             onPress={() => Updates.reloadAsync().catch(() => this.setState({ hasError: false }))}
           >
-            <RNText style={errStyles.buttonText}>Restart App</RNText>
+            <RNText style={errStyles.buttonText}>Restart app</RNText>
           </Pressable>
         </View>
       );

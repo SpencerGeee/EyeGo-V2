@@ -286,7 +286,7 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
           <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
         </Pressable>
         <View style={styles.headerTitleGroup}>
-          <Text style={styles.headerTitle} numberOfLines={1}>Available Rides</Text>
+          <Text style={styles.headerTitle} numberOfLines={1}>Available rides</Text>
           <View style={styles.headerSubtitleRow}>
             <Text style={styles.headerSubtitle} numberOfLines={1}>
               {originText ? originText.split(',')[0] : 'Pickup'}
@@ -890,7 +890,7 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
         <Pressable style={styles.modalOverlay} onPress={() => setFareModalTrip(null)} accessibilityRole="button" accessibilityLabel="Close fare breakdown">
           <Pressable style={[styles.modalSheet, { backgroundColor: colors.surfaceContainer }]} onPress={() => {}}>
             <View style={styles.modalHandle} />
-            <Text variant="titleMedium" style={{ marginBottom: spacing.lg }}>Fare Breakdown</Text>
+            <Text variant="titleMedium" style={{ marginBottom: spacing.lg }}>Fare breakdown</Text>
             {fareModalTrip && (() => {
               // BUGFIX: this used to invent the breakdown — it split the server's
               // per-seat fare into a fabricated "base fare" and a "Platform fee

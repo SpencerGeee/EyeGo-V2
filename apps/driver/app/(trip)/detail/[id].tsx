@@ -137,7 +137,7 @@ export default function TripDetailScreen() {
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {/* Headline */}
         <Entrance animation="slideUp" delay={40}>
-          <Text variant="headlineLarge" style={styles.headline}>Trip Summary</Text>
+          <Text variant="headlineLarge" style={styles.headline}>Trip summary</Text>
         </Entrance>
 
         {/* Route card — hero element gets the premium ring */}
@@ -181,7 +181,7 @@ export default function TripDetailScreen() {
 
         {/* Stats grid */}
         <Entrance animation="slideDown" delay={120} style={styles.card}>
-          <Text style={styles.cardTitle}>Trip Stats</Text>
+          <Text style={styles.cardTitle}>Trip stats</Text>
           <View style={styles.statsGrid}>
             <StatBox
               icon="people-outline"
@@ -277,7 +277,7 @@ export default function TripDetailScreen() {
 
         {/* Earnings breakdown */}
         <Entrance animation="slideDown" delay={240} style={[styles.card, { gap: spacing.sm }]}>
-          <Text style={styles.cardTitle}>Earnings Breakdown</Text>
+          <Text style={styles.cardTitle}>Earnings breakdown</Text>
           <View style={styles.earningsRow}>
             <Text variant="bodyMedium" color={colors.onSurfaceVariant}>
               Fares · {boardedCount} seat{boardedCount === 1 ? '' : 's'}
@@ -293,7 +293,7 @@ export default function TripDetailScreen() {
             </Text>
           </View>
           <View style={[styles.earningsRow, { paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.outlineVariant }]}>
-            <Text style={{ fontFamily: fonts.displaySemiBold, fontSize: fontSizes.bodyMedium, color: colors.onSurface }}>Total Earned</Text>
+            <Text style={{ fontFamily: fonts.displaySemiBold, fontSize: fontSizes.bodyMedium, color: colors.onSurface }}>Total earned</Text>
             <Text style={{ fontFamily: fonts.displayBold, fontSize: fontSizes.titleSmall, color: '#22C55E' }}>
               {formatGhs(earnedTotal)}
             </Text>

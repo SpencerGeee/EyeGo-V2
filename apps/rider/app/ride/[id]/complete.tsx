@@ -511,7 +511,7 @@ export default function TripCompleteScreen() {
           transition={{ type: 'spring', ...springs.standard, delay: 200 }}
           style={styles.headlineSection}
         >
-          <Text style={styles.headline}>Arrived Safely</Text>
+          <Text style={styles.headline}>Arrived safely</Text>
         </MotiView>
 
         {/* Fare card — celebratory hero with premium green glow ring */}
@@ -532,7 +532,7 @@ export default function TripCompleteScreen() {
           >
             <GlassSurface borderRadius={radii['2xl'] - 3} intensity="high" style={styles.glassInset} />
             <View style={styles.fareCardInner}>
-          <Text style={styles.fareLabel}>Total Fare</Text>
+          <Text style={styles.fareLabel}>Total fare</Text>
           {/* A shimmer bar rather than a number we do not have yet — see the
               note on `totalFare`. Sized to the glyph box the real amount will
               occupy so the card does not resize when the receipt lands. */}

@@ -65,7 +65,7 @@ export default function AddCardScreen() {
         <Pressable onPress={() => goBack()} style={styles.backBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Go back">
           <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
         </Pressable>
-        <Text variant="titleSmall" style={{ color: colors.onSurface }}>Add Payment Method</Text>
+        <Text variant="titleSmall" style={{ color: colors.onSurface }}>Add payment method</Text>
         <View style={{ width: 44 }} />
       </View>
 

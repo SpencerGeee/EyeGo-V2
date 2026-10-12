@@ -488,7 +488,7 @@ export default function TripCompleteScreen() {
         {/* Receipt breakdown */}
         <Entrance animation="slideDown" delay={520} style={styles.receiptCard}>
           <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii['2xl']} intensity="low" />
-          <Text style={styles.receiptTitle}>Earnings Breakdown</Text>
+          <Text style={styles.receiptTitle}>Earnings breakdown</Text>
 
           {/* Reads as an equation the driver can check: seats × unit + extras = gross. */}
           <View style={styles.receiptRow}>
@@ -551,7 +551,7 @@ export default function TripCompleteScreen() {
           <View style={styles.divider} />
 
           <View style={styles.receiptRowTotal}>
-            <Text variant="titleMedium">Your Net Earnings</Text>
+            <Text variant="titleMedium">Your net earnings</Text>
             <Text variant="titleMedium" color={colors.primary}>{formatGhs(driverNetTotal)}</Text>
           </View>
 

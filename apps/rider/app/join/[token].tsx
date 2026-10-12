@@ -34,7 +34,7 @@ export default function JoinScreen() {
         <View style={styles.center}>
           <Ionicons name="people-outline" size={48} color={colors.primary} />
           <Text variant="titleLarge" style={{ marginTop: spacing.xl, textAlign: 'center' }}>
-            Join This Ride
+            Join this ride
           </Text>
           <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={{ marginTop: spacing.sm, textAlign: 'center' }}>
             Sign in to book your seat on this group ride.
@@ -88,7 +88,7 @@ export default function JoinScreen() {
       <SafeAreaView style={styles.safe}>
         <View style={styles.center}>
           <Ionicons name="warning-outline" size={48} color={colors.error} />
-          <Text variant="titleMedium" style={{ marginTop: spacing.xl }}>Invalid Link</Text>
+          <Text variant="titleMedium" style={{ marginTop: spacing.xl }}>Invalid link</Text>
           <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={{ marginTop: spacing.sm, textAlign: 'center' }}>
             This invite link has expired or is no longer valid.
           </Text>

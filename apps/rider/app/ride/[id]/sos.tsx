@@ -510,7 +510,7 @@ export default function SOSScreen() {
         </MotiView>
 
         {/* Trip Protection */}
-        <Text style={styles.sectionLabel}>Trip Protection</Text>
+        <Text style={styles.sectionLabel}>Trip protection</Text>
         <View style={styles.group}>
           <ProtectionRow
             colors={colors}
@@ -569,7 +569,7 @@ export default function SOSScreen() {
 
         {/* Trusted Contacts */}
         <View style={styles.contactsHeader}>
-          <Text style={styles.sectionLabel}>Trusted Contacts</Text>
+          <Text style={styles.sectionLabel}>Trusted contacts</Text>
           <Pressable onPress={() => goDeeper('/profile/emergency-contacts')} hitSlop={8} accessibilityRole="button">
             <Text style={styles.manageLink}>Manage</Text>
           </Pressable>
@@ -605,7 +605,7 @@ export default function SOSScreen() {
               <View style={styles.addIcon}>
                 <Ionicons name="person-add-outline" size={22} color={colors.primary} />
               </View>
-              <Text style={styles.addLabel}>Add Contact</Text>
+              <Text style={styles.addLabel}>Add contact</Text>
             </Pressable>
           )}
         </View>

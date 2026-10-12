@@ -518,7 +518,7 @@ export default function InviteScreen() {
           <Pressable onPress={() => goBack()} hitSlop={12} accessibilityRole="button" accessibilityLabel="Go back">
             <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
           </Pressable>
-          <Text variant="titleMedium">Group Hub</Text>
+          <Text variant="titleMedium">Group hub</Text>
           <View style={{ width: 24 }} />
         </View>
         <View style={styles.emptyState}>
@@ -536,7 +536,7 @@ export default function InviteScreen() {
           <Pressable onPress={() => goBack()} hitSlop={12} accessibilityRole="button" accessibilityLabel="Go back">
             <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
           </Pressable>
-          <Text variant="titleMedium">Group Hub</Text>
+          <Text variant="titleMedium">Group hub</Text>
           <View style={{ width: 24 }} />
         </View>
         <View style={styles.emptyState}>
@@ -595,7 +595,7 @@ export default function InviteScreen() {
         <Pressable onPress={() => goBack()} hitSlop={12} accessibilityRole="button" accessibilityLabel="Go back">
           <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
         </Pressable>
-        <Text variant="titleMedium">Group Hub</Text>
+        <Text variant="titleMedium">Group hub</Text>
         <Pressable
           onPress={() => {
             // The other way out to payment — same commitment, same rule.
@@ -735,7 +735,7 @@ export default function InviteScreen() {
           transition={{ type: 'spring', ...springs.standard, delay: 250 }}
           style={styles.optionsCard}
         >
-          <Text variant="titleSmall" style={{ marginBottom: spacing.md }}>Group Settings</Text>
+          <Text variant="titleSmall" style={{ marginBottom: spacing.md }}>Group settings</Text>
 
           {/* Paying for everyone */}
           <Pressable style={styles.optionRow} onPress={togglePayForEveryone} accessibilityRole="button">

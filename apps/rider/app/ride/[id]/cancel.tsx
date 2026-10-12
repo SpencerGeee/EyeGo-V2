@@ -268,7 +268,7 @@ export default function CancelRideScreen() {
             <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
           </Pressable>
           <Text variant="titleSmall" style={{ color: colors.onSurface }}>
-            Cancel Ride
+            Cancel ride
           </Text>
           <View style={{ width: 40 }} />
         </View>
@@ -366,7 +366,7 @@ export default function CancelRideScreen() {
               />
               <View style={{ flex: 1 }}>
                 <Text style={[styles.policyTitle, hasFee && { color: colors.statusError }]}>
-                  Cancellation Policy
+                  Cancellation policy
                 </Text>
                 {/**
                  * SAY WHAT IT COSTS, AND WHAT IT ACTUALLY COSTS.
@@ -549,7 +549,7 @@ export default function CancelRideScreen() {
             onPress={() => goBack()}
            accessibilityRole="button">
             <Ionicons name="checkmark-circle" size={20} color={colors.onPrimary} />
-            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={styles.keepButtonText}>Keep My Ride</Text>
+            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={styles.keepButtonText}>Keep my ride</Text>
           </Pressable>
 
           {/* ENABLED even without a reason — see `nudgeReasons`. A disabled

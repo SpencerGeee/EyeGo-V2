@@ -169,7 +169,7 @@ export default function ReserveScreen() {
         <Pressable onPress={() => goBack()} style={styles.backBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Go back">
           <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
         </Pressable>
-        <Text variant="titleSmall" style={{ color: colors.onSurface }}>Reserve Seat</Text>
+        <Text variant="titleSmall" style={{ color: colors.onSurface }}>Reserve seat</Text>
         <View style={{ width: 44 }} />
       </View>
 
@@ -180,7 +180,7 @@ export default function ReserveScreen() {
           animate={{ opacity: 1, translateY: 0 }}
           transition={{ type: 'spring', ...springs.standard, delay: 50 }}
         >
-          <Text style={styles.sectionTitle}>Select Date</Text>
+          <Text style={styles.sectionTitle}>Select date</Text>
           <FlatList
             data={dates}
             renderItem={renderDateItem}
@@ -200,7 +200,7 @@ export default function ReserveScreen() {
           transition={{ type: 'spring', ...springs.standard, delay: 100 }}
           style={styles.timeSection}
         >
-          <Text style={styles.sectionTitle}>Select Time</Text>
+          <Text style={styles.sectionTitle}>Select time</Text>
           <View style={styles.timeGrid}>
             {timeSlots.map((time) => {
               const isSelected = time === selectedTime;

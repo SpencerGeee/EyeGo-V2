@@ -75,7 +75,7 @@ export default function QuestsScreen() {
 
         {/* Active quests */}
         <Entrance animation="slideDown" delay={80}>
-          <Text variant="titleSmall" style={styles.sectionLabel}>Active Quests</Text>
+          <Text variant="titleSmall" style={styles.sectionLabel}>Active quests</Text>
 
           {isLoading && (
             <View style={{ gap: spacing.base }}>

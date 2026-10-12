@@ -174,7 +174,7 @@ export default function GuestSelectionScreen() {
               </View>
               <View style={styles.optionTextContainer}>
                 <Text variant="titleSmall" color={selection === 'guest' ? colors.primary : colors.onSurface}>
-                  Someone Else
+                  Someone else
                 </Text>
                 <Text variant="caption" color={colors.onSurfaceVariant}>
                   Book a ride for a guest
@@ -194,11 +194,11 @@ export default function GuestSelectionScreen() {
               transition={{ type: 'spring', ...springs.standard }}
               style={styles.formContainer}
             >
-              <Text variant="titleSmall" style={styles.formTitle}>Guest Details</Text>
+              <Text variant="titleSmall" style={styles.formTitle}>Guest details</Text>
               
               <View style={styles.inputGroup}>
                 <Text variant="labelMedium" color={colors.onSurfaceVariant} style={styles.label}>
-                  Guest Name
+                  Guest name
                 </Text>
                 <View style={[styles.inputContainer, !!nameError && { borderColor: '#EF4444' }]}>
                   <Ionicons name="person-outline" size={20} color={colors.onSurfaceVariant} style={styles.inputIcon} />
@@ -215,7 +215,7 @@ export default function GuestSelectionScreen() {
 
               <View style={styles.inputGroup}>
                 <Text variant="labelMedium" color={colors.onSurfaceVariant} style={styles.label}>
-                  Phone Number
+                  Phone number
                 </Text>
                 <View style={[styles.inputContainer, !!phoneError && { borderColor: '#EF4444' }]}>
                   <Ionicons name="call-outline" size={20} color={colors.onSurfaceVariant} style={styles.inputIcon} />

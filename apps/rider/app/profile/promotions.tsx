@@ -6,7 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { bookingsApi, apiClient, userApi, type RiderPromotion, type RiderPromotions } from '@eyego/api';
 import { formatGhs, describeError, dayMonth, dayMonthYear } from '@eyego/utils';
 import { fonts, radii } from '@eyego/config';
-import { Text, Button, Screen, ListSection, ListRow, SkeletonRows } from '@eyego/ui';
+import { Text, Button, Screen, ListSection, ListRow, SkeletonRows, notify } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
 import { useRideStore } from '../../stores/ride.store';
 
@@ -62,9 +62,9 @@ export default function PromotionsScreen() {
       const d = (res.data as any)?.data;
       setFriendCode('');
       qc.invalidateQueries({ queryKey: ['user', 'referral'] });
-      Alert.alert('Code added', `You and ${d?.inviterName ?? 'your friend'} each get ${formatGhs(d?.rewardPesewas ?? 0, { showDecimals: false })} after your first ride.`);
+      notify('Code added', `You and ${d?.inviterName ?? 'your friend'} each get ${formatGhs(d?.rewardPesewas ?? 0, { showDecimals: false })} after your first ride.`, { tone: 'success' });
     } catch (err) {
-      Alert.alert('That code didn’t work', describeError(err).message);
+      notify('That code didn’t work', describeError(err).message);
     } finally {
       setRedeeming(false);
     }
