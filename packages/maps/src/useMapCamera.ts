@@ -318,7 +318,7 @@ export function useMapCamera(args: UseMapCameraArgs): MapCamera {
       const paddingNow =
         typeof paddingRef.current === 'function' ? paddingRef.current() : paddingRef.current;
 
-      const plan = planCamera(
+      let plan = planCamera(
         effectiveMode,
         {
           // Prefer the live interpolated position over the last published one:
@@ -337,6 +337,20 @@ export function useMapCamera(args: UseMapCameraArgs): MapCamera {
             : 0,
         },
       );
+
+      /**
+       * `follow` holds the surface's tilt too (planCamera stays flat and pure).
+       * Eased per frame — the follow path re-commands with duration 0, so a
+       * straight jump from the overview's pitch would be a cut.
+       */
+      if (plan.kind === 'setCamera' && effectiveMode === 'follow') {
+        const t = tiltRef.current;
+        if (t.applied !== t.want) {
+          const d = t.want - t.applied;
+          t.applied = Math.abs(d) < 0.5 ? t.want : t.applied + d * 0.08;
+        }
+        plan = { ...plan, pitch: Math.round(t.applied * 10) / 10 };
+      }
 
       // Same plan as last frame → nothing to send. See `setCameraKey`. While a
       // resume glide is in flight, a duration-0 set would cut it short.

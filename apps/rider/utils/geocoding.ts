@@ -28,6 +28,8 @@ export type GeocodeResult = {
   fullAddress: string;
   latitude: number;
   longitude: number;
+  /** Only the city/region is known here — not a place a person can find. */
+  approximate?: boolean;
 };
 
 type NominatimResult = {
@@ -348,6 +350,9 @@ export async function reverseGeocode(latitude: number, longitude: number): Promi
         fullAddress: String(hit.fullAddress ?? hit.name),
         latitude,
         longitude,
+        // BUGFIX ("the address is simply Accra, Greater Accra, Ghana"): the
+        // server already says when it only knows the city; it was dropped here.
+        approximate: hit.approximate === true,
       };
     }
   } catch {

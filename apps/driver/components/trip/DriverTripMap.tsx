@@ -161,6 +161,14 @@ export function DriverTripMapImpl({
    * rotation only make sense once there is a road to look down.
    */
   const wanted: TrackMode = target ? 'course' : 'default';
+  /**
+   * BUGFIX ("the homepage shouldn't start in 2D — the bus is built for 3D, I
+   * shouldn't have to tilt before I see its real shape"). Idle used pitch 0, so
+   * the minibus puck was drawn straight from above. Parked still tilts — a
+   * showroom angle, close enough to read the bus — north-up, no course.
+   */
+  const IDLE_PITCH = 52;
+  const IDLE_ZOOM = 16;
 
   /**
    * The mode the engine is IN, as the JS side last commanded it. A pan drops
@@ -271,8 +279,8 @@ export function DriverTripMapImpl({
             stop's zoom and pitch are what the tracking mode drives with. */}
         <MapboxGL.Camera
           centerCoordinate={firstStop ?? ACCRA}
-          zoomLevel={track === 'course' ? FOLLOW_ZOOM : firstStop ? 14 : 12}
-          pitch={track === 'course' ? NAV_PITCH : 0}
+          zoomLevel={track === 'course' ? FOLLOW_ZOOM : firstStop ? IDLE_ZOOM : 12}
+          pitch={track === 'course' ? NAV_PITCH : IDLE_PITCH}
           trackUserLocation={live ? track ?? undefined : undefined}
           onTrackUserLocationChange={onTrackChange}
         />
@@ -284,6 +292,8 @@ export function DriverTripMapImpl({
           mode={track === 'course' ? 'course' : 'default'}
           vehicleModel={minibus({ accent: colors.primary })}
           heading={vehicleHeading}
+          // Parked, the bus is the subject — a little larger so the shape reads.
+          vehicleSize={track === 'course' ? 40 : 50}
         />
 
         {shape && (

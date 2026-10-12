@@ -232,6 +232,8 @@ export function AwayOutcomesSheet() {
         },
       }}
       onDismiss={next}
+      // Root-mounted inside OverlayPortal: a native Modal here froze the app.
+      inline
     />
   );
 }

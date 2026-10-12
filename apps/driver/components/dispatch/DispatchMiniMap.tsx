@@ -23,6 +23,9 @@ import { eyegoDriverDarkStyle } from '@eyego/map-styles';
 import { PulseRing, Text } from '@eyego/ui';
 import { useColors } from '../../utils/useColors';
 
+/** The full-screen offer's tilt — enough for the 3D bus and pins to stand up (they need ≥ 40°). */
+const OFFER_PITCH = 50;
+
 /**
  * THE MAP ON THE OFFER — one instance, frozen, framed on the ride.
  *
@@ -169,24 +172,45 @@ export function DispatchMiniMap({
   // mount so an offer that arrives before its geometry does still gets framed.
   const pad = framePadding ?? { top: 44, bottom: 44, left: 40, right: 40 };
   const frameKey = `${points.map((p) => p.join(',')).join('|')}#${Math.round(pad.top / 16)},${Math.round(pad.bottom / 16)}`;
+  /**
+   * BUGFIX ("the new dispatch offer page map starts in 2D, which is wrong").
+   * The full-screen offer map was fitted flat and north-up, with tilt and
+   * rotation disabled — so the 3D bus sat on a paper map. It now frames the
+   * approach the way a navigation view does: tilted, and turned so the road
+   * from the driver to the pickup runs UP the screen, away from the card.
+   * The small in-card map stays flat; it is a thumbnail.
+   *
+   * And the camera is seeded and the fit re-sent, as every other map here
+   * does: a single fit at 120 ms is dropped when it lands before MapLibre has
+   * attached the camera, which left the offer opening on the wrong view.
+   */
+  const view3d = fill
+    ? {
+        pitch: OFFER_PITCH,
+        bearing: isUsableCoord(driver) && isUsableCoord(pickup) ? bearingBetween(driver[1], driver[0], pickup[1], pickup[0]) : 0,
+      }
+    : { pitch: 0, bearing: 0 };
   useEffect(() => {
-    const cam = cameraRef.current;
-    if (!cam || points.length === 0) return;
-    const t = setTimeout(() => {
+    if (points.length === 0) return;
+    const frame = () => {
+      const cam = cameraRef.current;
+      if (!cam) return;
       if (points.length === 1) {
-        cam.setCamera({ centerCoordinate: points[0], zoomLevel: 14, animationDuration: 0 });
+        cam.setCamera({ centerCoordinate: points[0], zoomLevel: 15, pitch: view3d.pitch, animationDuration: 0 });
         return;
       }
       const box = boundsFor(points);
       if (!box) {
-        cam.setCamera({ centerCoordinate: points[0], zoomLevel: 13, animationDuration: 0 });
+        cam.setCamera({ centerCoordinate: points[0], zoomLevel: 13, pitch: view3d.pitch, animationDuration: 0 });
         return;
       }
-      cam.fitBounds([box.ne, box.sw], pad, false, { bearing: 0, pitch: 0 });
-    }, 120);
-    return () => clearTimeout(t);
+      cam.fitBounds([box.ne, box.sw], pad, false, view3d);
+    };
+    const timers = [120, 420, 900].map((ms) => setTimeout(frame, ms));
+    return () => timers.forEach(clearTimeout);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [frameKey]);
+  const seed = points.length ? points[0] : undefined;
 
   return (
     <View style={[fill ? StyleSheet.absoluteFill : [styles.wrap, { height }], { backgroundColor: colors.surfaceInput }]}>
@@ -197,12 +221,12 @@ export function DispatchMiniMap({
         attributionEnabled={false}
         compassEnabled={false}
         scaleBarEnabled={false}
-        rotateEnabled={false}
-        pitchEnabled={false}
+        rotateEnabled={fill}
+        pitchEnabled={fill}
         zoomEnabled={fill}
         scrollEnabled={fill}
       >
-        <Camera ref={cameraRef} animationMode="none" />
+        <Camera ref={cameraRef} animationMode="none" centerCoordinate={seed} zoomLevel={seed ? 14 : undefined} pitch={view3d.pitch} />
 
         {/* The approach: dashed and dimmer, because it is the part the driver
             has to drive before the fare starts. */}

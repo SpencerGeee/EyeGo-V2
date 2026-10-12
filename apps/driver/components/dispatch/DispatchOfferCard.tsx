@@ -1,14 +1,16 @@
-﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   Easing,
   cancelAnimation,
+  runOnJS,
   useAnimatedStyle,
   useReducedMotion,
   useSharedValue,
   withRepeat,
   withSequence,
+  withSpring,
   withTiming,
 } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -17,7 +19,7 @@ import * as Haptics from 'expo-haptics';
 import { useQuery } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
 import { formatGhs } from '@eyego/utils';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
 /**
  * `Pressable` FROM @eyego/ui, NEVER FROM react-native.
  *
@@ -38,7 +40,18 @@ import { fonts, fontSizes, spacing, radii } from '@eyego/config';
  * state before handing an object to Reanimated, which is why it is the only
  * one in this codebase that may be used with a function style.
  */
-import { Text, GlassSurface, SwipeToConfirm, GradientGlowBorder, getTierTheme, Pressable } from '@eyego/ui';
+import {
+  Text,
+  GlassSurface,
+  SwipeToConfirm,
+  GradientGlowBorder,
+  getTierTheme,
+  Pressable,
+  sheetContentLayout,
+  rowLayout,
+  contentEnter,
+  contentExit,
+} from '@eyego/ui';
 import type { Coord } from '@eyego/maps';
 import Svg, { Rect } from 'react-native-svg';
 import { useAnimatedProps } from 'react-native-reanimated';
@@ -395,7 +408,12 @@ export function DispatchOfferCard({
    * an eased bar lies about how much of it is left.
    */
   const rail = useSharedValue(1);
+  // Read, not depended on: `nowMs` ticks every render, and restarting a linear
+  // drain on every tick made the rail stutter instead of flow.
+  const nowRef = useRef(nowMs);
+  nowRef.current = nowMs;
   useEffect(() => {
+    const nowMs = nowRef.current;
     const remaining = offer.expiresAtServerMs != null ? Math.max(0, offer.expiresAtServerMs - nowMs) : 0;
     cancelAnimation(rail);
     if (!offer.expiresAtServerMs || remaining <= 0 || windowMs <= 0) {
@@ -405,7 +423,7 @@ export function DispatchOfferCard({
     rail.value = Math.min(1, remaining / windowMs);
     rail.value = withTiming(0, { duration: remaining, easing: Easing.linear });
     return () => cancelAnimation(rail);
-  }, [offer.expiresAtServerMs, windowMs, nowMs, rail]);
+  }, [offer.expiresAtServerMs, windowMs, rail]);
   const railStyle = useAnimatedStyle(() => ({ width: `${Math.max(0, rail.value) * 100}%` }));
 
   /**
@@ -452,23 +470,65 @@ export function DispatchOfferCard({
    * wallet, and the two actions. The commission split, the queue position, the
    * rider's note and the house rules are one drag (or tap) up.
    */
-  const [expanded, setExpanded] = useState(false);
-  const peek = isSheet && !expanded;
+  /**
+   * THREE SNAPS, THE WAY UBER DOES IT.
+   *
+   * BUGFIX ("the card seems busy and not coordinated at all"; "the dispatch
+   * offer page doesn't have the scroll animated — it seems to snap alone").
+   * It was ONE boolean flipped by a gesture that only looked at where the
+   * finger ended, with no layout animation, so the panel jumped between two
+   * heights while the finger did nothing visible.
+   *
+   *   peek — the two-second decision: the money, how far, how long, the swipe.
+   *   half — adds both addresses and the rider's asks.
+   *   full — everything else: your share of the fare, the queue, the rules.
+   *
+   * The card follows the finger while dragged (with resistance) and springs
+   * back as the panel reflows on the sheet's own spring; rows that arrive or
+   * leave fade. A strong fling skips straight to full / peek.
+   */
+  const [snap, setSnap] = useState<0 | 1 | 2>(0);
+  const snapSV = useSharedValue(0);
+  const drag = useSharedValue(0);
+  useEffect(() => {
+    snapSV.value = snap;
+  }, [snap, snapSV]);
+  const peek = isSheet && snap === 0;
+  const half = !isSheet || snap >= 1;
+  const full = !isSheet || snap === 2;
   const { height: screenH } = useWindowDimensions();
+  const toSnap = useCallback((n: number) => {
+    void Haptics.selectionAsync().catch(() => {});
+    setSnap(Math.max(0, Math.min(2, n)) as 0 | 1 | 2);
+  }, []);
+  // Worklets end to end — JS only through runOnJS (a bare JS call from a
+  // gesture callback aborts the app; see the sweep notes).
   const grab = useMemo(
     () =>
       Gesture.Exclusive(
         Gesture.Pan()
-          .runOnJS(true)
-          .activeOffsetY([-12, 12])
+          .activeOffsetY([-10, 10])
+          .onUpdate((e) => {
+            const y = e.translationY;
+            drag.value = y < 0 ? -Math.min(56, -y * 0.45) : Math.min(90, y * 0.55);
+          })
           .onEnd((e) => {
-            if (e.translationY < -24 || e.velocityY < -500) setExpanded(true);
-            else if (e.translationY > 24 || e.velocityY > 500) setExpanded(false);
+            const cur = snapSV.value;
+            let next = cur;
+            if (e.velocityY < -1600) next = 2;
+            else if (e.velocityY > 1600) next = 0;
+            else if (e.translationY < -28 || e.velocityY < -450) next = cur + 1;
+            else if (e.translationY > 28 || e.velocityY > 450) next = cur - 1;
+            drag.value = withSpring(0, springs.standard);
+            if (next !== cur) runOnJS(toSnap)(next);
           }),
-        Gesture.Tap().runOnJS(true).onEnd(() => setExpanded((v) => !v)),
+        Gesture.Tap().onEnd(() => {
+          runOnJS(toSnap)(snapSV.value >= 2 ? 0 : snapSV.value + 1);
+        }),
       ),
-    [],
+    [drag, snapSV, toSnap],
   );
+  const dragStyle = useAnimatedStyle(() => ({ transform: [{ translateY: drag.value }] }));
   const asksCount = (offer.pickupNote ? 1 : 0) + (offer.ridePrefs?.length ?? 0);
   useEffect(() => {
     if (!declineArmed) {
@@ -520,8 +580,24 @@ export function DispatchOfferCard({
    * two different offer layouts, which is exactly how this app ended up with two
    * unrelated offer surfaces in the first place.
    */
+  /** One quiet line under the money — the numbers a driver weighs, no chips. */
+  const metaParts = [
+    ratePerKm != null ? `${formatGhs(Math.round(ratePerKm))}/km` : null,
+    offer.partySize != null && offer.partySize > 1 ? `${offer.partySize} passengers` : null,
+  ].filter(Boolean) as string[];
+  const boost = offer.boostPesewas != null && offer.boostPesewas > 0 ? offer.boostPesewas : null;
+  const pickupLine =
+    [etaMin != null ? `${etaMin} min` : null, pickupKm != null ? `${pickupKm.toFixed(1)} km` : null]
+      .filter(Boolean)
+      .join(' · ') || 'Nearby';
+  const tripLine =
+    [tripMin != null ? `≈${tripMin} min` : null, tripKm != null ? `${tripKm.toFixed(1)} km` : null]
+      .filter(Boolean)
+      .join(' · ') || 'Length on start';
+  const kindLabel = isReassignment ? 'UP FOR GRABS' : isRequest ? 'RIDE REQUEST' : 'NEW OFFER';
+
   const inner = (
-    <View style={isSheet ? styles.sheetCard : styles.card}>
+    <Animated.View style={[isSheet ? styles.sheetCard : styles.card, isSheet && dragStyle]}>
       {/* The window, draining. In the card the whole FRAME drains (see
           PerimeterDrain, mounted last so it sits above the map); the sheet has
           no frame, so it keeps the top-edge rail. */}
@@ -560,26 +636,26 @@ export function DispatchOfferCard({
         </View>
       ) : null}
 
-      {/* The badge floats ON the map in the card variant; in the sheet it sits
-          at the head of the panel, where the map is behind rather than above. */}
-      <View style={withMap ? styles.mapBadges : styles.sheetBadges} pointerEvents="none">
-        <View style={[styles.kindBadge, { borderColor: accent + '66', backgroundColor: colors.background + 'CC' }]}>
-          <View style={[styles.kindDot, { backgroundColor: accent }]} />
-          <Text style={[styles.kindLabel, { color: accent }]}>
-            {isReassignment ? 'UP FOR GRABS' : isRequest ? 'RIDE REQUEST' : 'NEW OFFER'}
-          </Text>
-        </View>
-        {offer.attempt != null && offer.totalCandidates ? (
-          <View style={[styles.kindBadge, { borderColor: colors.rimLight, backgroundColor: colors.background + 'CC' }]}>
-            <Text style={[styles.kindLabel, { color: colors.onSurfaceVariant }]}>
-              {offer.attempt} OF {offer.totalCandidates}
-            </Text>
+      {/* The badge floats ON the map in the card variant. The sheet has no
+          badge row at all — its kind and class are the eyebrow above the money. */}
+      {withMap ? (
+        <View style={styles.mapBadges} pointerEvents="none">
+          <View style={[styles.kindBadge, { borderColor: accent + '66', backgroundColor: colors.background + 'CC' }]}>
+            <View style={[styles.kindDot, { backgroundColor: accent }]} />
+            <Text style={[styles.kindLabel, { color: accent }]}>{kindLabel}</Text>
           </View>
-        ) : null}
-      </View>
+          {offer.attempt != null && offer.totalCandidates ? (
+            <View style={[styles.kindBadge, { borderColor: colors.rimLight, backgroundColor: colors.background + 'CC' }]}>
+              <Text style={[styles.kindLabel, { color: colors.onSurfaceVariant }]}>
+                {offer.attempt} OF {offer.totalCandidates}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
 
-      {/* ── The glass panel ── */}
-      <View style={[styles.panel, isSheet && styles.sheetPanel]}>
+      {/* ── The glass panel ── reflows on the sheet's spring between snaps. */}
+      <Animated.View layout={sheetContentLayout} style={[styles.panel, isSheet && styles.sheetPanel]}>
         <GlassSurface style={StyleSheet.absoluteFill} borderRadius={0} intensity="high" />
         {isSheet ? (
           <GestureDetector gesture={grab}>
@@ -587,15 +663,15 @@ export function DispatchOfferCard({
               style={styles.grabZone}
               accessible
               accessibilityRole="button"
-              accessibilityLabel={expanded ? 'Show less' : 'Show ride details'}
+              accessibilityLabel={snap === 2 ? 'Show less' : 'Show more ride details'}
             >
               <View style={[styles.grabber, { backgroundColor: colors.onSurface + '38' }]} />
             </View>
           </GestureDetector>
         ) : null}
         <ScrollView
-          style={isSheet && expanded ? { maxHeight: screenH * 0.5 } : undefined}
-          scrollEnabled={isSheet && expanded}
+          style={isSheet && full ? { maxHeight: screenH * 0.52 } : undefined}
+          scrollEnabled={isSheet && full}
           bounces={false}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={peek ? styles.bodyPeek : styles.body}
@@ -629,95 +705,60 @@ export function DispatchOfferCard({
           IS the gap between two points; printing it in a box above the map was
           always describing the picture instead of drawing it.
         */}
-        <View style={[styles.hero, { borderColor: accent + '33', backgroundColor: accent + '0E' }]}>
+        {/*
+          ── ONE EYEBROW, ONE NUMBER, ONE LINE ───────────────────────────────
+          ("the card seems busy and not coordinated"). The head of this card
+          was a badge row (NEW OFFER, 3 OF 8), a YOU EARN label, the fare, then
+          a wrapping row of up to six chips — four type sizes and three kinds of
+          capsule before the driver reached the job. Uber's offer is an
+          eyebrow, the fare, and one line of what it is worth; so is this.
+          The rest is still here, one snap up.
+        */}
+        <Animated.View layout={rowLayout} style={[styles.hero, { borderColor: accent + '33', backgroundColor: accent + '0E' }]}>
           <View style={styles.money}>
-            <Text style={[styles.moneyLabel, { color: accent }]}>YOU EARN</Text>
+            <View style={styles.eyebrowRow}>
+              <View style={[styles.kindDot, { backgroundColor: accent }]} />
+              <Text style={[styles.eyebrow, { color: accent }]} numberOfLines={1}>
+                {offer.tier ? `${kindLabel} · ${tier.label.toUpperCase()}` : kindLabel}
+              </Text>
+            </View>
             <Text
               style={[styles.earnings, { color: colors.onSurface }]}
               accessibilityLabel={earnings != null ? `You earn ${formatGhs(earnings)}` : 'Earnings unknown'}
             >
               {earnings != null ? formatGhs(earnings) : '—'}
             </Text>
-
-            <View style={styles.chipRow}>
-              {/* The tier, in the tier's own colour and its human label —
-                  "Economy", never the wire's "ECO". */}
-              {offer.tier ? (
-                <View style={[styles.chip, { backgroundColor: tier.accent + '1F', borderColor: tier.accent + '3D' }]}>
-                  <Ionicons name={tier.icon} size={10} color={tier.accent} />
-                  <Text style={[styles.chipText, { color: tier.accent }]}>
-                    {tier.label.toUpperCase()}
+            {metaParts.length || boost ? (
+              <Text style={[styles.meta, { color: colors.onSurfaceVariant }]} numberOfLines={1}>
+                {metaParts.join(' · ')}
+                {boost ? (
+                  <Text style={{ color: colors.primary, fontFamily: fonts.semiBold }}>
+                    {metaParts.length ? ' · ' : ''}+{formatGhs(boost)} rider boost
                   </Text>
-                </View>
-              ) : null}
-
-              {/* Earnings per kilometre DRIVEN, dead leg included — the number
-                  the decision is actually made on. See `ratePerKm`. */}
-              {ratePerKm != null ? (
-                <View style={[styles.chip, { backgroundColor: colors.surfaceContainerHigh, borderColor: colors.outline }]}>
-                  <Text style={[styles.chipText, { color: colors.onSurface }]}>
-                    {formatGhs(Math.round(ratePerKm))}/KM
-                  </Text>
-                </View>
-              ) : null}
-
-              {/* Your share of the fare. It was buried as a sub-line of a stats
-                  cell labelled FARE, which is the platform's number, not the
-                  driver's — and a commission split is a thing a driver wants to
-                  see BEFORE they swipe, not a footnote under a figure that is
-                  not theirs. */}
-              {!peek && earnings != null && offer.farePesewas != null && offer.farePesewas > earnings ? (
-                <View style={[styles.chip, { backgroundColor: colors.surfaceContainerHigh, borderColor: colors.outline }]}>
-                  <Text style={[styles.chipText, { color: colors.onSurfaceVariant }]}>
-                    {Math.round((earnings / offer.farePesewas) * 100)}% OF {formatGhs(offer.farePesewas)}
-                  </Text>
-                </View>
-              ) : null}
-
-              {/* How many people are waiting. A party of four looked exactly
-                  like one passenger; the driver of a small car found out at
-                  the kerb. */}
-              {offer.partySize != null && offer.partySize > 1 ? (
-                <View style={[styles.chip, { backgroundColor: colors.surfaceContainerHigh, borderColor: colors.outline }]}>
-                  <Ionicons name="people" size={10} color={colors.onSurface} />
-                  <Text style={[styles.chipText, { color: colors.onSurface }]}>{offer.partySize} PASSENGERS</Text>
-                </View>
-              ) : null}
-
-              {!peek && tripKm != null && tripKm >= LONG_TRIP_KM ? (
-                <View style={[styles.chip, { backgroundColor: colors.surfaceContainerHigh, borderColor: colors.outline }]}>
-                  <Ionicons name="time-outline" size={10} color={colors.onSurface} />
-                  <Text style={[styles.chipText, { color: colors.onSurface }]}>LONG TRIP</Text>
-                </View>
-              ) : null}
-
-              {/* The rider raised the fare to be found faster. Said here because
-                  a raise nobody sees finds nobody — and all of it is theirs. */}
-              {offer.boostPesewas != null && offer.boostPesewas > 0 ? (
-                <View style={[styles.chip, { backgroundColor: colors.primary + '1F', borderColor: colors.primary + '3D' }]}>
-                  <Ionicons name="flash" size={10} color={colors.primary} />
-                  <Text style={[styles.chipText, { color: colors.primary }]}>
-                    +{formatGhs(offer.boostPesewas)} RIDER BOOST · 100% YOURS
-                  </Text>
-                </View>
-              ) : null}
-            </View>
-
-            {/*
-              HOW DEEP INTO THE CASCADE THIS IS.
-
-              Dispatch asks one driver at a time, so "3 of 8" is a real position
-              in a real queue — and it is genuinely useful to the person holding
-              the phone: being asked first means the ride is close, being asked
-              eighth means seven drivers already passed. It was on the payload
-              and had nowhere to go.
-            */}
-            {!peek && offer.attempt != null && offer.totalCandidates != null && offer.totalCandidates > 0 ? (
-              <Text style={[styles.cascade, { color: colors.onSurfaceVariant }]}>
-                {offer.attempt === 1
-                  ? 'You are the closest driver'
-                  : `Driver ${offer.attempt} of ${offer.totalCandidates} asked`}
+                ) : null}
               </Text>
+            ) : null}
+
+            {/* Full snap: your share, a long-trip flag, and where you are in the queue. */}
+            {full ? (
+              <Animated.View entering={contentEnter} exiting={contentExit} style={styles.details}>
+                {earnings != null && offer.farePesewas != null && offer.farePesewas > earnings ? (
+                  // A commission split is a thing a driver wants to see BEFORE they swipe.
+                  <Text style={[styles.detail, { color: colors.onSurfaceVariant }]}>
+                    Your share: {Math.round((earnings / offer.farePesewas) * 100)}% of {formatGhs(offer.farePesewas)}
+                    {boost ? ` · the ${formatGhs(boost)} boost is 100% yours` : ''}
+                  </Text>
+                ) : null}
+                {tripKm != null && tripKm >= LONG_TRIP_KM ? (
+                  <Text style={[styles.detail, { color: colors.onSurfaceVariant }]}>Long trip — plan your break after it</Text>
+                ) : null}
+                {/* Dispatch asks one driver at a time, so "3 of 8" is a real queue position. */}
+                {offer.attempt != null && offer.totalCandidates != null && offer.totalCandidates > 0 ? (
+                  <Text style={[styles.detail, { color: colors.onSurfaceVariant }]}>
+                    {offer.attempt === 1 ? 'You are the closest driver' : `Driver ${offer.attempt} of ${offer.totalCandidates} asked`}
+                  </Text>
+                ) : null}
+              </Animated.View>
             ) : null}
           </View>
 
@@ -726,18 +767,17 @@ export function DispatchOfferCard({
               expiresAtMs={offer.expiresAtServerMs}
               windowMs={windowMs}
               nowMs={nowMs}
-              // 76, not the old 84 and not the 96 before that. The rail on the
-              // card's top edge carries the peripheral half of this job, so the
-              // ring only has to answer "exactly how long" when looked at
-              // directly — and every point it gives up is a point the fare gains.
-              size={76}
-              stroke={4.5}
+              // The sheet's top-edge rail carries the peripheral half of this
+              // job, so there the ring only answers "exactly how long" — 62, and
+              // every point it gives up is a point the fare gains.
+              size={isSheet ? 62 : 76}
+              stroke={isSheet ? 4 : 4.5}
               color={accent}
               trackColor={colors.outline}
             >
               {/* A search deadline can be minutes away; an exclusive hold is
                   seconds. Same ring, whichever clock this card is on. */}
-              <Text style={[styles.timerDigits, { color: accent }]}>
+              <Text style={[styles.timerDigits, isSheet && styles.timerDigitsSheet, { color: accent }]}>
                 {secondsLeft >= 100
                   ? `${Math.floor(secondsLeft / 60)}:${String(secondsLeft % 60).padStart(2, '0')}`
                   : String(Math.max(0, secondsLeft)).padStart(2, '0')}
@@ -752,7 +792,31 @@ export function DispatchOfferCard({
               <Text style={[styles.chipText, { color: accent, marginTop: 2 }]}>OPEN</Text>
             </View>
           )}
-        </View>
+        </Animated.View>
+
+        {/*
+          PEEK: the job on ONE line — how far, then how long. The addresses
+          are a snap up; at peek a driver decides on the numbers.
+        */}
+        {peek ? (
+          <Animated.View entering={contentEnter} exiting={contentExit} layout={rowLayout} style={styles.journey}>
+            <View style={styles.journeyHalf}>
+              <Ionicons name="navigate" size={14} color={accent} />
+              <Text style={[styles.journeyText, { color: colors.onSurface }]} numberOfLines={1}>
+                {pickupLine}
+                <Text style={[styles.journeyUnit, { color: colors.onSurfaceVariant }]}> away</Text>
+              </Text>
+            </View>
+            <View style={[styles.journeyRule, { backgroundColor: colors.outlineVariant }]} />
+            <View style={styles.journeyHalf}>
+              <Ionicons name="flag" size={13} color={colors.onSurface} />
+              <Text style={[styles.journeyText, { color: colors.onSurface }]} numberOfLines={1}>
+                {tripLine}
+                <Text style={[styles.journeyUnit, { color: colors.onSurfaceVariant }]}> trip</Text>
+              </Text>
+            </View>
+          </Animated.View>
+        ) : null}
 
         {/*
           ── THE JOB IN TWO LINES, THE WAY UBER AND BOLT SAY IT ─────────────
@@ -763,16 +827,15 @@ export function DispatchOfferCard({
           glance. The drop-off stays withheld until the ride starts — the trip
           row says how long and which way, never where.
         */}
-        <View style={styles.facts}>
+        {half ? (
+        <Animated.View entering={contentEnter} exiting={contentExit} layout={rowLayout} style={styles.facts}>
           <View style={styles.fact}>
             <View style={[styles.factIcon, { backgroundColor: accent + '1F' }]}>
               <Ionicons name="navigate" size={15} color={accent} />
             </View>
             <View style={styles.factBody}>
               <Text style={[styles.factMain, { color: colors.onSurface }]} numberOfLines={1}>
-                {[etaMin != null ? `${etaMin} min` : null, pickupKm != null ? `${pickupKm.toFixed(1)} km` : null]
-                  .filter(Boolean)
-                  .join(' · ') || 'Nearby'}
+                {pickupLine}
                 <Text style={[styles.factUnit, { color: colors.onSurfaceVariant }]}>  away</Text>
               </Text>
               <Text style={[styles.factSub, { color: colors.onSurfaceVariant }]} numberOfLines={1}>
@@ -787,9 +850,7 @@ export function DispatchOfferCard({
             </View>
             <View style={styles.factBody}>
               <Text style={[styles.factMain, { color: colors.onSurface }]} numberOfLines={1}>
-                {[tripMin != null ? `≈${tripMin} min` : null, tripKm != null ? `${tripKm.toFixed(1)} km` : null]
-                  .filter(Boolean)
-                  .join(' · ') || 'Length on start'}
+                {tripLine}
                 <Text style={[styles.factUnit, { color: colors.onSurfaceVariant }]}>  trip</Text>
               </Text>
               <Text style={[styles.factSub, { color: colors.onSurfaceVariant }]} numberOfLines={1}>
@@ -800,12 +861,14 @@ export function DispatchOfferCard({
               </Text>
             </View>
           </View>
-        </View>
+        </Animated.View>
+        ) : null}
 
-        {peek ? (
-          asksCount > 0 ? (
+        {/* The rider's asks: a pill at half (one tap opens them), in full at full. */}
+        {half && !full && asksCount > 0 ? (
+          <Animated.View entering={contentEnter} exiting={contentExit} layout={rowLayout}>
             <Pressable
-              onPress={() => setExpanded(true)}
+              onPress={() => toSnap(2)}
               accessibilityRole="button"
               accessibilityLabel="Show the rider's note and requests"
               style={[styles.asksPill, { borderColor: colors.outline, backgroundColor: colors.surfaceContainerHigh }]}
@@ -816,15 +879,17 @@ export function DispatchOfferCard({
               </Text>
               <Ionicons name="chevron-up" size={13} color={colors.onSurfaceVariant} />
             </Pressable>
-          ) : null
-        ) : (
-          <RiderAsks note={offer.pickupNote} prefs={offer.ridePrefs} />
-        )}
-
-        {!peek && (isReassignment || isRequest) ? (
-          <Text variant="caption" color={colors.onSurfaceVariant} style={styles.rule}>
-            First driver to accept gets it — this one is not being held for you.
-          </Text>
+          </Animated.View>
+        ) : null}
+        {full ? (
+          <Animated.View entering={contentEnter} exiting={contentExit} layout={rowLayout} style={styles.fullRows}>
+            <RiderAsks note={offer.pickupNote} prefs={offer.ridePrefs} />
+            {isReassignment || isRequest ? (
+              <Text variant="caption" color={colors.onSurfaceVariant} style={styles.rule}>
+                First driver to accept gets it — this one is not being held for you.
+              </Text>
+            ) : null}
+          </Animated.View>
         ) : null}
 
         {/*
@@ -845,7 +910,7 @@ export function DispatchOfferCard({
               board. You are {formatGhs(walletShortfall)} short.
             </Text>
           </View>
-        ) : !peek && walletRequired > 0 ? (
+        ) : full && walletRequired > 0 ? (
           <View style={styles.walletHint}>
             <Ionicons name="cash-outline" size={13} color={colors.onSurfaceVariant} />
             <Text variant="caption" color={colors.onSurfaceVariant}>
@@ -939,7 +1004,7 @@ export function DispatchOfferCard({
             </Text>
           ) : null}
         </View>
-      </View>
+      </Animated.View>
 
       {/* Last, so it paints over the map and the panel alike. */}
       {!isSheet && offer.expiresAtServerMs ? (
@@ -952,7 +1017,7 @@ export function DispatchOfferCard({
           width={urgent ? 4 : 3}
         />
       ) : null}
-    </View>
+    </Animated.View>
   );
 
   /**
@@ -1140,6 +1205,20 @@ const makeStyles = (colors: DriverColors) =>
       letterSpacing: -1.3,
       fontVariant: ['tabular-nums'],
     },
+    /** "● NEW OFFER · ECONOMY" — the card's kind and class in one accent line. */
+    eyebrowRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 },
+    eyebrow: { fontFamily: fonts.bold, fontSize: 10.5, letterSpacing: 1.1, flexShrink: 1 },
+    /** "₵2.10/km · 3 passengers · +₵5 rider boost" — one quiet line, no capsules. */
+    meta: { fontFamily: fonts.medium, fontSize: 13, lineHeight: 17, marginTop: 2, fontVariant: ['tabular-nums'] },
+    details: { gap: 3, marginTop: spacing.sm },
+    detail: { fontFamily: fonts.medium, fontSize: 12, lineHeight: 16, fontVariant: ['tabular-nums'] },
+    /** Peek's one-line job: how far · how long. */
+    journey: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: 2 },
+    journeyHalf: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 },
+    journeyText: { flexShrink: 1, fontFamily: fonts.semiBold, fontSize: 15, lineHeight: 20, fontVariant: ['tabular-nums'] },
+    journeyUnit: { fontFamily: fonts.regular, fontSize: 13 },
+    journeyRule: { width: 14, height: 1.5, borderRadius: 1 },
+    fullRows: { gap: spacing.md },
     chipRow: { flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs, flexWrap: 'wrap' },
     chip: {
       flexDirection: 'row',
@@ -1180,6 +1259,7 @@ const makeStyles = (colors: DriverColors) =>
       lineHeight: Math.round(25 * 1.15),
       letterSpacing: -1.2,
     },
+    timerDigitsSheet: { fontSize: 20, lineHeight: 23, letterSpacing: -0.8 },
     openBadge: {
       width: 96, height: 96, borderRadius: 48, borderWidth: 1,
       alignItems: 'center', justifyContent: 'center',

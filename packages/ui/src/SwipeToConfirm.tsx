@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -97,6 +97,7 @@ export function SwipeToConfirm({
   confirmedLabel,
 }: SwipeToConfirmProps) {
   const thumbSize = height - THUMB_INSET * 2;
+  const [roomy, setRoomy] = useState(true);
   // Travel is measured, not assumed: the control is full-width in a panel whose
   // width depends on the device and the panel's padding.
   const trackWidth = useSharedValue(0);
@@ -242,6 +243,8 @@ export function SwipeToConfirm({
       ]}
       onLayout={(e) => {
         trackWidth.value = e.nativeEvent.layout.width;
+        // A short track has no room for the chevrons AND the words — keep the words.
+        setRoomy(e.nativeEvent.layout.width - thumbSize >= 230);
       }}
       accessibilityRole="button"
       testID={testID}
@@ -271,13 +274,23 @@ export function SwipeToConfirm({
         </View>
       )}
 
-      <Animated.View style={[styles.labelWrap, labelStyle]} pointerEvents="none">
+      {/*
+        BUGFIX ("the swipe to accept seems a bit cut off by the round circle
+        that's meant to swipe"). The label was centred over the WHOLE track, so
+        in a narrow track (the offer sheet's, beside Pass) its first letters sat
+        under the knob. It is centred in the free run to the knob's right now,
+        and held to one line — never shrunk to fit (Fabric collapses fit-text).
+      */}
+      <Animated.View
+        style={[styles.labelWrap, { paddingLeft: thumbSize + THUMB_INSET * 2 + 4, paddingRight: 14 }, labelStyle]}
+        pointerEvents="none"
+      >
         {!confirmed && (
-        <Text variant="labelLarge" style={{ color: locked ? 'rgba(255,255,255,0.5)' : '#FFFFFF' }}>
+        <Text variant="labelLarge" numberOfLines={1} style={{ flexShrink: 1, color: locked ? 'rgba(255,255,255,0.5)' : '#FFFFFF' }}>
           {loading ? (loadingLabel ?? 'Working…') : label}
         </Text>
         )}
-        {!loading && !confirmed && (
+        {!loading && !confirmed && roomy && (
           <View style={styles.chevrons}>
             <Ionicons name="chevron-forward" size={14} color="rgba(255,255,255,0.28)" />
             <Ionicons name="chevron-forward" size={14} color="rgba(255,255,255,0.5)" />

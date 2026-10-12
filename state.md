@@ -1,5 +1,38 @@
 # State — 2026-10-12 (4-item request: sched expiry, driver uri crash, request card, share page + premium UI pass)
 
+## 9-item device report (2026-10-12, second pass) — ALL FIXED, uncommitted, NOT device-verified
+Fixes: DriverTripMap IDLE_PITCH 52/zoom 16/bus 50 · DispatchMiniMap fill = pitch 50 + bearing driver→pickup,
+ seeded camera, fit ×3 · SwipeToConfirm label padded past knob, 1 line, chevrons hidden when narrow ·
+ DispatchOfferCard = 3 snaps (peek/half/full) Uber-style, finger-tracked drag (worklets+runOnJS),
+ sheetContentLayout/rowLayout + fades, eyebrow+fare+one meta line, ring 62, rail no longer restarts per tick ·
+ SearchingPanel one-line beats, no 2nd timer, boost badge "+₵x", FareBoostRow "Boost … · 100% to your driver" ·
+ perf tier: 3 probe windows (6/16/30 s), judged by BEST, published once; useMeasuredPerformanceTier ignores
+ the Android shader ceiling · useDepthMotion() = the ONE 3D gate (6 call sites) · depth.ts card-deck
+ (P1100, rise 84, tilt −24/+20, sink .14) + depthEnterBack/depthExit/depthEnterAfter (Keyframe.delay MUTATES) ·
+ MapSheetHost panel bodies turn in 3D (stageOrder → direction) · trip.tsx every swap 3D incl. request/assigned/
+ tracking, direction from TRIP_STAGE_ORDER · Configure + driver create steps: exit + back variants ·
+ HeroBus Transit = drive (yaw tween to travel heading, arc, swell, bank), origin measured, mid-flight
+ retarget/steer, land 'into' · seat: bus lands INTO cabin (top-down) + cabin delayed 820 ms ·
+ RouteDropoffMap seeded/fit×3/pin starts on route midpoint/naming never sticks/approximate → "X km into the
+ ride · Y km before Z"/map pan locks page scroll · placeFor() delegates to geo.service (right tier order),
+ stops short-named + legacy ", Ghana" names healed in place · rider follow pitch eased to 46 on every stage ·
+ OutcomeSheet `inline` (no Modal in OverlayPortal) · ConsentGate pointerEvents none when not required ·
+ create.tsx publish → goFresh(active trip) · RidePicker used RN Pressable with a function style (unstyled
+ tiles; invariant was red) → @eyego/ui Pressable.
+Verified: tsc rider/driver 0 · test:maps 37/37 · invariants 2/2 · conditional-hooks · motion-invariants · API jest 209.
+Open: Android freeze cause not reproduced (iOS cause = Modal-in-portal, fixed).
+
+### Causes (as found)
+1 driver home flat: DriverTripMap idle pitch hard-coded 0 (only 'course' tilts).
+2 offer: DispatchMiniMap fit {pitch:0} + no camera seed; SwipeToConfirm label centred under the knob; card = badge row + eyebrow + chip row + ring + rail (busy).
+3 rider request card: two timers, 2-line substatus copy, FARE label, FareBoostRow repeats boost + policy line.
+4 offer peek/expand = bare boolean flip, no layout animation, drag not tracked.
+5/7 3D journey gated on usePerformanceTier (JS-thread rAF probe at launch → latches 'low' → depth+flights OFF); depth 9°/28px too subtle; steps enter-only (no exit); HeroBus flight = flat sprite slide (no yaw/arc); Transit ignores provider origin (iOS modal create.tsx offset).
+6 create.tsx onSuccess goOut(home) → goFresh((trip)/active/[id]).
+8 RouteDropoffMap: one unseeded fit at 120 ms (discarded pre-layout) → world view "blank"; centre null until pan → button disabled; naming can stick true. "Accra, Greater Accra, Ghana" = placeNameFor (virtual stop names) asks Mapbox city tier BEFORE OSM + client ignores `approximate`. Seat bus flies to header corner.
+9a rider tracking flat: TripMap overviewPitch only on configure/select; follow pitch 0.
+9b driver freeze (iOS): AwayOutcomesSheet → OutcomeSheet <Modal> inside OverlayPortal FullWindowOverlay = same bug rider fixed in BoardingPinSheet (invisible presentation swallows touches).
+
 ## Current pass (2026-10-12) — committed locally (19 commits since abc3a76), NOT pushed (ask user)
 Grilled: peek+expand cards · share page immersive auto-theme · maps tilt-intro + orbit-on-waits · audit-first,
  full redesigns/native OK · 3D journey = hero bus + depth page turns · auto-degrade by perf tier · Where-to

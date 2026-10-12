@@ -663,12 +663,15 @@ function TripMapImpl() {
     // The live route only: the vehicle drives the road the server routed it on.
     route: path?.geometry?.coordinates as [number, number][] | undefined,
     /**
-     * Choosing a ride, the journey is the subject: the camera settles, then
-     * tilts down onto the route in one move ("the map at the top should be
-     * improved since it's looking old"), and the 3D pins stand up with it
-     * (they need ≥ 40°). Every other overview stays flat and north-up.
+     * The camera settles, then tilts down onto the route in one move, and the
+     * 3D pins and the bus stand up with it (they need ≥ 40°).
+     *
+     * BUGFIX ("the rider tracking screen only renders 2D so the bus model
+     * seems flat"). This was configure/select only, so every live stage —
+     * driver coming, on the way — framed the minibus straight from above. Every
+     * stage tilts now; `follow` takes the same pitch (useMapCamera).
      */
-    overviewPitch: !snapshot && (stage === 'configure' || stage === 'select') && !reduceMotion ? 46 : 0,
+    overviewPitch: !snapshot && !reduceMotion ? 46 : 0,
     padding: getPadding,
     active: isFocused,
   });

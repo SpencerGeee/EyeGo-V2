@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react';
-import { Modal, StyleSheet, View } from 'react-native';
+import { BackHandler, Modal, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
@@ -36,6 +36,18 @@ export interface OutcomeSheetProps {
   primary: { label: string; onPress: () => void };
   secondary?: { label: string; onPress: () => void } | null;
   onDismiss: () => void;
+  /**
+   * Mounted inside `OverlayPortal` — draw as a plain layer, never a `<Modal>`.
+   *
+   * BUGFIX ("the driver app freezes — the animations keep moving but nothing I
+   * tap does anything, only closing the app fixes it"). On iOS the portal is a
+   * FullWindowOverlay: a native modal presented from that window never
+   * completes and never goes away, and the invisible presentation swallows
+   * every touch in the app. The rider hit exactly this with BoardingPinSheet;
+   * the driver's away-outcomes sheet reintroduced it. The portal is already
+   * the top layer, so a View is all this needs there.
+   */
+  inline?: boolean;
 }
 
 /**
@@ -60,6 +72,7 @@ export function OutcomeSheet({
   primary,
   secondary,
   onDismiss,
+  inline = false,
 }: OutcomeSheetProps) {
   const colors = useThemedColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -114,12 +127,22 @@ export function OutcomeSheet({
     transform: [{ scale: 0.9 + glyph.value * 0.1 }],
   }));
 
+  // A Modal gets Android's back for free through onRequestClose; a layer does not.
+  useEffect(() => {
+    if (!visible || !inline) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      onDismiss();
+      return true;
+    });
+    return () => sub.remove();
+  }, [visible, inline, onDismiss]);
+
   if (!visible) return null;
 
   const accent = tone === 'bad' ? colors.error : tone === 'good' ? colors.statusSuccess : colors.primary;
 
-  return (
-    <Modal transparent visible animationType="none" onRequestClose={onDismiss} statusBarTranslucent>
+  const content = (
+    <>
       <Animated.View style={[StyleSheet.absoluteFill, scrimStyle]}>
         <BlurView intensity={26} tint="dark" style={StyleSheet.absoluteFill} />
         <Pressable style={StyleSheet.absoluteFill} onPress={onDismiss} accessibilityRole="button" accessibilityLabel="Dismiss" />
@@ -178,6 +201,14 @@ export function OutcomeSheet({
           </Pressable>
         </Animated.View>
       </View>
+    </>
+  );
+
+  return inline ? (
+    <View style={StyleSheet.absoluteFill}>{content}</View>
+  ) : (
+    <Modal transparent visible animationType="none" onRequestClose={onDismiss} statusBarTranslucent>
+      {content}
     </Modal>
   );
 }

@@ -108,12 +108,6 @@ export interface SearchingPanelProps {
    */
   waiting?: boolean;
   /**
-   * When the search gives up, on THIS phone's clock (the caller converts from
-   * server time). A deadline rather than a count, so the panel's own one-second
-   * tick keeps it current without re-rendering the whole stage.
-   */
-  searchEndsAtMs?: number | null;
-  /**
    * The peek card ("the card is way too tall and is covering 90% of the
    * screen"): status, then the price with the booking's facts on ONE line.
    * The itinerary and the chip row are what the expanded card is for — the
@@ -259,7 +253,6 @@ export function SearchingPanel({
   farePesewas = null,
   boostedPesewas = 0,
   waiting = false,
-  searchEndsAtMs = null,
   compact = false,
 }: SearchingPanelProps) {
   const colors = useColors();
@@ -289,9 +282,15 @@ export function SearchingPanel({
       // "Drivers near Osu are all busy" — the place makes it a fact about the
       // area, not a verdict on the app.
       const area = originText?.split(',')[0]?.trim();
-      return `${area ? `Drivers near ${area} are all busy. ` : ''}Nothing was charged — try again shortly, or schedule it.`;
+      return `${area ? `Drivers near ${area} are busy` : 'Drivers are busy'} — you weren't charged.`;
     }
-    if (status === 'sending') return 'Reaching drivers near your pickup…';
+    /*
+     * ONE SHORT LINE PER BEAT ("the card seems busy — a lot of wording, it can
+     * be very overwhelming"). These were two-line sentences, and the waiting
+     * one carried a second countdown beside the clock pill. Each beat is now a
+     * phrase that fits one line; the clock pill is the only timer.
+     */
+    if (status === 'sending') return 'Reaching nearby drivers…';
     /**
      * The distance is the part a rider can act on.
      *
@@ -307,9 +306,7 @@ export function SearchingPanel({
       const mins = etaSeconds != null && Number.isFinite(etaSeconds)
         ? Math.max(1, Math.round(etaSeconds / 60))
         : null;
-      return mins != null
-        ? `Asking a driver ${mins} min away · ${attempt.attempt} of ${attempt.total}`
-        : `Asking driver ${attempt.attempt} of ${attempt.total}…`;
+      return mins != null ? `Asking a driver ${mins} min away` : `Asking driver ${attempt.attempt} of ${attempt.total}`;
     }
     /**
      * NOBODY IN RANGE — SAY SO, AND SAY WHAT HAPPENS NEXT.
@@ -320,13 +317,8 @@ export function SearchingPanel({
      * screen used to describe both the same way — which is how a working
      * search on an empty map came to read as dead.
      */
-    if (waiting) {
-      const secs =
-        searchEndsAtMs != null ? Math.max(0, Math.ceil((searchEndsAtMs - Date.now()) / 1000)) : 0;
-      const left = secs > 0 ? ` · ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')} left` : '';
-      return `No drivers free near you yet — we'll ask the first one who comes online${left}.`;
-    }
-    if (attempt.total > 0) return `${attempt.total} driver${attempt.total === 1 ? '' : 's'} nearby — asking them in turn`;
+    if (waiting) return 'No drivers free yet — still looking';
+    if (attempt.total > 0) return `${attempt.total} driver${attempt.total === 1 ? '' : 's'} nearby`;
     /**
      * NOTHING FOUND YET — SAY HOW MUCH GROUND WE ARE COVERING.
      *
@@ -337,14 +329,9 @@ export function SearchingPanel({
      * with it and the rider can see the search working.
      */
     const km = Number.isFinite(radiusKm) ? (radiusKm as number) : null;
-    if (km != null) {
-      return elapsed > 45
-        ? `Still looking — the search is out to ${km} km now.`
-        : `Looking within ${km} km of your pickup.`;
-    }
-    if (elapsed > 45) return 'Still looking. We widen the search the longer it takes.';
-    if (elapsed > 20) return 'Most riders are matched in under two minutes.';
-    return 'We ask the closest driver first, then the next.';
+    if (km != null) return elapsed > 45 ? `Widening the search to ${km} km` : `Searching within ${km} km`;
+    if (elapsed > 45) return 'Widening the search';
+    return 'Asking the closest driver first';
   })();
 
   const mmss = `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, '0')}`;
@@ -375,7 +362,7 @@ export function SearchingPanel({
             key={`${status}|${offerPending ? attempt.attempt : 0}|${waiting}|${radiusKm ?? ''}`}
             entering={FadeIn.duration(240).reduceMotion(ReduceMotion.System)}
           >
-            <Text style={styles2.substatus} numberOfLines={2}>
+            <Text style={styles2.substatus} numberOfLines={1}>
               {substatus}
             </Text>
           </Animated.View>
@@ -451,7 +438,8 @@ export function SearchingPanel({
           it does not make the line jump. */}
       {farePesewas != null && farePesewas > 0 && (
         <View style={styles2.fareRow}>
-          <Text style={styles2.fareLabel}>{boostedPesewas > 0 ? 'YOUR OFFER' : 'FARE'}</Text>
+          {/* The money explains itself; the caps label was one more word to read. */}
+          {!compact ? <Text style={styles2.fareLabel}>{boostedPesewas > 0 ? 'YOUR OFFER' : 'FARE'}</Text> : null}
           {/* Rolls up, odometer-style, when a boost lands — the raise is seen
               happening, not just a number that changed. */}
           <RollingDigits
@@ -465,7 +453,7 @@ export function SearchingPanel({
             <View style={[styles2.boostBadge, { backgroundColor: withOpacity(colors.primary, 0.14) }]}>
               <Ionicons name="flash" size={11} color={colors.primary} />
               <Text style={[styles2.boostText, { color: colors.primary }]}>
-                +{formatGhs(boostedPesewas)} to your driver
+                +{formatGhs(boostedPesewas)}
               </Text>
             </View>
           ) : null}

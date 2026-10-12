@@ -174,6 +174,11 @@ export function ConsentGate({
     <Animated.View
       style={[styles.root, { backgroundColor }, rootStyle]}
       accessibilityViewIsModal
+      // Leaving, it is a full-screen layer fading to nothing; if its exit were
+      // ever cut short it would be an invisible wall over the whole app (the
+      // "animations run but nothing I tap works" shape). It stops taking
+      // touches the moment it is no longer required.
+      pointerEvents={required ? 'auto' : 'none'}
     >
       {/*
         Ambient ground rather than a flat fill. Two stops of the accent at

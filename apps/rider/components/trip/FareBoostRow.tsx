@@ -51,11 +51,11 @@ export function FareBoostRow({ farePesewas, requestedPesewas, boostPesewas, busy
     <View style={styles.root}>
       <View style={styles.headRow}>
         <Ionicons name="flash" size={14} color={colors.primary} />
-        <Text style={styles.title}>
-          {boostPesewas > 0 ? `You added ${formatGhs(boostPesewas)} to find a driver faster` : 'Raise your fare to find a driver faster'}
-        </Text>
+        {/* The amount already added is on the fare's badge above — said once.
+            The policy is three words, not a sentence. */}
+        <Text style={styles.title}>{boostPesewas > 0 ? 'Boost again' : 'Boost to find a driver faster'}</Text>
+        <Text style={styles.caption}>· 100% to your driver</Text>
       </View>
-      <Text style={styles.caption}>All of it goes to your driver — EyeGo takes nothing from a raise.</Text>
 
       {steps.length === 0 ? (
         <Text style={styles.capNote}>Maximum boost reached.</Text>
@@ -120,7 +120,7 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: colors.surfaceContainer,
     },
     headRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    title: { flex: 1, fontFamily: fonts.semiBold, fontSize: 14, color: colors.onSurface },
+    title: { flexShrink: 1, fontFamily: fonts.semiBold, fontSize: 14, color: colors.onSurface },
     caption: { fontFamily: fonts.regular, fontSize: 12, lineHeight: 16, color: colors.onSurfaceVariant },
     capNote: { fontFamily: fonts.medium, fontSize: 12, color: colors.onSurfaceVariant },
     chips: { flexDirection: 'row', gap: spacing.sm },

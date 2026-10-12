@@ -49,6 +49,10 @@ export interface RouteDropoffMapProps {
   isDark: boolean;
   accent: string;
   colors: Record<string, string>;
+  /** Short name of the end of the route — "4.1 km before Madina". */
+  destinationName?: string | null;
+  /** True while a finger is on the map — the page stops scrolling so the pan reaches it. */
+  onInteract?: (active: boolean) => void;
 }
 
 function haversineM(aLat: number, aLng: number, bLat: number, bLng: number): number {
@@ -60,24 +64,59 @@ function haversineM(aLat: number, aLng: number, bLat: number, bLng: number): num
   return 2 * R * Math.asin(Math.sqrt(s));
 }
 
-/** Nearest point on the polyline to `[lng, lat]`, and how far off it is. Mirrors utils/geo.js on the server. */
-function snapToRoute(point: Coord, line: Coord[]): { point: Coord; distanceM: number } | null {
+type Snap = { point: Coord; distanceM: number; alongM: number; totalM: number };
+
+/**
+ * Nearest point on the polyline to `[lng, lat]`, how far off it is, and how far
+ * along the road it falls. Mirrors utils/geo.js on the server.
+ */
+function snapToRoute(point: Coord, line: Coord[]): Snap | null {
   if (line.length < 2) return null;
   const [plng, plat] = point;
-  let best: { point: Coord; distanceM: number } | null = null;
+  let best: Snap | null = null;
+  let walked = 0;
   for (let i = 0; i < line.length - 1; i += 1) {
     const [alng, alat] = line[i];
     const [blng, blat] = line[i + 1];
     const dx = blng - alng;
     const dy = blat - alat;
     const lenSq = dx * dx + dy * dy;
+    const segM = haversineM(alat, alng, blat, blng);
     let t = 0;
     if (lenSq > 0) t = Math.max(0, Math.min(1, ((plng - alng) * dx + (plat - alat) * dy) / lenSq));
     const proj: Coord = [alng + t * dx, alat + t * dy];
     const d = haversineM(plat, plng, proj[1], proj[0]);
-    if (!best || d < best.distanceM) best = { point: proj, distanceM: d };
+    if (!best || d < best.distanceM) best = { point: proj, distanceM: d, alongM: walked + segM * t, totalM: 0 };
+    walked += segM;
   }
+  if (best) best.totalM = walked;
   return best;
+}
+
+/** The point halfway along the road — where the pin starts, so it starts ON the route. */
+function midpointOf(line: Coord[]): Coord | null {
+  if (line.length < 2) return null;
+  const segs = line.slice(1).map((b, i) => haversineM(line[i][1], line[i][0], b[1], b[0]));
+  let left = segs.reduce((a, b) => a + b, 0) / 2;
+  for (let i = 0; i < segs.length; i += 1) {
+    if (segs[i] > 0 && segs[i] >= left) {
+      const t = left / segs[i];
+      return [line[i][0] + (line[i + 1][0] - line[i][0]) * t, line[i][1] + (line[i + 1][1] - line[i][1]) * t];
+    }
+    left -= segs[i];
+  }
+  return line[line.length - 1];
+}
+
+const km = (m: number) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.max(50, Math.round(m / 50) * 50)} m`);
+
+/**
+ * Where the pin is, in words a rider can use, when no street is known there.
+ * "Accra, Greater Accra, Ghana" names the whole city; "3.2 km into the ride ·
+ * 4.1 km before Madina" names the point.
+ */
+function alongRoute(s: Snap, destinationName?: string | null): string {
+  return `${km(s.alongM)} into the ride · ${km(s.totalM - s.alongM)} before ${destinationName || 'the end'}`;
 }
 
 export function RouteDropoffMap({
@@ -89,31 +128,52 @@ export function RouteDropoffMap({
   isDark,
   accent,
   colors,
+  destinationName,
+  onInteract,
 }: RouteDropoffMapProps) {
   const cameraRef = useRef<CameraRef | null>(null);
-  const [centre, setCentre] = useState<Coord | null>(null);
+  const line = useMemo(() => (Array.isArray(route) ? route.filter(isUsableCoord) : []), [route]);
+  const mid = useMemo(() => midpointOf(line), [line]);
+  const seed: Coord | null = value ? [value.longitude, value.latitude] : mid;
+
+  /**
+   * BUGFIX ("the where-do-you-get-off map is blank and Drop me off here is
+   * grayed out"). The camera had no seed and ONE fit at 120 ms — a command
+   * that lands before MapLibre attaches the camera is dropped, so the map sat
+   * at the Ghana-wide default: a blank sheet. And `centre` only ever came from
+   * `onRegionDidChange`, so until the rider happened to pan there was no pin,
+   * nothing snapped, and the button stayed disabled. The pin now starts on the
+   * road (halfway along it) and the framing is re-sent, as every other map in
+   * the app does it.
+   */
+  const [centre, setCentre] = useState<Coord | null>(seed);
+  // Frozen: a declarative centre that changed per render would yank the map back.
+  const [cameraSeed] = useState(seed);
   const [naming, setNaming] = useState(false);
   const [name, setName] = useState<string | null>(null);
 
-  const line = useMemo(() => (Array.isArray(route) ? route.filter(isUsableCoord) : []), [route]);
   const snapped = useMemo(() => (centre && line.length >= 2 ? snapToRoute(centre, line) : null), [centre, line]);
   const onRoute = !!snapped && snapped.distanceM <= MAX_OFF_ROUTE_M;
 
-  // Frame the whole road once, or the chosen drop-off if there is one.
+  // Frame the whole road with the pin halfway along it, or the chosen drop-off.
   const framed = useRef(false);
   useEffect(() => {
-    const cam = cameraRef.current;
-    if (!cam || framed.current) return;
-    const t = setTimeout(() => {
-      framed.current = true;
+    if (framed.current || line.length < 2) return;
+    framed.current = true;
+    const frame = () => {
+      const cam = cameraRef.current;
+      if (!cam) return;
       if (value) {
         cam.setCamera({ centerCoordinate: [value.longitude, value.latitude], zoomLevel: 15, animationDuration: 0 });
         return;
       }
       const box = boundsFor([...line, ...[origin, destination].filter(isUsableCoord)]);
       if (box) cam.fitBounds([box.ne, box.sw], { top: 48, bottom: 48, left: 40, right: 40 }, false);
-    }, 120);
-    return () => clearTimeout(t);
+      // Same zoom, re-centred on the road so the pin begins ON the route.
+      if (mid) setTimeout(() => cameraRef.current?.setCamera({ centerCoordinate: mid, animationDuration: 0 }), 40);
+    };
+    const timers = [120, 420, 900].map((ms) => setTimeout(frame, ms));
+    return () => timers.forEach(clearTimeout);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [line.length]);
 
@@ -122,32 +182,56 @@ export function RouteDropoffMap({
    * never per frame of a drag. The label rides the booking so the driver's
    * stop list says "Madina Zongo Junction", not two numbers.
    */
-  const nameTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * Stale answers are dropped (a slow lookup for where the pin WAS must not
+   * name where it is), and `naming` always comes back down — it used to stick
+   * when the pin left the route mid-lookup.
+   *
+   * "Accra, Greater Accra, Ghana" is not a place anybody can find: when the
+   * server only knows the city (`approximate`), the pin is described by where
+   * it falls on the ride instead.
+   */
+  const pending = useRef<Promise<string> | null>(null);
   useEffect(() => {
-    if (nameTimer.current) clearTimeout(nameTimer.current);
     setName(null);
-    if (!snapped || !onRoute) return;
+    if (!snapped || !onRoute) {
+      setNaming(false);
+      pending.current = null;
+      return;
+    }
     setNaming(true);
     const [lng, lat] = snapped.point;
-    nameTimer.current = setTimeout(() => {
+    const fallback = alongRoute(snapped, destinationName);
+    let live = true;
+    let settle: (v: string) => void = () => {};
+    pending.current = new Promise<string>((r) => { settle = r; });
+    const t = setTimeout(() => {
       void reverseGeocode(lat, lng)
-        .then((hit) => {
-          if (!hit) return setName(null);
-          setName(placeLabel(hit.name, hit.fullAddress) ?? hit.fullAddress ?? hit.name ?? null);
-        })
-        .catch(() => setName(null))
-        .finally(() => setNaming(false));
+        .then((hit) => (hit && !hit.approximate ? placeLabel(hit.name, hit.fullAddress) ?? hit.name : null))
+        .catch(() => null)
+        .then((label) => {
+          settle(label ?? fallback);
+          if (!live) return;
+          setName(label ?? fallback);
+          setNaming(false);
+        });
     }, 450);
     return () => {
-      if (nameTimer.current) clearTimeout(nameTimer.current);
+      live = false;
+      clearTimeout(t);
+      settle(fallback);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snapped?.point[0], snapped?.point[1], onRoute]);
 
-  const confirm = useCallback(() => {
+  // Tapping while the street is still being looked up waits for it — the
+  // button never greys out just because a lookup is in flight.
+  const confirm = useCallback(async () => {
     if (!snapped || !onRoute) return;
     const [lng, lat] = snapped.point;
-    onChange({ latitude: lat, longitude: lng, address: name });
-  }, [snapped, onRoute, name, onChange]);
+    const label = name ?? (pending.current ? await pending.current : null) ?? alongRoute(snapped, destinationName);
+    onChange({ latitude: lat, longitude: lng, address: label });
+  }, [snapped, onRoute, name, onChange, destinationName]);
 
   const routeShape = useMemo(
     () =>
@@ -167,7 +251,13 @@ export function RouteDropoffMap({
       glowIntensity={0.5}
       maxGlowRadius={12}
     >
-      <View style={styles.wrap}>
+      <View
+        style={styles.wrap}
+        // The page scrolls; a vertical pan on the map must move the map.
+        onTouchStart={() => onInteract?.(true)}
+        onTouchEnd={() => onInteract?.(false)}
+        onTouchCancel={() => onInteract?.(false)}
+      >
         <MapboxGL.MapView
           style={StyleSheet.absoluteFill}
           styleURL={isDark ? eyegoDarkStyle : eyegoLightStyle}
@@ -182,7 +272,7 @@ export function RouteDropoffMap({
             if (Array.isArray(c) && c.length === 2) setCentre([c[0], c[1]]);
           }}
         >
-          <MapboxGL.Camera ref={cameraRef} animationMode="none" />
+          <MapboxGL.Camera ref={cameraRef} animationMode="none" centerCoordinate={cameraSeed ?? undefined} zoomLevel={13} />
 
           {routeShape ? (
             <MapboxGL.ShapeSource id="dropoff-route" shape={routeShape}>
@@ -251,14 +341,14 @@ export function RouteDropoffMap({
             ) : null}
             <Pressable
               onPress={confirm}
-              disabled={!onRoute || naming}
+              disabled={!onRoute}
               accessibilityRole="button"
               accessibilityLabel="Drop me off here"
               style={[
                 styles.btn,
                 styles.btnPrimary,
                 { backgroundColor: accent, borderColor: accent },
-                (!onRoute || naming) && { opacity: 0.45 },
+                !onRoute && { opacity: 0.45 },
               ]}
             >
               <Text style={[styles.btnText, { color: colors.onPrimary ?? '#0A0D14' }]}>

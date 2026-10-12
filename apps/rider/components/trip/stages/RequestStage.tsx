@@ -1164,10 +1164,6 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
             farePesewas={status === 'searching' ? currentFarePesewas : null}
             boostedPesewas={fare?.boostPesewas ?? 0}
             waiting={dispatch?.waiting === true}
-            // Server deadline → this phone's clock (skew = server − local).
-            searchEndsAtMs={
-              dispatch?.searchExpiresAtServerMs != null ? dispatch.searchExpiresAtServerMs - clockSkewMs : null
-            }
             /**
              * HOW FAR AWAY THE DRIVER BEING ASKED ACTUALLY IS.
              *
