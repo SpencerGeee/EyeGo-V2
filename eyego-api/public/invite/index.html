@@ -2,781 +2,634 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-  <meta name="description" content="Join a shared EyeGo ride" />
-  <meta name="theme-color" content="#08090B" />
-  <title>Join an EyeGo Ride</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Join an EyeGo ride</title>
+  <meta name="description" content="You have been invited to share an EyeGo ride. See the route, the seats left and the price per seat." />
+  <meta property="og:title" content="Join my EyeGo ride" />
+  <meta property="og:description" content="Seats left, price per seat and the route — tap to join in the EyeGo app." />
+  <meta property="og:type" content="website" />
+  <meta name="theme-color" content="#0A0C10" media="(prefers-color-scheme: dark)" />
+  <meta name="theme-color" content="#EFEBE2" media="(prefers-color-scheme: light)" />
+  <meta name="color-scheme" content="dark light" />
+  <meta name="robots" content="noindex" />
   <!--
-    THE MAP MUST NOT HOLD UP THE PAGE.
-
-    BUGFIX ("it takes a while to load as well, you need to make sure it's very
-    smooth and fast").
-
-    This was a synchronous script tag from unpkg: the parser stopped dead until
-    ~800 KB of MapLibre arrived, and everything after it — the stylesheet, the
-    markup, the fetch for the ride itself — waited on a third-party CDN. On a
-    Ghanaian mobile connection that is most of the wait, and it buys nothing,
-    because the ride sheet is HTML and needs no map to render.
-
-    `defer` lets parsing continue and `preconnect` warms the TLS handshake to
-    both CDNs while the HTML is still being read. `fetchData()` no longer waits
-    on the map either (see the DOM-ready handler at the bottom) — the sheet
-    paints from the API, and the map draws whenever MapLibre turns up.
+    MapLibre is deferred and preconnected: a synchronous ~800 KB CDN script
+    stopped the parser before any of this page's own markup could paint (see
+    public/invite/index.html). 5.x is the last UMD line — v6 ships ESM only.
   -->
   <link rel="preconnect" href="https://unpkg.com" crossorigin />
   <link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin />
-  <link href="https://unpkg.com/maplibre-gl@4.1.3/dist/maplibre-gl.css" rel="stylesheet" />
-  <script defer src="https://unpkg.com/maplibre-gl@4.1.3/dist/maplibre-gl.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
+  <link href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet" />
+  <script defer src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-    /* Same tokens as the tracking page and the rider app — this and /track are
-       the two pages a stranger sees before they ever install anything, and they
-       used to be a stock purple that belongs to no part of EyeGo. */
+    /*
+      THE APP'S OWN SURFACES. Onyx and the #4be277 brand green in the dark,
+      the warm paper of the light map style in the light — the page follows the
+      phone it is opened on, the same way the apps do.
+    */
     :root {
-      --bg: #08090B;
-      --surface: #131316;
-      --surface2: #1B1B1F;
-      --surface3: #222225;
-      --border: rgba(255,255,255,0.09);
-      --primary: #4be277;
-      --primary-dim: #1FAE52;
-      --primary-soft: rgba(75,226,119,0.14);
-      --primary-glow: rgba(75,226,119,0.30);
-      --text: #DCE4E5;
-      --text-dim: rgba(220,228,229,0.55);
-      --warning: #f59e0b;
-      --error: #ef4444;
-      --radius: 20px;
-      --sheet-radius: 28px;
+      --bg: #EFEBE2;
+      --sheet: rgba(252, 251, 248, 0.86);
+      --sheet-solid: #FCFBF8;
+      --ink: #12151A;
+      --ink-2: #4A5260;
+      --ink-3: #7A8291;
+      --line: rgba(18, 21, 26, 0.10);
+      --chip: rgba(18, 21, 26, 0.05);
+      --brand: #15A050;
+      --brand-ink: #FFFFFF;
+      --brand-soft: rgba(21, 160, 80, 0.12);
+      --warn: #B7791F;
+      --danger: #C53030;
+      --shadow: 0 24px 60px -18px rgba(40, 32, 12, 0.32), 0 2px 8px rgba(40, 32, 12, 0.08);
+      --veil: linear-gradient(to bottom, rgba(239, 235, 226, 0.92), rgba(239, 235, 226, 0));
+      --radius: 28px;
+      --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
     }
-
-    html, body {
-      width: 100%; height: 100%; overflow: hidden;
-      background: var(--bg);
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-      color: var(--text);
-      -webkit-font-smoothing: antialiased;
-    }
-
-    #map { position: absolute; inset: 0; }
-
-    /* ── Top bar ───────────────────────────────────────────────
-       The status badge now lives INSIDE this flex row. It used to be its own
-       absolutely-positioned element sitting on top of the bar, so on a narrow
-       phone it landed straight over the "Accepting bookings" title — the
-       reported overlap. In the flow it simply cannot collide: the title
-       ellipsises and the badge keeps its width. */
-    #topbar {
-      position: absolute; top: 0; left: 0; right: 0;
-      padding: calc(14px + env(safe-area-inset-top)) 18px 28px;
-      display: flex; align-items: center; gap: 12px;
-      background: linear-gradient(to bottom, rgba(8,9,11,0.92) 30%, rgba(8,9,11,0.45) 70%, transparent);
-      z-index: 10;
-    }
-    #topbar .logo {
-      width: 38px; height: 38px; border-radius: 12px;
-      background: linear-gradient(140deg, var(--primary), var(--primary-dim));
-      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-      box-shadow: 0 6px 20px var(--primary-glow);
-    }
-    #topbar .titles { min-width: 0; flex: 1; }
-    #topbar .title { font-size: 15px; font-weight: 700; letter-spacing: -0.2px; }
-    #topbar .subtitle {
-      font-size: 12px; color: var(--text-dim); margin-top: 1px;
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    }
-    #status-badge {
-      flex-shrink: 0; white-space: nowrap;
-      padding: 6px 11px; border-radius: 999px;
-      font-size: 10.5px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase;
-      border: 1px solid transparent;
-    }
-    .badge-active { background: var(--primary-soft); color: var(--primary); border-color: rgba(75,226,119,0.38) !important; }
-    .badge-full   { background: rgba(245,158,11,0.14); color: var(--warning); border-color: rgba(245,158,11,0.35) !important; }
-
-    /* ── Sheet ── */
-    #sheet {
-      position: absolute; left: 0; right: 0; bottom: 0;
-      z-index: 20;
-      background: linear-gradient(180deg, var(--surface) 0%, var(--bg) 100%);
-      border-top: 1px solid var(--border);
-      border-radius: var(--sheet-radius) var(--sheet-radius) 0 0;
-      box-shadow: 0 -18px 50px rgba(0,0,0,0.55), 0 -1px 0 rgba(75,226,119,0.12);
-      padding: 0 18px calc(18px + env(safe-area-inset-bottom));
-      max-height: 90vh;
-      display: flex; flex-direction: column;
-      touch-action: none;
-      transition: transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
-      will-change: transform;
-    }
-    #sheet.dragging { transition: none; }
-    #grabber-zone { padding: 10px 0 6px; cursor: grab; flex-shrink: 0; }
-    #grabber-zone:active { cursor: grabbing; }
-    #grabber { width: 40px; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.22); margin: 0 auto; }
-    #sheet-scroll { overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
-
-    .card {
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 14px;
-      margin-bottom: 10px;
-    }
-    .card.lit {
-      border-color: rgba(75,226,119,0.30);
-      box-shadow: 0 0 0 1px rgba(75,226,119,0.06), 0 8px 30px rgba(75,226,119,0.09);
-    }
-    .headline { font-size: 19px; font-weight: 750; letter-spacing: -0.35px; }
-    .headline-sub { font-size: 13px; color: var(--text-dim); margin-top: 3px; line-height: 1.45; }
-
-    /* ── Route ── */
-    .route-row { display: flex; gap: 12px; align-items: flex-start; }
-    .route-rail { display: flex; flex-direction: column; align-items: center; padding-top: 5px; }
-    .rail-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
-    .rail-line { width: 2px; flex: 1; min-height: 22px; background: var(--border); margin: 3px 0; }
-    .route-label { font-size: 10.5px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
-    .route-value { font-size: 14px; font-weight: 600; margin-top: 1px; word-break: break-word; }
-
-    /* ── Details grid ── */
-    .details { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    .detail-label { font-size: 10.5px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
-    .detail-value { font-size: 15px; font-weight: 700; margin-top: 3px; font-variant-numeric: tabular-nums; }
-    .detail-value.accent { color: var(--primary); }
-    .detail-value.warning { color: var(--warning); }
-
-    /* ── Driver ── */
-    #driver-card { display: none; align-items: center; gap: 12px; }
-    #driver-card.visible { display: flex; }
-    #driver-avatar {
-      width: 48px; height: 48px; border-radius: 50%; flex-shrink: 0;
-      background: var(--surface3); overflow: hidden;
-      display: flex; align-items: center; justify-content: center;
-      font-weight: 700; font-size: 18px; color: var(--primary);
-      border: 1.5px solid rgba(75,226,119,0.35);
-    }
-    #driver-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
-    #driver-name { font-size: 15px; font-weight: 650; }
-    #driver-vehicle { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
-    #driver-plate {
-      font-size: 12px; font-weight: 700; letter-spacing: 0.6px;
-      padding: 5px 9px; border-radius: 8px;
-      background: var(--surface3); border: 1px solid var(--border);
-      flex-shrink: 0; font-variant-numeric: tabular-nums;
-    }
-
-    /* ── Seats ── */
-    #seat-indicator { display: none; align-items: center; gap: 10px; }
-    #seat-indicator.visible { display: flex; }
-    #seat-dots { display: flex; gap: 4px; flex-wrap: wrap; flex: 1; }
-    .seat-dot { width: 11px; height: 11px; border-radius: 3px; }
-    .seat-dot.taken { background: var(--primary); }
-    .seat-dot.free  { background: var(--surface3); border: 1px solid var(--border); }
-    #seat-text { font-size: 12px; color: var(--text-dim); font-variant-numeric: tabular-nums; flex-shrink: 0; }
-
-    /* ── CTA ── */
-    .cta-btn {
-      display: flex; align-items: center; justify-content: center; gap: 8px;
-      width: 100%; padding: 14px; border-radius: 14px;
-      font-size: 14.5px; font-weight: 700; text-decoration: none;
-      border: none; cursor: pointer; margin-bottom: 8px;
-    }
-    .cta-primary {
-      background: linear-gradient(135deg, var(--primary), var(--primary-dim));
-      color: #05210f; box-shadow: 0 8px 24px var(--primary-glow);
-    }
-    .cta-secondary { background: var(--surface3); color: var(--text); border: 1px solid var(--border); }
-
-    /* ── Map pins ── */
-    .pin { width: 26px; height: 26px; border-radius: 50%; border: 2.5px solid var(--bg); display: flex; align-items: center; justify-content: center; }
-    .pin-inner { width: 8px; height: 8px; border-radius: 50%; background: var(--bg); }
-    .pin-pickup { background: #ffffff; box-shadow: 0 0 0 4px rgba(255,255,255,0.16); }
-    .pin-dest   { background: var(--primary); box-shadow: 0 0 0 4px var(--primary-soft); }
-
-    /* ── Loading / end ── */
-    #loading, #end-state {
-      position: absolute; inset: 0; z-index: 40;
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      gap: 14px; padding: 32px; text-align: center; background: var(--bg);
-    }
-    #end-state { display: none; }
-    .spinner {
-      width: 34px; height: 34px; border-radius: 50%;
-      border: 3px solid var(--surface3); border-top-color: var(--primary);
-      animation: spin 0.9s linear infinite;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    .end-icon {
-      width: 68px; height: 68px; border-radius: 50%;
-      background: var(--surface2); border: 1px solid var(--border);
-      display: flex; align-items: center; justify-content: center;
-    }
-    .end-title { font-size: 20px; font-weight: 750; letter-spacing: -0.3px; }
-    .end-sub { font-size: 13.5px; color: var(--text-dim); max-width: 320px; line-height: 1.55; }
-    .hidden { display: none !important; }
-
-    /* Wide screens: the sheet becomes a side rail. */
-    @media (min-width: 900px) {
-      #map { left: 400px; }
-      #topbar { left: 400px; }
-      #sheet {
-        right: auto; width: 400px; top: 0; bottom: 0;
-        border-radius: 0; border-top: none; border-right: 1px solid var(--border);
-        transform: none !important; padding-top: 12px;
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #0A0C10;
+        --sheet: rgba(18, 19, 22, 0.78);
+        --sheet-solid: #121316;
+        --ink: #E8EEEE;
+        --ink-2: #AEBDBE;
+        --ink-3: #7B8A8C;
+        --line: rgba(255, 255, 255, 0.08);
+        --chip: rgba(255, 255, 255, 0.05);
+        --brand: #4BE277;
+        --brand-ink: #04230F;
+        --brand-soft: rgba(75, 226, 119, 0.14);
+        --warn: #F5B942;
+        --danger: #F87171;
+        --shadow: 0 30px 80px -20px rgba(0, 0, 0, 0.75), 0 2px 10px rgba(0, 0, 0, 0.4);
+        --veil: linear-gradient(to bottom, rgba(10, 12, 16, 0.92), rgba(10, 12, 16, 0));
       }
-      #grabber-zone { display: none; }
     }
+    :root[data-theme="dark"] {
+      --bg: #0A0C10;
+      --sheet: rgba(18, 19, 22, 0.78);
+      --sheet-solid: #121316;
+      --ink: #E8EEEE;
+      --ink-2: #AEBDBE;
+      --ink-3: #7B8A8C;
+      --line: rgba(255, 255, 255, 0.08);
+      --chip: rgba(255, 255, 255, 0.05);
+      --brand: #4BE277;
+      --brand-ink: #04230F;
+      --brand-soft: rgba(75, 226, 119, 0.14);
+      --warn: #F5B942;
+      --danger: #F87171;
+      --shadow: 0 30px 80px -20px rgba(0, 0, 0, 0.75), 0 2px 10px rgba(0, 0, 0, 0.4);
+      --veil: linear-gradient(to bottom, rgba(10, 12, 16, 0.92), rgba(10, 12, 16, 0));
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body {
+      background: var(--bg);
+      color: var(--ink);
+      font-family: 'Geist', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      overflow: hidden;
+      overscroll-behavior: none;
+    }
+    button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+    a { color: inherit; }
+    :focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; border-radius: 12px; }
+    .num { font-variant-numeric: tabular-nums; }
+
+    #map { position: fixed; inset: 0; background: var(--bg); }
+    #map canvas { outline: none; }
+    .maplibregl-ctrl-attrib { font-size: 10px; opacity: 0.6; }
+    .veil {
+      position: fixed; inset: 0 0 auto 0; height: calc(120px + env(safe-area-inset-top));
+      background: var(--veil); pointer-events: none; z-index: 1;
+    }
+
+    /* ── Top bar ── */
+    .topbar {
+      position: fixed; z-index: 3; top: 0; left: 0; right: 0;
+      display: flex; align-items: center; gap: 10px;
+      padding: calc(14px + env(safe-area-inset-top)) 16px 0;
+    }
+    .brand { display: flex; align-items: center; gap: 8px; text-decoration: none; font-weight: 700; font-size: 17px; letter-spacing: -0.3px; }
+    .brand-mark {
+      width: 30px; height: 30px; border-radius: 10px; display: grid; place-items: center;
+      background: var(--brand); color: var(--brand-ink);
+      box-shadow: 0 6px 18px -6px var(--brand);
+    }
+    .live {
+      display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px;
+      border-radius: 999px; background: var(--sheet); border: 1px solid var(--line);
+      font-size: 11px; font-weight: 600; letter-spacing: 1.2px; text-transform: uppercase;
+      backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    }
+    .live i { width: 7px; height: 7px; border-radius: 50%; background: var(--brand); position: relative; }
+    .live i::after {
+      content: ''; position: absolute; inset: -4px; border-radius: 50%; border: 1.5px solid var(--brand);
+      animation: ping 1.8s var(--ease-out) infinite;
+    }
+    .live.off i { background: var(--ink-3); }
+    .live.off i::after { display: none; }
+    @keyframes ping { from { transform: scale(0.6); opacity: 0.9; } to { transform: scale(1.9); opacity: 0; } }
+    .spacer { flex: 1; }
+    .icon-btn {
+      width: 42px; height: 42px; border-radius: 14px; display: grid; place-items: center;
+      background: var(--sheet); border: 1px solid var(--line); color: var(--ink);
+      backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+      box-shadow: 0 6px 18px -10px rgba(0, 0, 0, 0.5);
+      transition-property: transform, background-color; transition-duration: 160ms; transition-timing-function: var(--ease-out);
+    }
+    .icon-btn:active { transform: scale(0.94); }
+    .icon-btn[aria-pressed="true"] { background: var(--brand); color: var(--brand-ink); border-color: transparent; }
+
+    .map-ctrls {
+      position: fixed; z-index: 3; right: 16px; display: flex; flex-direction: column; gap: 10px;
+      bottom: calc(var(--sheet-h, 260px) + 16px);
+      transition: bottom 420ms var(--ease-out), opacity 200ms ease;
+    }
+
+    /* ── The sheet ── */
+    .sheet {
+      position: fixed; z-index: 4; left: 0; right: 0; bottom: 0;
+      /* A peek, like the apps: the status and the driver; the rest is a drag up. */
+      max-height: min(42dvh, 400px); overflow: auto; overscroll-behavior: contain;
+      transition: max-height 460ms var(--ease-out);
+      padding: 10px 20px calc(18px + env(safe-area-inset-bottom));
+      background: var(--sheet);
+      backdrop-filter: blur(24px) saturate(1.4); -webkit-backdrop-filter: blur(24px) saturate(1.4);
+      border-top: 1px solid var(--line);
+      border-radius: var(--radius) var(--radius) 0 0;
+      box-shadow: var(--shadow);
+      animation: rise 640ms var(--ease-out) both;
+      scrollbar-width: none;
+    }
+    .sheet::-webkit-scrollbar { display: none; }
+    .sheet.open { max-height: min(84dvh, 760px); }
+    @keyframes rise { from { transform: translateY(40px); opacity: 0; } to { transform: none; opacity: 1; } }
+    .grab { display: block; width: 100%; height: 26px; margin: -6px 0 6px; touch-action: none; }
+    .grab::before { content: ''; display: block; width: 38px; height: 4px; border-radius: 2px; background: var(--ink-3); opacity: 0.45; margin: 0 auto; }
+    @media (min-width: 900px) {
+      .sheet {
+        left: 24px; right: auto; bottom: auto; top: calc(84px + env(safe-area-inset-top));
+        width: 392px; max-height: calc(100dvh - 108px) !important; border: 1px solid var(--line);
+        border-radius: var(--radius); padding: 22px 24px 24px;
+      }
+      .grab { display: none; }
+      .map-ctrls { bottom: 28px; }
+    }
+
+    .eyebrow {
+      display: inline-flex; align-items: center; gap: 8px;
+      font-size: 12px; font-weight: 600; letter-spacing: 1.3px; text-transform: uppercase; color: var(--brand);
+    }
+    .eyebrow.warn { color: var(--warn); }
+    .headline {
+      margin-top: 6px; font-weight: 700; font-size: clamp(34px, 9vw, 44px); line-height: 1.02; letter-spacing: -1.4px;
+      text-wrap: balance;
+    }
+    .headline small { font-size: 0.5em; font-weight: 600; letter-spacing: -0.4px; color: var(--ink-2); margin-left: 4px; }
+    .sub { margin-top: 6px; font-size: 15px; line-height: 1.4; color: var(--ink-2); text-wrap: pretty; }
+    .swap { animation: swap 360ms var(--ease-out); }
+    @keyframes swap { from { opacity: 0; transform: translateY(6px); filter: blur(3px); } to { opacity: 1; transform: none; filter: none; } }
+
+    /* Progress through the ride — four beats, the done ones lit. */
+    .timeline { list-style: none; display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 18px; }
+    .timeline li { display: grid; gap: 7px; font-size: 11.5px; font-weight: 500; color: var(--ink-3); }
+    .timeline li::before {
+      content: ''; height: 4px; border-radius: 2px; background: var(--line);
+      background-image: linear-gradient(var(--brand), var(--brand)); background-repeat: no-repeat; background-size: 0% 100%;
+      transition: background-size 700ms var(--ease-out);
+    }
+    .timeline li.done::before { background-size: 100% 100%; }
+    .timeline li.now::before { background-size: 100% 100%; animation: glow 1.6s ease-in-out infinite alternate; }
+    .timeline li.done, .timeline li.now { color: var(--ink); }
+    @keyframes glow { from { opacity: 0.55; } to { opacity: 1; } }
+
+    .card { margin-top: 18px; border-radius: 20px; background: var(--chip); border: 1px solid var(--line); }
+    .driver { display: flex; align-items: center; gap: 14px; padding: 14px; }
+    .avatar {
+      width: 52px; height: 52px; border-radius: 17px; overflow: hidden; flex: none;
+      display: grid; place-items: center; font-weight: 700; font-size: 20px;
+      background: var(--brand-soft); color: var(--brand);
+    }
+    .avatar img { width: 100%; height: 100%; object-fit: cover; outline: 1px solid rgba(127, 127, 127, 0.18); outline-offset: -1px; }
+    .who { flex: 1; min-width: 0; }
+    .who b { display: block; font-size: 16px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .who span { display: block; margin-top: 2px; font-size: 13px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .plate {
+      flex: none; font-family: 'JetBrains Mono', ui-monospace, monospace; font-weight: 700; font-size: 13px; letter-spacing: 0.6px;
+      padding: 7px 9px; border-radius: 9px; background: #F7F3E6; color: #14161A; border: 1.5px solid #14161A;
+      box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.12);
+    }
+
+    .route { display: grid; grid-template-columns: 14px 1fr; column-gap: 12px; padding: 14px; }
+    .rail { grid-row: 1 / span 2; display: flex; flex-direction: column; align-items: center; padding: 6px 0; }
+    .rail .a { width: 10px; height: 10px; border-radius: 50%; border: 2.5px solid var(--ink); }
+    .rail .l { flex: 1; width: 2px; margin: 4px 0; border-radius: 1px; background: repeating-linear-gradient(var(--ink-3) 0 3px, transparent 3px 6px); }
+    .rail .b { width: 10px; height: 10px; border-radius: 3px; background: var(--brand); }
+    .stop { padding: 3px 0 9px; min-width: 0; }
+    .stop + .stop { padding: 9px 0 3px; }
+    .stop small { display: block; font-size: 10.5px; font-weight: 600; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ink-3); }
+    .stop span { display: block; margin-top: 2px; font-size: 14.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .seats { display: flex; align-items: center; gap: 12px; padding: 12px 14px; }
+    .seat-dots { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; }
+    .seat-dots i { width: 12px; height: 12px; border-radius: 4px; background: var(--line); }
+    .seat-dots i.on { background: var(--brand); }
+    .seats span { font-size: 13px; color: var(--ink-2); }
+
+    .actions { display: grid; grid-template-columns: 1fr auto; gap: 10px; margin-top: 18px; }
+    .btn {
+      height: 50px; border-radius: 16px; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      font-weight: 600; font-size: 15px; text-decoration: none;
+      transition-property: transform, filter; transition-duration: 160ms; transition-timing-function: var(--ease-out);
+    }
+    .btn:active { transform: scale(0.97); }
+    .btn.primary { background: var(--brand); color: var(--brand-ink); box-shadow: 0 10px 24px -12px var(--brand); }
+    .btn.primary:hover { filter: brightness(1.06); }
+    .btn.ghost { padding: 0 18px; background: var(--chip); border: 1px solid var(--line); }
+    .fine { margin-top: 14px; font-size: 12px; color: var(--ink-3); text-align: center; }
+
+    /* Skeleton — the shape of what is coming, not a spinner. */
+    .sk { border-radius: 10px; background: linear-gradient(90deg, var(--chip) 0%, var(--line) 50%, var(--chip) 100%); background-size: 200% 100%; animation: shimmer 1.3s linear infinite; }
+    @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+    .end-icon { width: 56px; height: 56px; border-radius: 18px; display: grid; place-items: center; background: var(--brand-soft); color: var(--brand); }
+    .end-icon.bad { background: rgba(197, 48, 48, 0.12); color: var(--danger); }
+    .end-icon.meh { background: rgba(183, 121, 31, 0.14); color: var(--warn); }
+
+    .toast {
+      position: fixed; z-index: 6; left: 50%; top: calc(72px + env(safe-area-inset-top)); transform: translate(-50%, -12px);
+      padding: 10px 16px; border-radius: 999px; background: var(--ink); color: var(--bg); font-size: 14px; font-weight: 500;
+      opacity: 0; pointer-events: none; transition: opacity 200ms ease, transform 280ms var(--ease-out);
+    }
+    .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+    /* The vehicle — the apps' own 3D minibus, painted for the camera's turn and tilt. */
+    .vehicle { width: 92px; height: 92px; display: grid; place-items: center; pointer-events: none; }
+    .vehicle canvas { position: relative; }
+    .vehicle .halo { position: absolute; width: 58px; height: 58px; border-radius: 50%; background: radial-gradient(circle, var(--brand-soft) 0%, transparent 70%); animation: breathe 2.4s ease-in-out infinite; }
+    @keyframes breathe { 0%, 100% { transform: scale(0.85); opacity: 0.7; } 50% { transform: scale(1.15); opacity: 1; } }
+    .pin { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35); }
+    .pin.pickup { background: var(--sheet-solid); border: 3px solid var(--ink); }
+    .pin.dest { background: var(--brand); border: 3px solid var(--sheet-solid); border-radius: 7px; }
+    .pin.pickup::after { content: ''; position: absolute; width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--ink); animation: ping 2.2s var(--ease-out) infinite; }
+
+    [hidden] { display: none !important; }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
+    }
+    /* The offer, in three numbers. */
+    .offer { display: grid; grid-template-columns: repeat(3, 1fr); padding: 6px; }
+    .offer-cell { padding: 10px 12px; border-radius: 14px; }
+    .offer-cell + .offer-cell { border-left: 1px solid var(--line); border-radius: 0; }
+    .offer-cell small { display: block; font-size: 10.5px; font-weight: 600; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ink-3); }
+    .offer-cell b { display: block; margin-top: 4px; font-size: 18px; font-weight: 700; letter-spacing: -0.4px; white-space: nowrap; }
+    .fine a { color: var(--brand); text-decoration: none; font-weight: 600; }
   </style>
 </head>
 <body>
+  <div id="map" role="img" aria-label="Map of this ride's route"></div>
+  <div class="veil" aria-hidden="true"></div>
 
-<div id="map"></div>
-
-<div id="topbar">
-  <div class="logo">
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#05210f" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-      <circle cx="12" cy="12" r="3"/>
-      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/>
-    </svg>
-  </div>
-  <div class="titles">
-    <div class="title">EyeGo</div>
-    <div class="subtitle" id="topbar-sub">Join this shared ride</div>
-  </div>
-  <div id="status-badge" class="badge-active">Active</div>
-</div>
-
-<div id="sheet">
-  <div id="grabber-zone"><div id="grabber"></div></div>
-  <div id="sheet-scroll">
-
-    <div class="card lit">
-      <div class="headline">You've been invited to ride</div>
-      <div class="headline-sub">Grab a seat on this trip and split the journey. Booking happens in the EyeGo app.</div>
-    </div>
-
-    <div class="card">
-      <div class="route-row">
-        <div class="route-rail">
-          <div class="rail-dot" style="background:#ffffff"></div>
-          <div class="rail-line"></div>
-          <div class="rail-dot" style="background:var(--primary)"></div>
-        </div>
-        <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:18px">
-          <div>
-            <div class="route-label">From</div>
-            <div class="route-value" id="origin-name">—</div>
-          </div>
-          <div>
-            <div class="route-label">To</div>
-            <div class="route-value" id="dest-name">—</div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="details">
-        <div>
-          <div class="detail-label">Departs</div>
-          <div class="detail-value" id="departure-time">—</div>
-        </div>
-        <div>
-          <div class="detail-label">Fare per seat</div>
-          <div class="detail-value accent" id="fare-per-seat">—</div>
-        </div>
-        <div>
-          <div class="detail-label">Seats left</div>
-          <div class="detail-value" id="seats-left">—</div>
-        </div>
-        <div>
-          <div class="detail-label">Status</div>
-          <div class="detail-value" id="trip-status">—</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="card" id="driver-card">
-      <div id="driver-avatar"><span id="driver-avatar-inner">D</span></div>
-      <div style="flex:1;min-width:0">
-        <div id="driver-name">Driver</div>
-        <div id="driver-vehicle"></div>
-      </div>
-      <div id="driver-plate"></div>
-    </div>
-
-    <div class="card" id="seat-indicator">
-      <div id="seat-dots"></div>
-      <div id="seat-text"></div>
-    </div>
-
-    <a id="app-link" class="cta-btn cta-primary" href="#">
-      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-      Book your seat
+  <header class="topbar">
+    <a class="brand" href="https://eyego.app" aria-label="EyeGo home">
+      <span class="brand-mark" aria-hidden="true">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+      </span>
+      EyeGo
     </a>
-    <a id="download-link" class="cta-btn cta-secondary" target="_blank" rel="noopener" href="https://eyego.app/download">
-      Download the app
-    </a>
-  </div>
-</div>
+    <span class="live" id="live"><i></i><span id="live-text">Invite</span></span>
+    <span class="spacer"></span>
+    <button class="icon-btn" id="share-btn" aria-label="Share this invite">
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+    </button>
+  </header>
 
-<div id="loading">
-  <div class="spinner"></div>
-  <div class="end-sub">Loading ride…</div>
-</div>
+  <main class="sheet" id="sheet" aria-live="polite">
+    <button class="grab" id="grab" aria-expanded="false" aria-label="Show more about this ride"></button>
 
-<div id="end-state">
-  <div class="end-icon" id="end-icon"></div>
-  <div class="end-title" id="end-title"></div>
-  <div class="end-sub" id="end-sub"></div>
-  <a class="cta-btn cta-primary" style="max-width:260px;margin-top:8px" href="https://eyego.app/download">Download EyeGo</a>
-</div>
+    <section id="skeleton" aria-label="Loading the ride">
+      <div class="sk" style="width:38%;height:12px"></div>
+      <div class="sk" style="width:70%;height:40px;margin-top:12px"></div>
+      <div class="sk" style="width:80%;height:14px;margin-top:12px"></div>
+      <div class="sk" style="height:76px;margin-top:20px;border-radius:20px"></div>
+    </section>
+
+    <section id="live-view" hidden>
+      <p class="eyebrow" id="eyebrow">You're invited</p>
+      <h1 class="headline" id="headline" style="font-size:clamp(28px,7.4vw,36px)"></h1>
+      <p class="sub" id="sub"></p>
+
+      <div class="card offer">
+        <div class="offer-cell">
+          <small>Per seat</small>
+          <b class="num" id="fare">—</b>
+        </div>
+        <div class="offer-cell">
+          <small>Leaves</small>
+          <b class="num" id="departs">—</b>
+        </div>
+        <div class="offer-cell">
+          <small>Seats left</small>
+          <b class="num" id="seats-left">—</b>
+        </div>
+      </div>
+
+      <div class="card seats" id="seats" hidden>
+        <div class="seat-dots" id="seat-dots" aria-hidden="true"></div>
+        <span class="num" id="seat-text"></span>
+      </div>
+
+      <div class="card route" id="route" hidden>
+        <div class="rail" aria-hidden="true"><span class="a"></span><span class="l"></span><span class="b"></span></div>
+        <div class="stop"><small>Pickup</small><span id="origin"></span></div>
+        <div class="stop"><small>Drop-off</small><span id="dest"></span></div>
+      </div>
+
+      <div class="card driver" id="driver" hidden>
+        <div class="avatar" id="avatar" aria-hidden="true"></div>
+        <div class="who"><b id="driver-name"></b><span id="vehicle"></span></div>
+        <span class="plate" id="plate" hidden></span>
+      </div>
+
+      <div class="actions">
+        <a class="btn primary" id="app-link" href="#">Join in the EyeGo app</a>
+        <button class="btn ghost" id="share-btn-2" aria-label="Share this invite">Share</button>
+      </div>
+      <p class="fine">No app yet? <a href="https://eyego.app">Get EyeGo</a>, then open this link again.</p>
+    </section>
+
+    <section id="end-view" hidden>
+      <div class="end-icon" id="end-icon" aria-hidden="true"></div>
+      <h1 class="headline" id="end-title" style="font-size:30px;margin-top:16px"></h1>
+      <p class="sub" id="end-body"></p>
+      <div class="actions" style="grid-template-columns:1fr">
+        <a class="btn primary" href="https://eyego.app">Get EyeGo</a>
+      </div>
+    </section>
+  </main>
+
+  <div class="toast" id="toast" role="status"></div>
 
 <script>
 (function () {
-  // ── Config injected by Express ─────────────────────────────
+  'use strict';
+
   const CONFIG = window.__EYEGO_CONFIG__ || {};
   const SHARE_TOKEN = CONFIG.shareToken;
   const API_BASE = CONFIG.apiBase || '';
+  const ACCRA = [-0.187, 5.6037];
+  const $ = (id) => document.getElementById(id);
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
+  const isDesktop = () => window.matchMedia('(min-width: 900px)').matches;
+  const theme = () => (darkQuery.matches ? 'dark' : 'light');
+  const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const TIER = { ECO: 'Economy', ECONOMY: 'Economy', COMFORT: 'Comfort', PREMIUM: 'Premium', XL: 'XL', BUS: 'Bus' };
+  const day = new Intl.DateTimeFormat(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+  const clock = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' });
+  const CLEAR = 'rgba(0,0,0,0)';
 
-  if (!SHARE_TOKEN) {
-    showError('No invite link data.');
-    return;
-  }
-
-  /**
-   * THE MAP IS OPTIONAL — and this is why the page got "stuck".
-   *
-   * This whole file is one IIFE and the Map was constructed unguarded at the
-   * top of it. `maplibregl` arrives from unpkg over the visitor's connection,
-   * so a slow, blocked or failed CDN (routine on mobile data) left it
-   * undefined, the constructor threw a ReferenceError, and every line below —
-   * the fetch, the render, even the error state — never ran. All the visitor
-   * ever saw was the spinner. The tracking page had already been fixed this
-   * way; this one had not.
-   */
   let map = null;
-  const mapEl = document.getElementById('map');
-  /**
-   * Built LATE, on purpose.
-   *
-   * MapLibre is now `defer`red (see <head>) so it cannot block parsing or the
-   * ride fetch. That means it is genuinely not loaded yet at this point in the
-   * file — this inline script runs during parsing, deferred scripts run after
-   * it — so constructing the map here would fail every single time and disable
-   * the map permanently, which is a worse bug than the one `defer` fixes.
-   *
-   * `window.load` fires after deferred scripts have executed. If MapLibre still
-   * is not there, the CDN really did fail and the page stays exactly as useful
-   * as it was: the ride sheet does not need a map.
-   */
-  let lastRenderedData = null;
-  function initMapWhenReady() {
-    if (map || typeof maplibregl === 'undefined') {
-      if (!map) {
-        console.warn('Map unavailable — showing ride details only');
-        if (mapEl) mapEl.style.display = 'none';
-      }
-      return;
-    }
+  let mapReady = false;
+  let data = null;
+  let coords = null;
+  let introDone = false;
+  let touchedAt = 0;
+
+  function setText(id, t) { const el = $(id); if (el.textContent !== t) el.textContent = t; }
+  function toast(msg) {
+    const t = $('toast'); t.textContent = msg; t.classList.add('show');
+    clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), 1800);
+  }
+  async function share() {
     try {
-      map = buildMap();
-      // The data almost always beats the map now. Redraw with whatever the
-      // fetch already returned, or the map comes up empty and stays empty.
-      if (lastRenderedData) {
-        const r = (lastRenderedData.trip || lastRenderedData).route;
-        const drawLate = () => { try { updateMap(r, lastRenderedData.path); } catch (e) { console.warn('Map draw failed', e); } };
-        if (!map.isStyleLoaded()) map.once('idle', drawLate);
-        else drawLate();
+      if (navigator.share) { await navigator.share({ title: 'Join my EyeGo ride', url: location.href }); return; }
+      await navigator.clipboard.writeText(location.href); toast('Link copied');
+    } catch (_) { /* dismissed */ }
+  }
+  $('share-btn').addEventListener('click', share);
+  $('share-btn-2').addEventListener('click', share);
+  const ghs = (p) => (p == null || !Number.isFinite(Number(p)) ? '—' : 'GH₵' + (Number(p) / 100).toFixed(2));
+
+  function sheetPadding() {
+    const sheet = $('sheet').getBoundingClientRect();
+    return isDesktop()
+      ? { top: 90, bottom: 60, left: sheet.right + 40, right: 70 }
+      : { top: 110, bottom: Math.round(sheet.height) + 40, left: 40, right: 40 };
+  }
+
+  // The sheet: tap or drag the handle.
+  let dragY = null;
+  $('grab').addEventListener('pointerdown', (e) => { dragY = e.clientY; });
+  $('grab').addEventListener('pointerup', (e) => {
+    const dy = dragY == null ? 0 : e.clientY - dragY;
+    dragY = null;
+    const open = Math.abs(dy) < 12 ? !$('sheet').classList.contains('open') : dy < 0;
+    $('sheet').classList.toggle('open', open);
+    $('grab').setAttribute('aria-expanded', String(open));
+    setTimeout(() => { if (map && introDone) frame(400); }, 480);
+  });
+
+  // ── Map ─────────────────────────────────────────────────────
+  function initMap() {
+    if (typeof maplibregl === 'undefined') return;
+    map = new maplibregl.Map({
+      container: 'map', style: API_BASE + '/map-style/' + theme() + '.json',
+      center: ACCRA, zoom: 10.5, attributionControl: false, maxPitch: 70, fadeDuration: 200,
+    });
+    map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-left');
+    map.on('style.load', decorate);
+    map.on('load', () => { mapReady = true; if (data) drawTrip(); });
+    ['dragstart', 'zoomstart', 'rotatestart', 'pitchstart'].forEach((ev) => map.on(ev, (e) => { if (e.originalEvent) touchedAt = performance.now(); }));
+    darkQuery.addEventListener('change', () => { document.documentElement.dataset.theme = theme(); map.setStyle(API_BASE + '/map-style/' + theme() + '.json'); });
+  }
+  function decorate() {
+    const dark = theme() === 'dark';
+    try {
+      if (!map.getLayer('buildings-3d') && map.getSource('openfreemap')) {
+        map.addLayer({ id: 'buildings-3d', type: 'fill-extrusion', source: 'openfreemap', 'source-layer': 'building', minzoom: 14,
+          paint: { 'fill-extrusion-color': dark ? '#242B3D' : '#E3DDCF', 'fill-extrusion-height': ['coalesce', ['get', 'render_height'], 8],
+            'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0], 'fill-extrusion-opacity': ['interpolate', ['linear'], ['zoom'], 14, 0, 15.5, 0.85] } });
       }
-    } catch (mapErr) {
-      console.warn('Map unavailable — showing ride details only', mapErr);
-      if (mapEl) mapEl.style.display = 'none';
-    }
+    } catch (_) { /* no buildings */ }
+    try {
+      map.setSky({ 'sky-color': dark ? '#0A0C10' : '#DCE6EE', 'horizon-color': dark ? '#12261B' : '#EFEBE2', 'sky-horizon-blend': 0.6,
+        'horizon-fog-blend': 0.7, 'fog-color': dark ? '#0A0C10' : '#EFEBE2', 'fog-ground-blend': 0.4 });
+    } catch (_) { /* older engines */ }
+    if (coords) addRoute();
   }
-  if (document.readyState === 'complete') initMapWhenReady();
-  else window.addEventListener('load', initMapWhenReady);
-
-  /**
-   * THE SAME MAP THE APPS DRAW. See the matching note in tracking/index.html.
-   *
-   * The inline style below is a six-layer hand copy of
-   * `@eyego/map-styles/eyego-dark.json`, which is the twenty-layer style both
-   * apps actually render. `/map-style/dark.json` serves that real file, so the
-   * web and the apps cannot drift; the inline object stays as the fallback for
-   * a failed fetch, because a plain map beats no map.
-   */
-  const STYLE_URL = (CONFIG.apiBase || '') + '/map-style/dark.json';
-
-  function buildMap() {
-    const m = new maplibregl.Map({
-      container: 'map',
-      style: STYLE_URL,
-      center: [-0.186964, 5.603717],
-      zoom: 12,
-      attributionControl: false,
-    });
-    m.on('error', function (e) {
-      if (m.__fellBack || m.isStyleLoaded()) return;
-      m.__fellBack = true;
-      try { m.setStyle(FALLBACK_STYLE); } catch (_) {}
-    });
-    m.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
-    return m;
+  let reveal = 1, revealT0 = 0;
+  function addRoute() {
+    if (!map.isStyleLoaded() || map.getSource('route')) return;
+    const brand = css('--brand') || '#4BE277';
+    const width = (a, b) => ['interpolate', ['linear'], ['zoom'], 10, a, 17, b];
+    const round = { 'line-cap': 'round', 'line-join': 'round' };
+    map.addSource('route', { type: 'geojson', lineMetrics: true, data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } } });
+    map.addLayer({ id: 'route-casing', type: 'line', source: 'route', layout: round, paint: { 'line-color': theme() === 'dark' ? '#03110B' : '#FFFFFF', 'line-width': width(9, 17) } });
+    map.addLayer({ id: 'route-glow', type: 'line', source: 'route', layout: round, paint: { 'line-color': brand, 'line-width': width(12, 26), 'line-blur': 8, 'line-opacity': 0.28 } });
+    map.addLayer({ id: 'route-line', type: 'line', source: 'route', layout: round, paint: { 'line-width': width(5, 9), 'line-gradient': CLEAR } });
+    map.addLayer({ id: 'route-flow', type: 'line', source: 'route', layout: round, paint: { 'line-width': width(5, 9), 'line-blur': 1.5, 'line-gradient': CLEAR } });
   }
-
-  var FALLBACK_STYLE = null;
-  function buildMapLegacyStyle() {
-    return {
-      style: {
-        version: 8,
-        name: 'EyeGo Onyx',
-        sources: {
-          openfreemap: {
-            type: 'vector',
-            // The OTHER reason the map showed nothing: this was a hand-written
-            // `/tiles/{z}/{x}/{y}.pbf` template, which 404s on every single
-            // tile. OpenFreeMap publishes `/planet` as TileJSON — the same
-            // source the native styles use.
-            url: 'https://tiles.openfreemap.org/planet',
-            attribution: '<a href="https://openfreemap.org" target="_blank">OpenFreeMap</a> · <a href="https://openstreetmap.org" target="_blank">OpenStreetMap</a>'
-          }
-        },
-        glyphs: 'https://fonts.openmaptiles.org/{fontstack}/{range}.pbf',
-        layers: [
-          { id: 'background', type: 'background', paint: { 'background-color': '#08090B' } },
-          { id: 'water', type: 'fill', source: 'openfreemap', 'source-layer': 'water', paint: { 'fill-color': '#0C1A16' } },
-          { id: 'building', type: 'fill', source: 'openfreemap', 'source-layer': 'building', paint: { 'fill-color': '#17171C', 'fill-opacity': 0.75, 'fill-outline-color': '#22222A' } },
-          { id: 'road-minor', type: 'line', source: 'openfreemap', 'source-layer': 'transportation', filter: ['in', 'class', 'minor', 'service'], paint: { 'line-color': '#1F1F27', 'line-width': ['interpolate',['linear'],['zoom'],12,0.5,16,2] } },
-          { id: 'road-major', type: 'line', source: 'openfreemap', 'source-layer': 'transportation', filter: ['in', 'class', 'primary', 'secondary', 'tertiary'], paint: { 'line-color': '#282833', 'line-width': ['interpolate',['linear'],['zoom'],10,1,16,4] } },
-          { id: 'road-highway', type: 'line', source: 'openfreemap', 'source-layer': 'transportation', filter: ['in', 'class', 'motorway', 'trunk'], paint: { 'line-color': '#2C3A2E', 'line-width': ['interpolate',['linear'],['zoom'],8,1.5,16,6], 'line-opacity': 0.85 } }
-        ]
-      },
+  function pin(kind, lngLat) {
+    const el = document.createElement('div'); el.className = 'pin ' + kind;
+    new maplibregl.Marker({ element: el }).setLngLat(lngLat).addTo(map);
+  }
+  function frame(duration) {
+    const r = data && data.trip && data.trip.route;
+    const pts = (coords ? [coords[0], coords[coords.length - 1]] : [])
+      .concat(r && r.originLng != null ? [[r.originLng, r.originLat]] : [])
+      .concat(r && r.destLng != null ? [[r.destLng, r.destLat]] : [])
+      .filter((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]));
+    if (!pts.length) return false;
+    const b = new maplibregl.LngLatBounds(pts[0], pts[0]); pts.forEach((p) => b.extend(p));
+    const sw = b.getSouthWest(), ne = b.getNorthEast();
+    const opts = { padding: sheetPadding(), pitch: 48, bearing: -14, duration: reduceMotion ? 0 : duration, maxZoom: 15, essential: true };
+    if (Math.abs(ne.lng - sw.lng) < 1e-6 && Math.abs(ne.lat - sw.lat) < 1e-6) map.flyTo({ center: pts[0], zoom: 14.5, pitch: 48, padding: opts.padding, duration: opts.duration });
+    else map.fitBounds(b, opts);
+    return true;
+  }
+  function drawTrip() {
+    if (!map || !mapReady || !data) return;
+    const r = data.trip.route;
+    const g = data.path && (data.path.geometry || data.path);
+    coords = g && Array.isArray(g.coordinates) && g.coordinates.length > 1 ? g.coordinates : null;
+    if (coords) { addRoute(); reveal = 0; revealT0 = performance.now(); }
+    if (r && r.originLng != null) pin('pickup', [r.originLng, r.originLat]);
+    if (r && r.destLng != null) pin('dest', [r.destLng, r.destLat]);
+    const done = () => { introDone = true; };
+    map.once('moveend', done);
+    if (!frame(2400)) { map.off('moveend', done); done(); }
+  }
+  // Draw-on, then a pulse along the road, and a slow orbit — the map is the invitation.
+  function frames() {
+    let last = performance.now();
+    const tick = (now) => {
+      requestAnimationFrame(tick);
+      if (document.hidden || !map || now - last < 30) return;
+      const dt = now - last; last = now;
+      if (map.getLayer('route-line')) {
+        if (reveal < 1) {
+          reveal = reduceMotion ? 1 : Math.min(1, (now - revealT0) / 1500);
+          const e = 1 - Math.pow(1 - reveal, 3);
+          map.setPaintProperty('route-line', 'line-gradient', e >= 1 ? (css('--brand') || '#4BE277') : ['step', ['line-progress'], css('--brand') || '#4BE277', Math.max(0.0005, e), CLEAR]);
+        } else if (!reduceMotion) {
+          const t = (now % 4100) / 3200;
+          const hi = theme() === 'dark' ? 'rgba(235,255,240,0.95)' : 'rgba(255,255,255,0.95)';
+          const stops = [[0, CLEAR], [t - 0.09, CLEAR], [t, hi], [t + 0.025, CLEAR], [1, CLEAR]];
+          const out = ['interpolate', ['linear'], ['line-progress']]; let lastS = -1;
+          for (const [s0, c] of stops) { const s = Math.min(1, Math.max(0, s0)); if (s > lastS) { out.push(s, c); lastS = s; } }
+          map.setPaintProperty('route-flow', 'line-gradient', t <= 1.02 && out.length >= 7 ? out : CLEAR);
+        }
+      }
+      if (introDone && !reduceMotion && !map.isMoving() && now - touchedAt > 9000) map.setBearing(map.getBearing() + dt * 0.002);
     };
-  }
-  FALLBACK_STYLE = buildMapLegacyStyle().style;
-
-  // ── Draggable sheet ──────────────────────────────────────────
-  const sheet = document.getElementById('sheet');
-  const grabZone = document.getElementById('grabber-zone');
-  const scroller = document.getElementById('sheet-scroll');
-  const isRail = () => window.matchMedia('(min-width: 900px)').matches;
-  let peeked = false;
-  let dragStartY = null;
-  let dragStartT = 0;
-  let peekOffset = 0;
-
-  function measurePeek() { peekOffset = Math.max(0, sheet.offsetHeight - 150); }
-  function applySheet(px) { if (!isRail()) sheet.style.transform = 'translateY(' + px + 'px)'; }
-  function settle(next) {
-    peeked = next;
-    sheet.classList.remove('dragging');
-    applySheet(peeked ? peekOffset : 0);
-  }
-  window.addEventListener('resize', () => { measurePeek(); applySheet(peeked ? peekOffset : 0); });
-
-  function dragStart(y) {
-    if (isRail()) return;
-    measurePeek();
-    dragStartY = y;
-    dragStartT = Date.now();
-    sheet.classList.add('dragging');
-  }
-  function dragMove(y) {
-    if (dragStartY === null) return;
-    const base = peeked ? peekOffset : 0;
-    let next = base + (y - dragStartY);
-    if (next < 0) next = next / 3;
-    if (next > peekOffset) next = peekOffset + (next - peekOffset) / 3;
-    applySheet(next);
-  }
-  function dragEnd(y) {
-    if (dragStartY === null) return;
-    const dy = y - dragStartY;
-    const dt = Math.max(1, Date.now() - dragStartT);
-    const flick = Math.abs(dy) / dt > 0.5;
-    const threshold = peekOffset / 3;
-    if (flick) settle(dy > 0);
-    else if (peeked) settle(dy > -threshold);
-    else settle(dy > threshold);
-    dragStartY = null;
+    requestAnimationFrame(tick);
   }
 
-  grabZone.addEventListener('touchstart', (e) => dragStart(e.touches[0].clientY), { passive: true });
-  grabZone.addEventListener('touchmove', (e) => dragMove(e.touches[0].clientY), { passive: true });
-  grabZone.addEventListener('touchend', (e) => dragEnd(e.changedTouches[0].clientY));
-  grabZone.addEventListener('click', () => { if (!isRail()) { measurePeek(); settle(!peeked); } });
-  scroller.addEventListener('touchstart', (e) => {
-    if (scroller.scrollTop <= 0) dragStart(e.touches[0].clientY);
-  }, { passive: true });
-  scroller.addEventListener('touchmove', (e) => {
-    if (dragStartY !== null) dragMove(e.touches[0].clientY);
-  }, { passive: true });
-  scroller.addEventListener('touchend', (e) => dragEnd(e.changedTouches[0].clientY));
+  // ── Words ───────────────────────────────────────────────────
+  function render(d) {
+    const trip = d.trip || d;
+    const route = trip.route || {};
+    $('skeleton').hidden = true;
+    const status = trip.status || 'SCHEDULED';
+    // The server's own count — in seats, not booking rows (one booking can hold several).
+    const max = trip.maxSeats || 0;
+    const left = Number.isFinite(trip.availableSeats) ? trip.availableSeats : Math.max(0, max - (trip.occupiedSeats || 0));
+    if (status === 'CANCELLED') return end('bad', 'Trip cancelled', 'This trip was cancelled. Ask the host to book a new one.');
+    if (status === 'COMPLETED') return end('done', 'Trip completed', 'This trip has already finished.');
+    if (['EXPIRED', 'NO_DRIVERS_FOUND', 'NO_SHOW'].includes(status)) return end('meh', 'This ride did not go ahead', 'Ask the host to book another one.');
+    if (max && left <= 0) return end('meh', 'This ride is full', 'Every seat is taken. Check back later, or book your own ride in the app.');
 
-  // ── State ────────────────────────────────────────────────────
-  let originMarker = null;
-  let destMarker = null;
+    $('live-view').hidden = false;
+    setText('eyebrow', left <= 2 ? `Only ${left} seat${left === 1 ? '' : 's'} left` : "You're invited");
+    $('eyebrow').classList.toggle('warn', left <= 2);
+    setText('headline', 'Ride to ' + ((route.destinationName || 'the destination').split(',')[0]));
+    setText('sub', 'From ' + ((route.originName || 'the pickup').split(',')[0]) + (trip.tier ? ' · ' + (TIER[trip.tier] || trip.tier) : ''));
 
-  /**
-   * MONEY IS INTEGER PESEWAS. 1 GHS = 100 pesewas.
-   *
-   * `trip.fare`, `trip.farePerSeatPesewas` and `fareEstimate.farePerPersonPesewas`
-   * are all pesewas — the API has exactly one money unit and it is not cedis.
-   * This page printed `GHS ${Number(trip.fare).toFixed(2)}` straight from that
-   * field, so a GHS 4.80 seat advertised itself at GHS 480: a hundredfold
-   * overstatement, on the one screen whose entire job is to convince someone
-   * to take the seat.
-   */
-  function formatGhs(pesewas) {
-    if (pesewas == null || !Number.isFinite(Number(pesewas))) return '—';
-    return 'GHS ' + (Number(pesewas) / 100).toFixed(2);
+    const fare = d.fareEstimate && d.fareEstimate.farePerPersonPesewas != null ? d.fareEstimate.farePerPersonPesewas : trip.farePerSeatPesewas;
+    setText('fare', ghs(fare));
+    const dep = trip.departureTime ? new Date(trip.departureTime) : null;
+    const ok = dep && !isNaN(dep.getTime());
+    const sameDay = ok && dep.toDateString() === new Date().toDateString();
+    setText('departs', ok ? (sameDay ? clock.format(dep) : day.format(dep)) : 'Soon');
+    setText('seats-left', max ? String(left) : '—');
+
+    if (max > 1) {
+      $('seats').hidden = false;
+      const dots = $('seat-dots');
+      dots.replaceChildren(...Array.from({ length: max }, (_, i) => { const e = document.createElement('i'); if (i < max - left) e.className = 'on'; return e; }));
+      setText('seat-text', (max - left) + ' of ' + max + ' taken');
+    }
+    if (route.originName || route.destinationName) {
+      $('route').hidden = false;
+      setText('origin', route.originName || 'Pickup');
+      setText('dest', route.destinationName || 'Destination');
+    }
+    if (trip.driver) {
+      $('driver').hidden = false;
+      setText('driver-name', trip.driver.name || 'Your driver');
+      const av = $('avatar');
+      const photo = typeof trip.driver.profilePhoto === 'string' && /^https?:\/\//.test(trip.driver.profilePhoto) ? trip.driver.profilePhoto : null;
+      if (photo) { const img = document.createElement('img'); img.alt = ''; img.src = photo; av.replaceChildren(img); }
+      else av.textContent = (trip.driver.name || 'D').trim().charAt(0).toUpperCase();
+    }
+    const v = trip.vehicle;
+    if (v) {
+      setText('vehicle', [[v.make, v.model].filter(Boolean).join(' '), TIER[v.tier] || v.tier].filter(Boolean).join(' · '));
+      if (v.plateNumber) { $('plate').hidden = false; setText('plate', v.plateNumber); }
+    }
+    $('app-link').href = 'eyego://join/' + encodeURIComponent(SHARE_TOKEN || '');
+    drawTrip();
+  }
+  function end(kind, title, body) {
+    $('skeleton').hidden = true;
+    $('live-view').hidden = true;
+    $('end-view').hidden = false;
+    $('live').classList.add('off');
+    const icon = $('end-icon');
+    icon.className = 'end-icon' + (kind === 'bad' ? ' bad' : kind === 'meh' ? ' meh' : '');
+    icon.innerHTML = kind === 'done'
+      ? '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
+      : kind === 'bad'
+        ? '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>'
+        : '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
+    setText('end-title', title);
+    setText('end-body', body);
   }
 
-  // ── Fetch & render ───────────────────────────────────────────
-  async function fetchData() {
+  async function load() {
+    if (!SHARE_TOKEN) return end('meh', 'Invite unavailable', 'This link is incomplete.');
     try {
       const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
-      const timeout = ctrl ? setTimeout(() => ctrl.abort(), 12000) : null;
-      const res = await fetch(`${API_BASE}/v1/trips/join/${SHARE_TOKEN}/data`, {
-        signal: ctrl ? ctrl.signal : undefined,
-      }).finally(() => { if (timeout) clearTimeout(timeout); });
-      if (!res.ok) {
-        document.getElementById('loading').classList.add('hidden');
-        if (res.status === 410) {
-          showEndState('<svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>', 'Invite expired', 'This invite link has expired. Ask the host to send a new one.');
-        } else if (res.status === 404) {
-          showError('This invite link is not valid.');
-        } else {
-          showError('Could not load ride details.');
-        }
-        return;
-      }
+      const t = ctrl ? setTimeout(() => ctrl.abort(), 12000) : null;
+      const res = await fetch(API_BASE + '/v1/trips/join/' + encodeURIComponent(SHARE_TOKEN) + '/data', { signal: ctrl ? ctrl.signal : undefined })
+        .finally(() => { if (t) clearTimeout(t); });
+      if (res.status === 410) return end('meh', 'Invite expired', 'This invite link has expired. Ask the host to send a new one.');
+      if (res.status === 404) return end('meh', 'Invite not found', 'This invite link is not valid.');
+      if (!res.ok) return end('meh', 'Invite unavailable', 'We could not load this ride. Please try again in a moment.');
       const json = await res.json();
-      render(json.data ?? json);
-      document.getElementById('loading').classList.add('hidden');
-      measurePeek();
-    } catch (e) {
-      console.warn('Fetch failed', e);
-      showError('Could not load ride details. Check your connection and try again.');
+      data = json.data || json;
+      if (!data.trip) data = { trip: data };
+      render(data);
+    } catch (_) {
+      end('meh', 'Invite unavailable', 'We could not load this ride. Check your connection and try again.');
     }
   }
 
-  function render(data) {
-    const trip = data.trip || data;
-    const fare = data.fareEstimate || {};
-    const route = trip.route;
-    const driver = trip.driver;
-    const vehicle = trip.vehicle;
-    const status = trip.status || 'SCHEDULED';
-    const confirmedSeats = trip.confirmedSeats
-      || (trip.bookings ? trip.bookings.filter((b) => b.status !== 'CANCELLED').length : 0);
-    const maxSeats = trip.maxSeats || 14;
-    const seatsLeft = maxSeats - confirmedSeats;
-
-    // ── End states ───────────────────────────────────────────
-    if (status === 'CANCELLED') {
-      showEndState('<svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>', 'Trip cancelled', 'This trip has been cancelled. Ask the host to book a new one.');
-      return;
-    }
-    if (status === 'COMPLETED') {
-      showEndState('<svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#4be277" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>', 'Trip completed', 'This trip has already finished.');
-      return;
-    }
-    if (seatsLeft <= 0) {
-      showEndState('<svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>', 'Trip full', 'Every seat on this trip is taken. Check back later, or book another ride.');
-      return;
-    }
-
-    // ── Status badge ─────────────────────────────────────────
-    const badge = document.getElementById('status-badge');
-    if (seatsLeft <= 2) {
-      badge.className = 'badge-full';
-      badge.textContent = `${seatsLeft} seat${seatsLeft !== 1 ? 's' : ''} left`;
-    } else {
-      badge.className = 'badge-active';
-      badge.textContent = 'Accepting';
-    }
-
-    if (route) {
-      document.getElementById('topbar-sub').textContent =
-        `${route.originName || 'Origin'} → ${route.destinationName || 'Destination'}`;
-      document.getElementById('origin-name').textContent = route.originName || 'Origin';
-      document.getElementById('dest-name').textContent = route.destinationName || 'Destination';
-    }
-
-    if (trip.departureTime) {
-      const dt = new Date(trip.departureTime);
-      document.getElementById('departure-time').textContent =
-        dt.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' +
-        dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    }
-
-    const seatsLeftEl = document.getElementById('seats-left');
-    seatsLeftEl.textContent = `${seatsLeft}`;
-    seatsLeftEl.className = `detail-value ${seatsLeft <= 2 ? 'warning' : ''}`;
-
-    // Every candidate is pesewas; pick whichever the payload carries.
-    const farePesewas =
-      fare.farePerPersonPesewas != null ? fare.farePerPersonPesewas :
-      trip.farePerSeatPesewas != null ? trip.farePerSeatPesewas :
-      trip.fare != null ? trip.fare : null;
-    document.getElementById('fare-per-seat').textContent = formatGhs(farePesewas);
-
-    document.getElementById('trip-status').textContent =
-      status === 'SCHEDULED' ? 'Upcoming' :
-      status === 'FILLING' ? 'Booking open' :
-      String(status).replace(/_/g, ' ').toLowerCase();
-
-    // ── Driver ───────────────────────────────────────────────
-    if (driver) {
-      document.getElementById('driver-card').classList.add('visible');
-      document.getElementById('driver-name').textContent = driver.name || 'Driver';
-      const inner = document.getElementById('driver-avatar-inner');
-      if (driver.profilePhoto) {
-        const img = document.createElement('img');
-        img.src = driver.profilePhoto;
-        img.alt = driver.name || 'Driver';
-        inner.replaceChildren(img);
-      } else {
-        inner.textContent = (driver.name || 'D')[0].toUpperCase();
-      }
-    }
-    if (vehicle) {
-      document.getElementById('driver-vehicle').textContent =
-        `${vehicle.make || ''} ${vehicle.model || ''}${vehicle.tier ? ' · ' + vehicle.tier : ''}`.trim();
-      document.getElementById('driver-plate').textContent = vehicle.plateNumber || vehicle.plate || '';
-    }
-
-    // ── Seats ────────────────────────────────────────────────
-    const ind = document.getElementById('seat-indicator');
-    ind.classList.add('visible');
-    const dots = document.getElementById('seat-dots');
-    dots.replaceChildren();
-    for (let i = 0; i < maxSeats; i++) {
-      const d = document.createElement('div');
-      d.className = `seat-dot ${i < confirmedSeats ? 'taken' : 'free'}`;
-      dots.appendChild(d);
-    }
-    document.getElementById('seat-text').textContent = `${confirmedSeats}/${maxSeats} seats`;
-
-    document.getElementById('app-link').href = `eyego://join/${SHARE_TOKEN}`;
-
-    // ── Map ──────────────────────────────────────────────────
-    // Wrapped: a throw in here used to propagate out of render(), into
-    // fetchData's catch, and replace a perfectly good ride sheet with
-    // "Could not load ride details".
-    if (!map) return;
-    // Kept so `initMapWhenReady` can draw once MapLibre finishes loading — the
-    // ride data now routinely arrives before the deferred map script does.
-    lastRenderedData = data;
-    // `data.path` is the server-computed road geometry for this trip's leg. See
-    // updateMap: present means draw the real route, absent means fall back to
-    // the two-point dashed hint.
-    const drawSafely = () => { try { updateMap(route, data.path); } catch (err) { console.warn('Map draw failed', err); } };
-    if (!map.isStyleLoaded()) map.once('idle', drawSafely);
-    else drawSafely();
-  }
-
-  function createPinEl(kind) {
-    const el = document.createElement('div');
-    el.className = 'pin ' + (kind === 'dest' ? 'pin-dest' : 'pin-pickup');
-    const inner = document.createElement('div');
-    inner.className = 'pin-inner';
-    el.appendChild(inner);
-    return el;
-  }
-
-  function updateMap(route, path) {
-    if (!map || !route || route.originLng == null || route.destLng == null) return;
-
-    if (!originMarker) {
-      originMarker = new maplibregl.Marker({ element: createPinEl('origin'), anchor: 'center' })
-        .setLngLat([route.originLng, route.originLat])
-        .setPopup(new maplibregl.Popup({ offset: 18, closeButton: false }).setText(route.originName || 'Pickup'))
-        .addTo(map);
-    }
-    if (!destMarker) {
-      destMarker = new maplibregl.Marker({ element: createPinEl('dest'), anchor: 'center' })
-        .setLngLat([route.destLng, route.destLat])
-        .setPopup(new maplibregl.Popup({ offset: 18, closeButton: false }).setText(route.destinationName || 'Destination'))
-        .addTo(map);
-    }
-
-    /**
-     * THE REAL ROAD when the server has it, a dashed hint only when it does not.
-     *
-     * The comment that used to be here said no road geometry is computed for an
-     * unstarted trip. That was true of this page, not of the system: the trip's
-     * pickup→dropoff leg is exactly what `route-geometry.service` computes, and
-     * `/join/:token/data` now returns it as `path.geometry` (see
-     * getTripByShareToken). Drawing a straight dashed line through buildings and
-     * water while the server held the actual polyline is what the report was
-     * about.
-     *
-     * Solid when it is the real route, dashed when it is a two-point guess, so
-     * the line never claims more accuracy than it has.
-     */
-    var roadCoords = path && path.geometry && Array.isArray(path.geometry.coordinates)
-      && path.geometry.coordinates.length > 1
-      ? path.geometry.coordinates
-      : null;
-    var lineCoords = roadCoords || [[route.originLng, route.originLat], [route.destLng, route.destLat]];
-
-    if (!map.getSource('route-hint')) {
-      map.addSource('route-hint', {
-        type: 'geojson',
-        data: {
-          type: 'Feature',
-          geometry: { type: 'LineString', coordinates: lineCoords },
-        },
-      });
-      map.addLayer({
-        id: 'route-hint', type: 'line', source: 'route-hint',
-        layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: roadCoords
-          ? { 'line-color': '#4be277', 'line-width': 5, 'line-opacity': 0.95 }
-          : { 'line-color': '#4be277', 'line-width': 3, 'line-dasharray': [1.5, 2], 'line-opacity': 0.65 },
-      });
-    } else {
-      // The geometry arrives with the data fetch, which can land after the map
-      // is ready. Without this the first (straight) line was permanent.
-      map.getSource('route-hint').setData({
-        type: 'Feature',
-        geometry: { type: 'LineString', coordinates: lineCoords },
-      });
-    }
-
-    // Fit the ROUTE, not just its endpoints — a road that loops out around a
-    // lagoon leaves the bbox of its two ends entirely.
-    const bounds = new maplibregl.LngLatBounds();
-    lineCoords.forEach(function (c) { bounds.extend(c); });
-    bounds
-      .extend([route.originLng, route.originLat])
-      .extend([route.destLng, route.destLat]);
-    // A degenerate bbox (origin === destination) makes fitBounds throw.
-    if (!bounds.isEmpty() && bounds.getNorthEast().lng !== bounds.getSouthWest().lng) {
-      map.fitBounds(bounds, { padding: { top: 110, bottom: 340, left: 50, right: 50 }, duration: 700, maxZoom: 15 });
-    } else {
-      map.easeTo({ center: [route.originLng, route.originLat], zoom: 14, duration: 600 });
-    }
-  }
-
-  function showError(msg) {
-    showEndState('<svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>', 'Ride unavailable', msg);
-  }
-
-  function showEndState(iconSvg, title, body) {
-    document.getElementById('loading').classList.add('hidden');
-    document.getElementById('end-icon').innerHTML = iconSvg;
-    document.getElementById('end-title').textContent = title;
-    document.getElementById('end-sub').textContent = body;
-    document.getElementById('end-state').style.display = 'flex';
-    document.getElementById('status-badge').style.display = 'none';
-  }
-
-  measurePeek();
-  fetchData();
+  window.addEventListener('resize', () => { if (introDone && map) map.setPadding(sheetPadding()); });
+  window.addEventListener('DOMContentLoaded', () => {
+    document.documentElement.dataset.theme = theme();
+    initMap();
+    frames();
+    load();
+  });
 })();
 </script>
 </body>
