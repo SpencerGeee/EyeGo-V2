@@ -79,12 +79,60 @@ async function assertRested(driverId, now = new Date()) {
   throw err;
 }
 
+/**
+ * ONLINE, BUT NOT THERE. An online session is closed by the go-offline call or
+ * by the socket layer's 45 s grace timer — a setTimeout, so a deploy or crash
+ * inside that window loses it, and a driver who went online over HTTP and whose
+ * app was then killed never had a socket to drop. Either way `isOnline` stayed
+ * true and the session stayed open, and `streakOf` reads an open session as
+ * "online until now": twelve hours later the sweep below sent a driver who had
+ * been asleep on a six-hour forced break, and online-hours stats inflated.
+ *
+ * The supply index already knows: an online driver's phone refreshes its
+ * presence key at least every 90 s (location, or the parked heartbeat). No key
+ * for ABANDONED_MS means the phone is gone. The session ends at the driver
+ * row's last write (location updates touch it) — the best "last seen" there is
+ * — not at now, which would bill the absence as online time.
+ */
+const ABANDONED_MS = 10 * 60 * 1000;
+
+async function closeAbandonedSessions(drivers, now = new Date()) {
+  if (!drivers.length) return [];
+  const supply = require('./supply-index.service');
+  let present;
+  try {
+    present = await supply.whichArePresent(drivers.map((d) => d.id), { strict: true });
+  } catch {
+    return []; // can't see presence: change nothing
+  }
+  const gone = drivers.filter((d) => !present.has(d.id) && now.getTime() - new Date(d.updatedAt).getTime() >= ABANDONED_MS);
+  for (const d of gone) {
+    const claimed = await prisma.driver.updateMany({ where: { id: d.id, isOnline: true }, data: { isOnline: false } });
+    if (claimed.count === 0) continue; // went offline (or another instance got here) meanwhile
+    const open = await prisma.onlineSession.findMany({ where: { driverId: d.id, endTime: null }, select: { id: true, startTime: true } });
+    for (const s of open) {
+      const lastSeen = Math.max(new Date(s.startTime).getTime(), Math.min(now.getTime(), new Date(d.updatedAt).getTime()));
+      await prisma.onlineSession.update({ where: { id: s.id }, data: { endTime: new Date(lastSeen) } });
+    }
+    await supply.removeDriver(d.id).catch(() => {});
+    await redis.zrem('drivers:online', d.id).catch(() => {});
+    // Same flag the socket grace sets (driver.socket.js PRESENCE_DROPPED_KEY):
+    // a phone that comes back and pings soon resumes rather than being stuck.
+    await redis.set(`driver:${d.id}:presence_dropped`, '1', 'EX', 30 * 60).catch(() => {});
+  }
+  if (gone.length) logger.info(`[fatigue] closed ${gone.length} abandoned online session(s)`);
+  return gone.map((d) => d.id);
+}
+
 /** Every 5 min: warn an hour before the cap; take capped, idle drivers offline. */
 async function runFatigueSweep(now = new Date()) {
+  const fetched = await prisma.driver.findMany({ where: { isOnline: true }, select: { id: true, fcmToken: true, updatedAt: true }, take: 2000 });
+  // Before any fatigue maths: an abandoned session must not count as hours.
+  const closed = new Set(await closeAbandonedSessions(fetched, now));
+  const online = fetched.filter((d) => !closed.has(d.id));
   const { maxMs, off } = limits();
   if (off) return { warned: 0, rested: 0 };
   const push = require('./push.service');
-  const online = await prisma.driver.findMany({ where: { isOnline: true }, select: { id: true, fcmToken: true }, take: 2000 });
   let warned = 0;
   let rested = 0;
   for (const d of online) {
@@ -112,4 +160,4 @@ async function runFatigueSweep(now = new Date()) {
   return { warned, rested };
 }
 
-module.exports = { streakOf, fatigueOf, assertRested, runFatigueSweep };
+module.exports = { streakOf, fatigueOf, assertRested, runFatigueSweep, closeAbandonedSessions, ABANDONED_MS };

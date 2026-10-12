@@ -34,3 +34,44 @@ describe('fatigue streak', () => {
     expect(streakOf(sessions, now, BREAK).streakMs).toBe(0);
   });
 });
+
+describe('closeAbandonedSessions', () => {
+  const NOW = new Date('2026-10-12T08:00:00Z');
+  const mins = (m) => new Date(NOW.getTime() - m * 60_000);
+
+  function load({ present, presenceThrows = false }) {
+    jest.resetModules();
+    const calls = { offline: [], ended: [] };
+    jest.doMock('../../config/database', () => ({
+      driver: { updateMany: jest.fn(async ({ where }) => { calls.offline.push(where.id); return { count: 1 }; }) },
+      onlineSession: {
+        findMany: jest.fn(async ({ where }) => [{ id: `s-${where.driverId}`, startTime: mins(600) }]),
+        update: jest.fn(async ({ where, data }) => { calls.ended.push([where.id, data.endTime.toISOString()]); }),
+      },
+    }));
+    jest.doMock('../../config/redis', () => ({ zrem: jest.fn(async () => 0), set: jest.fn(async () => 'OK') }));
+    jest.doMock('../supply-index.service', () => ({
+      whichArePresent: jest.fn(async () => { if (presenceThrows) throw new Error('redis down'); return new Set(present); }),
+      removeDriver: jest.fn(async () => {}),
+    }));
+    return { svc: require('../fatigue.service'), calls };
+  }
+
+  it('closes only drivers with no presence for 10 min, at their last write', async () => {
+    const { svc, calls } = load({ present: ['here'] });
+    const closed = await svc.closeAbandonedSessions([
+      { id: 'here', updatedAt: mins(30) },        // presence key alive → online
+      { id: 'gone', updatedAt: mins(480) },       // phone dead for 8 h
+      { id: 'blip', updatedAt: mins(2) },         // inside the window → leave it
+    ], NOW);
+    expect(closed).toEqual(['gone']);
+    expect(calls.offline).toEqual(['gone']);
+    expect(calls.ended).toEqual([['s-gone', mins(480).toISOString()]]); // not "now"
+  });
+
+  it('a presence outage changes nothing', async () => {
+    const { svc, calls } = load({ present: [], presenceThrows: true });
+    expect(await svc.closeAbandonedSessions([{ id: 'x', updatedAt: mins(500) }], NOW)).toEqual([]);
+    expect(calls.offline).toEqual([]);
+  });
+});

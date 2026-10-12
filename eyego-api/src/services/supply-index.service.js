@@ -320,7 +320,7 @@ async function nearbyDrivers(lat, lng, radiusKm, limit = 50, { withCoords = fals
  * @param {string[]} driverIds
  * @returns {Promise<Set<string>>} the subset that is currently dispatchable
  */
-async function whichArePresent(driverIds) {
+async function whichArePresent(driverIds, { strict = false } = {}) {
   const ids = (driverIds || []).filter(Boolean);
   if (ids.length === 0) return new Set();
   try {
@@ -329,6 +329,9 @@ async function whichArePresent(driverIds) {
     ids.forEach((id, i) => { if (values[i]) live.add(id); });
     return live;
   } catch (err) {
+    // `strict`: a caller that acts on ABSENCE must not read an outage as
+    // "nobody is here" — that would take every driver offline at once.
+    if (strict) throw err;
     logger.warn(`supply-index presence probe failed: ${err.message}`);
     return new Set();
   }

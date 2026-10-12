@@ -26,7 +26,7 @@ import { usePlatformConfig } from '../../../hooks/usePlatformConfig';
 import { useDriverStore } from '../../../stores/driver.store';
 import { useNotificationsStore } from '../../../stores/notifications.store';
 import { useChatUnread } from '../../../stores/chatUnread.store';
-import { applyDriverTripStatus } from '../../../stores/trip.store';
+import { applyDriverTripStatus, isTerminal } from '../../../stores/trip.store';
 import { useDriverSocket } from '../../../hooks/useDriverSocket';
 import { useDriverLocation } from '../../../hooks/useDriverLocation';
 import * as Haptics from 'expo-haptics';
@@ -431,7 +431,9 @@ export default function ActiveTripScreen() {
     goOut('/(tabs)/home');
   }, [trip?.status, isFocused]);
 
-  const isActiveTrip = !!trip && !['COMPLETED', 'CANCELLED'].includes(trip.status);
+  // Every ended status, not two of them: an EXPIRED or NO_SHOW trip kept the
+  // screen awake (and the sockets below subscribed) on a ride that was over.
+  const isActiveTrip = !!trip && !isTerminal(trip.status);
 
   useEffect(() => {
     if (isActiveTrip) KeepAwake.activateKeepAwake();
@@ -478,11 +480,11 @@ export default function ActiveTripScreen() {
 
   useEffect(() => {
     if (!trip) return;
-    if (['COMPLETED', 'CANCELLED'].includes(trip.status)) return;
+    if (isTerminal(trip.status)) return;
 
     const unsubPayment = driverSocketEvents.onPaymentConfirmed((data) => {
       if (data.tripId === id) {
-        addNotification({ type: 'PAYMENT_CONFIRMED', title: 'Payment Confirmed', body: 'A passenger just completed their payment.', tripId: id });
+        addNotification({ type: 'PAYMENT_CONFIRMED', title: 'Payment confirmed', body: 'A passenger just completed their payment.', tripId: id });
         /**
          * BUGFIX ("when a passenger completes a payment it shouldn't be shown
          * as red — it looks like an error").

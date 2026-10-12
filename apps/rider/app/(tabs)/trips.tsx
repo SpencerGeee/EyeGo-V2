@@ -11,6 +11,8 @@ import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 import { bookingsApi, queryKeys } from '@eyego/api';
 import { useShallow } from 'zustand/react/shallow';
 import { useRideStore } from '../../stores/ride.store';
+import { isTerminal } from '../../stores/trip.store';
+import type { TripStatus } from '@eyego/api';
 import { spacing, radii, springs } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { Text, Skeleton, EmptyState, StatusBadge, QueryBoundary, backgroundScrollPauseProps, usePressScale } from '@eyego/ui';
@@ -101,19 +103,26 @@ export default function TripsScreen() {
 
   const rawBookings = ((data?.data?.data as any)?.bookings ?? []) as Booking[];
   const bookings = useMemo(() => {
+    /**
+     * A trip that has ENDED, whatever it ended as, is the past.
+     *
+     * BUGFIX. This listed only COMPLETED/CANCELLED trips. A bus that never ran
+     * expires its trip AND its bookings (status EXPIRED), and EXPIRED was in
+     * neither list — so a ride the rider had booked and was waiting for simply
+     * vanished from My trips. NO_DRIVERS_FOUND and NO_SHOW trips likewise sat
+     * in Upcoming for ever. `isTerminal` is the store's one list of ended
+     * statuses. An EXPIRED booking on a trip still running is a lapsed seat
+     * hold — never a booking — and stays out of both.
+     */
+    const ended = (b: Booking) => isTerminal(b.trip?.status as TripStatus | undefined);
     if (segment === 'Upcoming') {
-      // Exclude bookings whose underlying trip is already completed — they belong in Past
       return rawBookings.filter(b =>
-        ['CONFIRMED', 'SEAT_HELD', 'PENDING', 'BOARDED'].includes(b.status) &&
-        !['COMPLETED', 'CANCELLED'].includes(b.trip?.status ?? '')
-      );
-    } else {
-      // Include bookings with a completed status OR whose trip is marked COMPLETED
-      return rawBookings.filter(b =>
-        ['COMPLETED', 'CANCELLED', 'REFUNDED', 'NO_SHOW'].includes(b.status) ||
-        b.trip?.status === 'COMPLETED'
+        ['CONFIRMED', 'SEAT_HELD', 'PENDING', 'BOARDED'].includes(b.status) && !ended(b)
       );
     }
+    return rawBookings.filter(b =>
+      ['COMPLETED', 'CANCELLED', 'REFUNDED', 'NO_SHOW'].includes(b.status) || ended(b)
+    );
   }, [rawBookings, segment]);
 
   return (
