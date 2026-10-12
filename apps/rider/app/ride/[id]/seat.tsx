@@ -3,7 +3,7 @@ import { View, StyleSheet, Pressable, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, type Href } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
-import Animated, { FadeInDown } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeInDown, useReducedMotion } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
@@ -27,7 +27,11 @@ import {
   getTierTheme,
   notify,
   PulseRing,
+  depthEnter,
+  usePerformanceTier,
 } from '@eyego/ui';
+import { HeroBusSlot, minibus } from '@eyego/maps';
+import { LIVERY } from '../../../components/trip/RidePicker';
 import type { Seat } from '@eyego/types';
 
 /**
@@ -81,6 +85,9 @@ export default function SeatPickerScreen() {
   const colors = useColors();
   const isDark = useThemeStore((s) => s.isDark);
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const cabinPerf = usePerformanceTier();
+  const cabinReduce = useReducedMotion();
+  const cabinEnter = cabinPerf !== 'low' && !cabinReduce ? depthEnter : FadeIn.duration(200);
   const { id, pickupStopId } = useLocalSearchParams<{ id: string; pickupStopId?: string }>();
   const queryClient = useQueryClient();
   const { setSelectedSeat, selectedTrip } = useRideStore(
@@ -214,6 +221,11 @@ export default function SeatPickerScreen() {
   // `trip.tier` is the wire string ('ECO'), so `.tier.name` was always undefined
   // and every tag said "Standard". The tier's own human label instead.
   const tierLabel: string = getTierTheme(colors as any, (selectedTrip as any)?.tier ?? null).label;
+  const busTier = String((selectedTrip as any)?.tier ?? 'ECO').toUpperCase() as keyof typeof LIVERY;
+  const busModel = useMemo(
+    () => minibus({ accent: getTierTheme(colors as any, busTier).accent, body: (LIVERY[busTier] ?? LIVERY.ECO).body }),
+    [colors, busTier],
+  );
   // "Accra Express • Sprinter 15-Seater": the route and the body, as the
   // reference frame captions it.
   const routeName: string | null =
@@ -311,6 +323,8 @@ export default function SeatPickerScreen() {
       dropoffStopId ? `dropoffStopId=${dropoffStopId}` : '',
       dropoff ? `dropoffLat=${dropoff.latitude}&dropoffLng=${dropoff.longitude}` : '',
       dropoff?.address ? `dropoffAddress=${encodeURIComponent(dropoff.address)}` : '',
+      // So checkout paints the same bus (HeroBus livery).
+      `tier=${busTier}`,
     ]
       .filter(Boolean)
       .join('&');
@@ -340,7 +354,13 @@ export default function SeatPickerScreen() {
     <SafeAreaView style={styles.safe}>
       <AppBackground variant="static" isDark={isDark} />
 
-      <Header colors={colors} styles={styles} subtitle={routeLabel} />
+      <Header
+        colors={colors}
+        styles={styles}
+        subtitle={routeLabel}
+        // The same bus, carried on from the trip page (HeroBus).
+        hero={<HeroBusSlot id={`seat-${id}`} size={72} model={busModel} settleMs={380} />}
+      />
 
       {/* The trip at a glance — when it leaves, how many seats are left (live),
           and what you are getting into. */}
@@ -390,6 +410,8 @@ export default function SeatPickerScreen() {
           <LegendItem colors={colors} tone="taken" label="Occupied" />
         </View>
 
+        {/* The cabin rises into place from depth, like every page of the booking flow. */}
+        <Animated.View entering={cabinEnter}>
         <VehicleCabin
           seats={seats}
           seatCount={seatCount}
@@ -403,6 +425,7 @@ export default function SeatPickerScreen() {
           fareLabel={farePesewas != null ? formatGhs(farePesewas) : null}
           tierLabel={tierLabel}
         />
+        </Animated.View>
 
         {/*
           WHERE YOU GET OFF, ON THE ROAD. The whole route, a pin that snaps to
@@ -593,10 +616,13 @@ function Header({
   colors,
   styles,
   subtitle,
+  hero,
 }: {
   colors: Colors;
   styles: ReturnType<typeof makeStyles>;
   subtitle: string | null;
+  /** The hero bus slot, carried on from the trip page. */
+  hero?: React.ReactNode;
 }) {
   return (
     <View style={styles.header}>
@@ -617,6 +643,7 @@ function Header({
           </Text>
         ) : null}
       </View>
+      {hero}
     </View>
   );
 }

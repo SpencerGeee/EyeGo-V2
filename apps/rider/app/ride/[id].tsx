@@ -15,6 +15,8 @@ import { useColors, Colors } from '../../utils/useColors';
 import { eyegoDarkStyle, eyegoLightStyle } from '@eyego/map-styles';
 import { useThemeStore } from '../../stores/theme.store';
 import { Text, Button, Card, DriverInfoCard, SeatBar, AnimatedFareText, Skeleton, Loader, MorphTarget, MorphBackSwipeDetector, useMorph, InlayPanel, getTierTheme, normalizeTier, RIDER_TIERS, SmoothScreen, SmoothDefer, type TierId } from '@eyego/ui';
+import { HeroBusSlot, minibus } from '@eyego/maps';
+import { LIVERY } from '../../components/trip/RidePicker';
 
 import { formatGhs, formatTripDate, formatDuration, formatDistance, bookedSeats, clockTime } from '@eyego/utils';
 import { FareBreakdownSheet } from '../../components/FareBreakdownSheet';
@@ -81,6 +83,12 @@ export default function RideDetailScreen() {
   // UI's (`ECONOMY`) and comparing them raw is what greyed out every chip.
   const rawTripTier = (data?.data?.data as any)?.trip?.tier as string | undefined;
   const lockedTier: TierKey | null = rawTripTier ? normalizeTier(rawTripTier) : null;
+  const busTier = (lockedTier ?? 'ECO') as keyof typeof LIVERY;
+  const busTheme = getTierTheme(colors, busTier);
+  const busModel = useMemo(
+    () => minibus({ accent: busTheme.accent, body: (LIVERY[busTier] ?? LIVERY.ECO).body }),
+    [busTheme.accent, busTier],
+  );
 
   const trip = useMemo(() => {
     const rawTrip = (data?.data?.data as any)?.trip;
@@ -498,6 +506,24 @@ export default function RideDetailScreen() {
         grabberColor={colors.outline}
       >
         <View style={styles.sheetContent}>
+          {/* THE BUS YOU ARE BOOKING. Its class's own paint, parked beside where
+              it is going — then it carries on to the seat map and the payment
+              (HeroBus, across routes). */}
+          <View style={styles.busHero}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={[styles.busEyebrow, { color: busTheme.accent }]}>{busTheme.label.toUpperCase()} · SHARED MINIBUS</Text>
+              <Text style={styles.busTitle} numberOfLines={1}>
+                To {(trip?.destination?.address ?? 'your destination').split(',')[0]}
+              </Text>
+              <Text style={styles.busSub} numberOfLines={1}>
+                {[
+                  trip?.departureTime ? `Leaves ${clockTime(trip.departureTime)}` : null,
+                  trip?.availableSeats != null ? `${trip.availableSeats} seat${trip.availableSeats === 1 ? '' : 's'} left` : null,
+                ].filter(Boolean).join(' · ')}
+              </Text>
+            </View>
+            <HeroBusSlot id={`ride-${id}`} size={96} model={busModel} settleMs={380} />
+          </View>
           {/* Tier selector */}
           <MotiView
             from={{ opacity: 0, translateY: -6 }}
@@ -887,6 +913,10 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   sheetHandle: { backgroundColor: colors.outline, width: 40, height: 4 },
   sheetContent: { paddingHorizontal: spacing['2xl'], paddingBottom: spacing['3xl'], gap: spacing.base },
+  busHero: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  busEyebrow: { fontFamily: fonts.semiBold, fontSize: 10.5, letterSpacing: 1.4 },
+  busTitle: { marginTop: 4, fontFamily: fonts.displayBold, fontSize: 26, lineHeight: 30, letterSpacing: -0.7, color: colors.onSurface },
+  busSub: { marginTop: 3, fontFamily: fonts.medium, fontSize: fontSizes.bodySmall, color: colors.onSurfaceVariant, fontVariant: ['tabular-nums'] },
   routeHeader: { marginBottom: spacing.sm },
   routeHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   metaRow: { flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' },

@@ -38,7 +38,7 @@ export const SHOWROOM_YAW = 228;
 export const SHOWROOM_PITCH = 58;
 
 interface Rect { x: number; y: number }
-interface SlotEntry { id: string; seq: number; at: Rect | null; size: number; yaw: number; pitch: number; land: boolean }
+interface SlotEntry { id: string; seq: number; at: Rect | null; size: number; yaw: number; pitch: number; land: boolean; model?: Model }
 
 type Store = {
   slots: Map<string, SlotEntry>;
@@ -111,7 +111,7 @@ function Transit({ store, model, spring, reduced }: { store: Store; model: Model
   const scale = useSharedValue(1);
   const opacity = useSharedValue(0);
   const last = useRef<SlotEntry | null>(null);
-  const [pose, setPose] = useState({ yaw: SHOWROOM_YAW, pitch: SHOWROOM_PITCH });
+  const [pose, setPose] = useState<{ yaw: number; pitch: number; model?: Model }>({ yaw: SHOWROOM_YAW, pitch: SHOWROOM_PITCH });
 
   const settle = useCallback((id: string) => {
     if (target(store)?.id !== id) return; // a newer slot took over mid-flight
@@ -140,7 +140,7 @@ function Transit({ store, model, spring, reduced }: { store: Store; model: Model
     y.value = from.at.y;
     scale.value = from.size / FRAME;
     opacity.value = 1;
-    setPose({ yaw: goal.yaw, pitch: goal.pitch });
+    setPose({ yaw: goal.yaw, pitch: goal.pitch, model: goal.model ?? from.model });
     store.resting = null;
     emit(store);
     // …and fly it to the new slot on the stage's own spring.
@@ -172,7 +172,7 @@ function Transit({ store, model, spring, reduced }: { store: Store; model: Model
 
   return (
     <Animated.View pointerEvents="none" style={[styles.transit, style]}>
-      <Model3D model={model} heading={pose.yaw} pitch={pose.pitch} size={FRAME} />
+      <Model3D model={pose.model ?? model} heading={pose.yaw} pitch={pose.pitch} size={FRAME} />
     </Animated.View>
   );
 }
@@ -187,7 +187,8 @@ export function HeroBusSlot({
   yaw = SHOWROOM_YAW,
   pitch = SHOWROOM_PITCH,
   land = false,
-  model: fallbackModel,
+  model: ownModel,
+  settleMs = 0,
   style,
 }: {
   id: string;
@@ -196,33 +197,42 @@ export function HeroBusSlot({
   pitch?: number;
   /** A destination: the bus touches down here and dissolves. */
   land?: boolean;
+  /** This slot's own livery (a trip's tier); otherwise the provider's. */
   model?: Model;
+  /**
+   * Wait this long before the first measure — a slot on a screen that is still
+   * being pushed would otherwise be measured mid-slide and the bus would fly
+   * to where the screen WAS.
+   */
+  settleMs?: number;
   style?: StyleProp<ViewStyle>;
 }) {
   const ctx = useContext(Ctx);
   const ref = useRef<View>(null);
+  // onLayout fires on mount; a settling slot ignores it until its delay is up.
+  const readyAt = useRef(Date.now() + settleMs);
   const store = ctx?.store;
   useStore(store);
 
   const measure = useCallback(() => {
-    if (!store) return;
+    if (!store || !store.slots.has(id) || Date.now() < readyAt.current) return;
     ref.current?.measureInWindow((x, y, w, h) => {
       if (!Number.isFinite(x) || !Number.isFinite(y)) return;
       const prev = store.slots.get(id);
       const at = { x: Math.round(x + w / 2), y: Math.round(y + h / 2) };
       if (prev?.at && prev.at.x === at.x && prev.at.y === at.y && prev.size === size) return;
-      store.slots.set(id, { id, seq: prev?.seq ?? ++store.seq, at, size, yaw, pitch, land });
+      store.slots.set(id, { id, seq: prev?.seq ?? ++store.seq, at, size, yaw, pitch, land, model: ownModel });
       emit(store);
     });
-  }, [store, id, size, yaw, pitch, land]);
+  }, [store, id, size, yaw, pitch, land, ownModel]);
 
   useEffect(() => {
     if (!store) return;
-    store.slots.set(id, { id, seq: ++store.seq, at: null, size, yaw, pitch, land });
+    store.slots.set(id, { id, seq: ++store.seq, at: null, size, yaw, pitch, land, model: ownModel });
     // Measured twice: once on arrival, once after the stage's own transition
     // has settled (a slot measured mid-transition is a few points off).
-    const a = setTimeout(measure, 40);
-    const b = setTimeout(measure, 720);
+    const a = setTimeout(measure, 40 + settleMs);
+    const b = setTimeout(measure, 720 + settleMs);
     return () => {
       clearTimeout(a);
       clearTimeout(b);
@@ -233,7 +243,7 @@ export function HeroBusSlot({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store, id]);
 
-  const model = ctx?.model ?? fallbackModel;
+  const model = ownModel ?? ctx?.model;
   const resting = !store || store.resting === id;
   return (
     <View ref={ref} collapsable={false} onLayout={measure} style={[{ width: size, height: size }, style]} pointerEvents="none">

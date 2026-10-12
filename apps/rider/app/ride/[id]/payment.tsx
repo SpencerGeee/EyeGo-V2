@@ -23,7 +23,10 @@ import { useRideStore } from '../../../stores/ride.store';
 import { useAuthStore } from '../../../stores/auth.store';
 import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
-import { Text, Button, AnimatedFareText } from '@eyego/ui';
+import { Text, Button, AnimatedFareText, getTierTheme, depthEnter, usePerformanceTier } from '@eyego/ui';
+import Animated, { FadeIn, useReducedMotion } from 'react-native-reanimated';
+import { HeroBusSlot, minibus } from '@eyego/maps';
+import { LIVERY } from '../../../components/trip/RidePicker';
 import { formatGhs, ghanaLocalDigits } from '@eyego/utils';
 import { captureException } from '../../../lib/sentry';
 
@@ -32,14 +35,23 @@ type PaymentTab = 'momo' | 'card' | 'cash' | 'wallet';
 export default function PaymentScreen() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const { id, pickupStopId, dropoffStopId, dropoffLat, dropoffLng, dropoffAddress } = useLocalSearchParams<{
+  const { id, pickupStopId, dropoffStopId, dropoffLat, dropoffLng, dropoffAddress, tier: busTierParam } = useLocalSearchParams<{
     id: string;
+    tier?: string;
     pickupStopId?: string;
     dropoffStopId?: string;
     dropoffLat?: string;
     dropoffLng?: string;
     dropoffAddress?: string;
   }>();
+  const amountPerf = usePerformanceTier();
+  const amountReduce = useReducedMotion();
+  const amountEnter = amountPerf !== 'low' && !amountReduce ? depthEnter : FadeIn.duration(200);
+  const busTier = String(busTierParam ?? 'ECO').toUpperCase() as keyof typeof LIVERY;
+  const busModel = useMemo(
+    () => minibus({ accent: getTierTheme(colors, busTier).accent, body: (LIVERY[busTier] ?? LIVERY.ECO).body }),
+    [colors, busTier],
+  );
   /** The rider's own drop-off pin from the seat page, snapped to the route there. */
   const freeDropoff =
     dropoffLat != null && dropoffLng != null && Number.isFinite(Number(dropoffLat)) && Number.isFinite(Number(dropoffLng))
@@ -741,13 +753,10 @@ export default function PaymentScreen() {
             <View style={{ width: 24 }} />
           </View>
 
-          {/* Amount */}
-          <MotiView
-            from={{ opacity: 0, translateY: 10 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', ...springs.standard, delay: 50 }}
-            style={styles.amountCard}
-          >
+          {/* Amount — rises into place from depth, the booking flow's page turn. */}
+          <Animated.View entering={amountEnter} style={styles.amountCard}>
+            {/* The bus, all the way from the trip page to checkout (HeroBus). */}
+            <HeroBusSlot id={`pay-${id}`} size={92} model={busModel} settleMs={420} style={{ alignSelf: 'center', marginBottom: 4 }} />
             <Text variant="bodySmall" color={colors.onSurfaceVariant}>Amount to pay</Text>
             <AnimatedFareText pesewas={fareAmountPesewas} variant="fareLarge" />
             {/* What the one figure above actually buys. Cover-all pays for the
@@ -772,7 +781,7 @@ export default function PaymentScreen() {
                 </Text>
               </View>
             )}
-          </MotiView>
+          </Animated.View>
 
           {/* Payment tabs */}
           <MotiView

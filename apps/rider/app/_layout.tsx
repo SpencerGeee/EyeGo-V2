@@ -15,6 +15,12 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { springs } from '@eyego/config';
+import { HeroBusProvider, minibus } from '@eyego/maps';
+import { useReducedMotion } from 'react-native-reanimated';
+import { usePerformanceTier } from '@eyego/ui';
+
+/** The fleet's own paint, until a screen names a trip's class. */
+const ROOT_HERO = minibus({ accent: '#4BE277' });
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -277,6 +283,10 @@ export default function RootLayout() {
   // depth ≤ 2 inside the root Stack; detailPush screens (profile/settings,
   // ride/[id]/seat, etc.) are at depth ≥ 3 — no blur layer behind them to run.
   const isOpaqueDetail = segments.length >= 3;
+  // The hero bus flies only where depth is affordable (see motion/depth).
+  const heroPerfTier = usePerformanceTier();
+  const heroReduce = useReducedMotion();
+  const heroMotion = heroPerfTier !== 'low' && !heroReduce;
   /**
    * Offline banner, on Reanimated like everything else that moves in this app.
    *
@@ -683,6 +693,10 @@ export default function RootLayout() {
               wrap the Stack (sources/targets live inside screens) and its
               overlay renders above every screen but below toasts/banners. */}
           <MorphProvider>
+          {/* The hero bus across ROUTES (trip detail -> seat -> payment): each
+              screen's slot names its trip's livery; see @eyego/maps HeroBus.
+              The booking surface (/trip) nests its own. */}
+          <HeroBusProvider model={ROOT_HERO} spinKey="" spring={springs.morph} reduced={!heroMotion}>
           <Stack
             /**
              * THE SMOOTHNESS SYSTEM, ON EVERY SCREEN AT ONCE.
@@ -973,6 +987,7 @@ export default function RootLayout() {
               options={{ animation: 'fade', contentStyle: TRANSPARENT_CONTENT }}
             />
           </Stack>
+          </HeroBusProvider>
           </MorphProvider>
           {/* Connectivity banner — slides down from top when offline */}
           <Animated.View

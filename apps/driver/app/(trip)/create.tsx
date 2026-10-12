@@ -5,19 +5,23 @@ import {
   ScrollView,
   Pressable,
   Platform,
+  useWindowDimensions,
 } from 'react-native';
+import Animated, { FadeIn, useAnimatedProps, useReducedMotion, useSharedValue, withSpring } from 'react-native-reanimated';
+import Svg, { Circle } from 'react-native-svg';
+import { HeroBusProvider, HeroBusSlot, minibus } from '@eyego/maps';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { driverApi } from '@eyego/api';
 import { placeLabel, relativeDayTime, relativeDay, clockTime } from '@eyego/utils';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
 // One formatter. This screen used to declare a local `₵${amount.toFixed(2)}`
 // that shadowed the shared one — harmless while money was cedis, a 100x
 // misquote to the driver the moment it became pesewas.
 import { formatGhs } from '@eyego/utils';
-import { Text, Button, Entrance, GlassSurface, GradientGlowBorder, AppBackground, getTierTheme, goDeeper, goBack, notify , goOut } from '@eyego/ui';
+import { Text, Button, GlassSurface, GradientGlowBorder, AppBackground, getTierTheme, goDeeper, goBack, notify, goOut, depthEnter, usePerformanceTier } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
@@ -73,6 +77,14 @@ export default function CreateTripScreen() {
     setDepartureTime(next);
   };
   const [seats, setSeats] = useState(14);
+  const [published, setPublished] = useState(false);
+  // Each step rises in from depth, as the rider's booking flow does; low-tier
+  // phones and Reduce Motion get a plain fade and a still bus.
+  const perfTier = usePerformanceTier();
+  const reduceMotion = useReducedMotion();
+  const depthOn = perfTier !== 'low' && !reduceMotion;
+  const stepEnter = depthOn ? depthEnter : FadeIn.duration(200);
+  const { width: screenW } = useWindowDimensions();
   const [tier, setTier] = useState<'ECONOMY' | 'COMFORT' | 'PREMIUM'>('ECONOMY');
 
   // Default pickup to the driver's current GPS location — they're typically
@@ -308,8 +320,11 @@ export default function CreateTripScreen() {
       // there right after — the new trip wouldn't appear under Upcoming/Active.
       queryClient.invalidateQueries({ queryKey: ['driver', 'trips', 'all'] });
       queryClient.invalidateQueries({ queryKey: ['driver', 'activeTrip'] });
-      // The new trip is the home surface's driving stage now.
-      goOut('/(tabs)/home');
+      // THE TRIP IS LIVE. The bus pulls away off the right edge before the
+      // screen goes — the publish is seen happening, not just a navigation.
+      setPublished(true);
+      notify('Trip is live', 'Riders heading your way can book it now.', { tone: 'success' });
+      setTimeout(() => goOut('/(tabs)/home'), depthOn ? 950 : 0);
     },
     onError: (err) => {
       const axiosErr = err as { response?: { data?: { code?: string; message?: string } } };
@@ -340,7 +355,18 @@ export default function CreateTripScreen() {
     else publishTrip.mutate();
   };
 
+  /**
+   * The driver's bus tells the story of the trip being made: it waits by the
+   * route, sits in a clock that sweeps to the departure, its cabin lights up as
+   * seats are offered, docks on the review — and drives off on publish.
+   */
+  const heroModel = minibus({
+    accent: colors.primary,
+    lit: step >= 3 ? Math.round((seats / Math.max(1, seatCap)) * 3) : 0,
+  });
+
   return (
+    <HeroBusProvider model={heroModel} spinKey={`${step}`} spring={springs.morph} reduced={!depthOn}>
     <SafeAreaView style={styles.safe}>
       <AppBackground isDark={theme !== 'light'} />
       {/* Header */}
@@ -361,8 +387,11 @@ export default function CreateTripScreen() {
       >
         {/* STEP 1: Pickup + Destination — ad-hoc map locations, not a predefined route */}
         {step === 1 && (
-          <Entrance key="step1" animation="slideRight">
-            <Text style={styles.stepTitle}>Where is this trip going?</Text>
+          <Animated.View key="step1" entering={stepEnter}>
+            <View style={styles.titleRow}>
+              <Text style={[styles.stepTitle, { flex: 1 }]}>Where is this trip going?</Text>
+              <HeroBusSlot id="drv-route" size={84} />
+            </View>
             <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.stepDesc}>
               Where are you starting from, and where's this trip headed?
             </Text>
@@ -431,13 +460,18 @@ export default function CreateTripScreen() {
                 {distanceKm.toFixed(1)} km{etaMinutes ? ` · ~${etaMinutes} min in current traffic` : ' · calculating…'}
               </Text>
             )}
-          </Entrance>
+          </Animated.View>
         )}
 
         {/* STEP 2: Departure time */}
         {step === 2 && (
-          <Entrance key="step2" animation="slideRight">
-            <Text style={styles.stepTitle}>When do you leave?</Text>
+          <Animated.View key="step2" entering={stepEnter}>
+            <View style={styles.titleRow}>
+              <Text style={[styles.stepTitle, { flex: 1 }]}>When do you leave?</Text>
+              <ClockRing date={departureTime} color={colors.primary} track={colors.outlineVariant} size={100}>
+                <HeroBusSlot id="drv-depart" size={72} />
+              </ClockRing>
+            </View>
             <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.stepDesc}>
               When does this trip depart?
             </Text>
@@ -507,13 +541,17 @@ export default function CreateTripScreen() {
                 style={styles.timePicker}
               />
             )}
-          </Entrance>
+          </Animated.View>
         )}
 
         {/* STEP 3: Seats */}
         {step === 3 && (
-          <Entrance key="step3" animation="slideRight">
-            <Text style={styles.stepTitle}>How many seats are free?</Text>
+          <Animated.View key="step3" entering={stepEnter}>
+            <View style={styles.titleRow}>
+              <Text style={[styles.stepTitle, { flex: 1 }]}>How many seats are free?</Text>
+              {/* The cabin lights up as seats are offered — see heroModel. */}
+              <HeroBusSlot id="drv-seats" size={104} />
+            </View>
             <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.stepDesc}>
               How many passenger seats are available?{' '}
               {capacityKnown
@@ -553,13 +591,16 @@ export default function CreateTripScreen() {
                 />
               ))}
             </View>
-          </Entrance>
+          </Animated.View>
         )}
 
         {/* STEP 4: Summary */}
         {step === 4 && origin && destination && (
-          <Entrance key="step4" animation="slideRight">
-            <Text style={styles.stepTitle}>Review and publish</Text>
+          <Animated.View key="step4" entering={stepEnter}>
+            <View style={styles.titleRow}>
+              <Text style={[styles.stepTitle, { flex: 1 }]}>Review and publish</Text>
+              <HeroBusSlot id="drv-review" size={88} />
+            </View>
             <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.stepDesc}>
               Confirm your trip details before publishing.
             </Text>
@@ -781,7 +822,7 @@ export default function CreateTripScreen() {
                 </View>
               </View>
             ) : null}
-          </Entrance>
+          </Animated.View>
         )}
       </ScrollView>
 
@@ -794,7 +835,11 @@ export default function CreateTripScreen() {
           loading={publishTrip.isPending}
         />
       </View>
+      {published ? (
+        <HeroBusSlot id="drv-away" size={88} land style={{ position: 'absolute', left: screenW + 60, top: 200 }} />
+      ) : null}
     </SafeAreaView>
+    </HeroBusProvider>
   );
 }
 
@@ -900,6 +945,7 @@ const makeStyles = (colors: DriverColors) =>
       paddingHorizontal: spacing['2xl'],
       paddingBottom: 100,
     },
+    titleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
     stepTitle: {
       fontFamily: fonts.displayBold,
       fontSize: fontSizes.headlineMedium,
@@ -1130,3 +1176,53 @@ const makeStyles = (colors: DriverColors) =>
       paddingTop: spacing.md,
     },
   });
+
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
+
+/**
+ * A twelve-hour dial whose arc sweeps to the departure time — the bus sits in
+ * the middle of it. Springs to a new time rather than jumping.
+ */
+function ClockRing({
+  date,
+  size,
+  color,
+  track,
+  children,
+}: {
+  date: Date;
+  size: number;
+  color: string;
+  track: string;
+  children: React.ReactNode;
+}) {
+  const stroke = 4;
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const fraction = ((date.getHours() % 12) + date.getMinutes() / 60) / 12 || 1;
+  const sweep = useSharedValue(0);
+  useEffect(() => {
+    sweep.value = withSpring(fraction, springs.emphasized);
+  }, [fraction, sweep]);
+  const arc = useAnimatedProps(() => ({ strokeDashoffset: c * (1 - sweep.value) }));
+  return (
+    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+      <Svg width={size} height={size} style={StyleSheet.absoluteFill}>
+        <Circle cx={size / 2} cy={size / 2} r={r} stroke={track} strokeWidth={stroke} fill="none" />
+        <AnimatedCircle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          stroke={color}
+          strokeWidth={stroke}
+          strokeLinecap="round"
+          fill="none"
+          strokeDasharray={`${c} ${c}`}
+          animatedProps={arc}
+          transform={`rotate(-90 ${size / 2} ${size / 2})`}
+        />
+      </Svg>
+      {children}
+    </View>
+  );
+}
