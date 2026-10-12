@@ -309,19 +309,10 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
         </Pressable>
       </View>
 
-      {/* Route preview hero */}
-      <View style={styles.heroWrap}>
-        <LinearGradient
-          colors={[withOpacity(colors.tierEconomy, 0.14), 'transparent']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={StyleSheet.absoluteFillObject}
-        />
-        <View style={styles.heroRouteLine}>
-          <View style={[styles.heroDot, { backgroundColor: colors.primary }]} />
-          <View style={styles.heroDashLine} />
-          <View style={[styles.heroDot, styles.heroDotDest, { backgroundColor: colors.secondary }]} />
-        </View>
+      {/* The window onto the live map. It used to carry a drawn dot–dash–dot
+          "route" and a green wash on top of the REAL route the map draws
+          underneath — a picture of a journey laid over the journey. */}
+      <View style={styles.heroWrap} pointerEvents="none">
         <LinearGradient
           colors={['transparent', colors.backgroundDeep]}
           style={styles.heroFade}
@@ -1025,28 +1016,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     zIndex: 0,
     overflow: 'hidden',
     justifyContent: 'center',
-  },
-  heroRouteLine: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'center',
-    width: '55%',
-  },
-  heroDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-  },
-  heroDotDest: {
-    borderRadius: 3,
-  },
-  heroDashLine: {
-    flex: 1,
-    height: 1,
-    borderStyle: 'dashed',
-    borderWidth: 1,
-    borderColor: colors.rimLight,
-    marginHorizontal: 6,
   },
   heroFade: {
     position: 'absolute',

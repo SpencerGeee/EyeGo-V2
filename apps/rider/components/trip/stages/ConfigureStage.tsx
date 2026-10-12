@@ -20,6 +20,7 @@ import { fonts, fontSizes, spacing, radii, MAX_SEATS_PER_BOOKING } from '@eyego/
 import { Text, Button, Entrance, GradientGlowBorder, getTierTheme, normalizeTier } from '@eyego/ui';
 import { useColors, Colors } from '../../../utils/useColors';
 import { MapGestureHint } from '../MapGestureHint';
+import { RidePicker, type RideOption } from '../RidePicker';
 import { useRideStore } from '../../../stores/ride.store';
 import { useTripFlow } from '../../../stores/tripFlow.store';
 
@@ -492,7 +493,18 @@ function ConfigureStageImpl() {
           >
             <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
           </Pressable>
-          <Text style={styles.headerTitle}>Book a ride</Text>
+          {/* Where this is going, always in view — the one thing every step is about. */}
+          <View style={styles.routePill}>
+            <View style={[styles.routePillDot, { borderColor: colors.onSurface }]} />
+            <Text style={styles.routePillText} numberOfLines={1}>
+              {(origin?.address ?? 'Pickup').split(',')[0]}
+            </Text>
+            <Ionicons name="arrow-forward" size={12} color={colors.onSurfaceVariant} />
+            <View style={[styles.routePillPin, { backgroundColor: colors.primary }]} />
+            <Text style={styles.routePillText} numberOfLines={1}>
+              {(destination?.address ?? 'Destination').split(',')[0]}
+            </Text>
+          </View>
           <View style={{ width: 44 }} />
         </View>
 
@@ -525,20 +537,16 @@ function ConfigureStageImpl() {
         >
           <Entrance key={`title-${step}`} animation="slideRight">
             <Text style={styles.title}>{stepTitle}</Text>
-            <Text style={styles.blurb}>{stepBlurb}</Text>
-            {step === 3 && (tripInfo.km != null || tripInfo.min != null) ? (
-              <View style={styles.tripSummary}>
-                <Ionicons name="git-commit-outline" size={14} color={colors.onSurfaceVariant} />
-                <Text style={styles.tripSummaryText}>
-                  {[
-                    tripInfo.km != null ? `${tripInfo.km} km` : null,
-                    tripInfo.min != null ? `about ${tripInfo.min} min on the road` : null,
-                  ]
-                    .filter(Boolean)
-                    .join(' · ')}
-                </Text>
+            {step === 3 ? (
+              // The journey in chips — the same road every price below is for.
+              <View style={styles.tripChips}>
+                {tripInfo.km != null ? <TripChip icon="git-commit-outline" text={`${tripInfo.km} km`} styles={styles} colors={colors} /> : null}
+                {tripInfo.min != null ? <TripChip icon="time-outline" text={`${tripInfo.min} min drive`} styles={styles} colors={colors} /> : null}
+                <TripChip icon="people-outline" text={`${seats} ${seats === 1 ? 'seat' : 'seats'}`} styles={styles} colors={colors} />
               </View>
-            ) : null}
+            ) : (
+              <Text style={styles.blurb}>{stepBlurb}</Text>
+            )}
           </Entrance>
 
           {/*
@@ -557,92 +565,27 @@ function ConfigureStageImpl() {
           */}
           {step === 3 && (
             <Entrance key="step3" animation="slideRight" style={styles.list}>
-              {TIER_ORDER.map((id) => {
-                const t = getTierTheme(colors, id);
-                const active = rideTier === id;
-                const price = fares[id];
-                const km = nearestKm[id];
-                // Same rule the driver's offer card uses: road ≈ 1.3× straight,
-                // ~24 km/h through town. An estimate, and labelled as one.
-                const etaMin = km != null ? Math.max(1, Math.round(((km * 1.3) / 24) * 60)) : null;
-                const dropoff =
-                  tripInfo.min != null
-                    ? clockTime(new Date(Date.now() + ((etaMin ?? 0) + tripInfo.min) * 60_000))
-                    : null;
-                const meta = [
-                  etaMin != null ? `${etaMin} min away` : nearbyKnown ? 'No cars nearby right now' : null,
-                  dropoff ? `drop-off ${dropoff}` : null,
-                ]
-                  .filter(Boolean)
-                  .join(' · ');
-                return (
-                  <GradientGlowBorder
-                    key={id}
-                    palette={t.ringPalette}
-                    borderRadius={radii.xl}
-                    thickness={active ? 'regular' : 'thin'}
-                    fillColor={colors.surfaceContainerHigh}
-                    glow={active}
-                    glowIntensity={0.75}
-                    maxGlowRadius={16}
-                    disabled={!active}
-                  >
-                    <Pressable
-                      onPress={() => {
-                        void Haptics.selectionAsync();
-                        setRideOptions({ rideTier: id });
-                      }}
-                      style={[styles.option, styles.tierOption, active && { backgroundColor: t.softBg }]}
-                      accessibilityRole="radio"
-                      accessibilityState={{ selected: active }}
-                      accessibilityLabel={`${t.label} — ${t.blurb}${price != null ? `, ${formatGhs(price)}` : ''}`}
-                    >
-                      <View style={[styles.optionIcon, styles.tierIcon, { backgroundColor: t.iconBg }]}>
-                        <Ionicons name={t.icon} size={24} color={t.accent} />
-                      </View>
-                      <View style={{ flex: 1, minWidth: 0 }}>
-                        <Text style={[styles.tierLabel, active && { color: t.accent }]} numberOfLines={1}>
-                          {t.label}
-                        </Text>
-                        {meta ? (
-                          <Text
-                            style={[styles.tierMeta, { color: etaMin != null ? colors.onSurface : colors.onSurfaceVariant }]}
-                            numberOfLines={1}
-                          >
-                            {meta}
-                          </Text>
-                        ) : null}
-                        <Text variant="caption" color={colors.onSurfaceVariant} numberOfLines={1}>
-                          {t.blurb}
-                        </Text>
-                      </View>
-                      <View style={styles.optionTrailing}>
-                        <Text style={[styles.tierPrice, active && { color: t.accent }]} numberOfLines={1}>
-                          {price != null ? formatGhs(price) : quoting ? '···' : '—'}
-                        </Text>
-                        {active ? (
-                          <Ionicons name="checkmark-circle" size={18} color={t.accent} />
-                        ) : null}
-                      </View>
-                    </Pressable>
-                  </GradientGlowBorder>
-                );
-              })}
-              {/* How this ride is paid — Uber and Bolt keep it under the
-                  options so the price is never read without it. On-demand
-                  rides are cash today (see RequestStage), so it is a fact, not
-                  a picker. */}
-              <View style={styles.payRow}>
-                <View style={[styles.payIcon, { backgroundColor: `${colors.primary}1A` }]}>
-                  <Ionicons name="cash-outline" size={18} color={colors.primary} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.optionLabel}>Cash</Text>
-                  <Text variant="caption" color={colors.onSurfaceVariant}>
-                    Pay your driver at the end of the ride
-                  </Text>
-                </View>
-              </View>
+              <RidePicker
+                options={TIER_ORDER.map((id): RideOption => {
+                  const km = nearestKm[id];
+                  // Same rule the driver's offer card uses: road ≈ 1.3× straight,
+                  // ~24 km/h through town. An estimate, and labelled as one.
+                  const etaMin = km != null ? Math.max(1, Math.round(((km * 1.3) / 24) * 60)) : null;
+                  return {
+                    id,
+                    price: fares[id] ?? null,
+                    etaMin,
+                    dropoff:
+                      tripInfo.min != null
+                        ? clockTime(new Date(Date.now() + ((etaMin ?? 0) + tripInfo.min) * 60_000))
+                        : null,
+                  };
+                })}
+                selected={rideTier as Tier}
+                onSelect={(id) => setRideOptions({ rideTier: id })}
+                quoting={quoting}
+                nearbyKnown={nearbyKnown}
+              />
             </Entrance>
           )}
 
@@ -903,13 +846,21 @@ function ConfigureStageImpl() {
         </ScrollView>
 
         <View style={[styles.footer, { paddingBottom: (insets.bottom || spacing.md) + spacing.md }]}>
+          {/* How this ride is paid, said where the price is committed. On-demand
+              rides are cash today (see RequestStage), so it is a fact, not a picker. */}
+          {step === 3 ? (
+            <View style={styles.payLine}>
+              <Ionicons name="cash-outline" size={15} color={colors.primary} />
+              <Text style={styles.payLineText}>Cash · pay your driver at the end</Text>
+            </View>
+          ) : null}
           {/* Shiny + tier-tinted: this is the one hero CTA on the screen, and
               the ring carries the tier the rider has selected so the button
               agrees with the card above it. */}
           <Button
             label={
               step === 3
-                ? `Choose ${tierTheme.label}`
+                ? `Choose ${tierTheme.label}${fare != null ? ` · ${formatGhs(fare)}` : ''}`
                 : step === STEP_LAST
                   ? `Request ${tierTheme.label}${fare != null ? ` · ${formatGhs(fare)}` : ''}`
                   : 'Continue'
@@ -938,46 +889,41 @@ function ConfigureStageImpl() {
  */
 function StepRail({ step, colors }: { step: number; colors: Colors }) {
   return (
-    <View style={railStyles.container}>
+    <View style={railStyles.container} accessibilityLabel={`Step ${step} of ${TOTAL_STEPS}`}>
       {Array.from({ length: TOTAL_STEPS }, (_, i) => i + 1).map((n) => (
-        <React.Fragment key={n}>
-          <RailDot filled={n <= step} active={n === step} colors={colors} />
-          {n < TOTAL_STEPS && <RailConnector filled={n < step} colors={colors} />}
-        </React.Fragment>
+        <RailSegment key={n} filled={n <= step} colors={colors} />
       ))}
     </View>
   );
 }
 
-function RailDot({ filled, active, colors }: { filled: boolean; active: boolean; colors: Colors }) {
-  const p = useDerivedValue(() => withTiming(filled ? 1 : 0, { duration: 260 }), [filled]);
-  const s = useDerivedValue(() => withTiming(active ? 1.25 : 1, { duration: 260 }), [active]);
-  const style = useAnimatedStyle(() => ({
-    opacity: 0.35 + p.value * 0.65,
-    transform: [{ scale: s.value }],
-  }));
+/** One fifth of the journey: a thin bar that fills from its left as the step is reached. */
+function RailSegment({ filled, colors }: { filled: boolean; colors: Colors }) {
+  const p = useDerivedValue(() => withTiming(filled ? 1 : 0, { duration: 320 }), [filled]);
+  const style = useAnimatedStyle(() => ({ width: `${p.value * 100}%` }));
   return (
-    <Animated.View
-      style={[
-        railStyles.dot,
-        { backgroundColor: filled ? colors.primary : colors.surfaceContainerHighest },
-        style,
-      ]}
-    />
+    <View style={[railStyles.segment, { backgroundColor: `${colors.onSurface}1F` }]}>
+      <Animated.View style={[railStyles.fill, { backgroundColor: colors.primary }, style]} />
+    </View>
   );
 }
 
-function RailConnector({ filled, colors }: { filled: boolean; colors: Colors }) {
-  const p = useDerivedValue(() => withTiming(filled ? 1 : 0, { duration: 260 }), [filled]);
-  const style = useAnimatedStyle(() => ({ opacity: 0.3 + p.value * 0.7 }));
+function TripChip({
+  icon,
+  text,
+  styles,
+  colors,
+}: {
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+  text: string;
+  styles: ReturnType<typeof makeStyles>;
+  colors: Colors;
+}) {
   return (
-    <Animated.View
-      style={[
-        railStyles.connector,
-        { backgroundColor: filled ? colors.primary : colors.outline },
-        style,
-      ]}
-    />
+    <View style={styles.tripChip}>
+      <Ionicons name={icon} size={13} color={colors.onSurfaceVariant} />
+      <Text style={styles.tripChipText}>{text}</Text>
+    </View>
   );
 }
 
@@ -1058,8 +1004,8 @@ const railStyles = StyleSheet.create({
     paddingHorizontal: spacing['2xl'],
     paddingBottom: spacing.lg,
   },
-  dot: { width: 9, height: 9, borderRadius: 4.5 },
-  connector: { flex: 1, height: 2, maxWidth: 44, borderRadius: 1, marginHorizontal: 5 },
+  segment: { flex: 1, height: 3, borderRadius: 2, marginHorizontal: 3, overflow: 'hidden', maxWidth: 64 },
+  fill: { position: 'absolute', left: 0, top: 0, bottom: 0 },
 });
 
 const makeStyles = (colors: Colors) =>
@@ -1114,12 +1060,6 @@ const makeStyles = (colors: Colors) =>
       borderWidth: 1,
       borderColor: colors.rimLight,
     },
-    headerTitle: {
-      fontFamily: fonts.displaySemiBold,
-      fontSize: fontSizes.titleSmall,
-      lineHeight: Math.round(fontSizes.titleSmall * 1.3),
-      color: colors.onSurface,
-    },
     /** The reason nothing can be clipped any more: the body scrolls, and the
      *  footer button lives outside it so it is always reachable. */
     scroll: {
@@ -1159,17 +1099,10 @@ const makeStyles = (colors: Colors) =>
       gap: spacing.md,
       paddingHorizontal: spacing.base,
       paddingVertical: spacing.md,
-      borderRadius: radii.xl,
-      borderWidth: 1.5,
-      borderColor: colors.outline,
+      borderRadius: radii['2xl'],
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.outlineVariant,
       backgroundColor: colors.surfaceContainerHigh,
-    },
-    optionIcon: {
-      width: 42,
-      height: 42,
-      borderRadius: 21,
-      alignItems: 'center',
-      justifyContent: 'center',
     },
     optionLabel: {
       fontFamily: fonts.semiBold,
@@ -1177,53 +1110,36 @@ const makeStyles = (colors: Colors) =>
       lineHeight: Math.round(fontSizes.bodyMedium * 1.35),
       color: colors.onSurface,
     },
-    optionTrailing: { alignItems: 'flex-end', gap: 3 },
-    /** Inside a ring already — a second border inside it read as a double edge. */
-    tierOption: { borderWidth: 0, paddingVertical: spacing.base, gap: spacing.base },
-    tierIcon: { width: 50, height: 50, borderRadius: 16 },
-    tierLabel: {
-      fontFamily: fonts.displaySemiBold,
-      fontSize: fontSizes.bodyLarge,
-      lineHeight: Math.round(fontSizes.bodyLarge * 1.3),
-      color: colors.onSurface,
-    },
-    tierMeta: {
-      fontFamily: fonts.medium,
-      fontSize: fontSizes.bodySmall,
-      lineHeight: Math.round(fontSizes.bodySmall * 1.4),
-      marginTop: 1,
-    },
-    tierPrice: {
-      fontFamily: fonts.displayBold,
-      fontSize: fontSizes.titleSmall,
-      lineHeight: Math.round(fontSizes.titleSmall * 1.3),
-      color: colors.onSurface,
-      letterSpacing: -0.3,
-    },
-    tripSummary: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: spacing.sm },
-    tripSummaryText: {
-      fontFamily: fonts.medium,
-      fontSize: fontSizes.bodySmall,
-      color: colors.onSurfaceVariant,
-    },
-    payRow: {
+    tripChips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.sm },
+    tripChip: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: spacing.md,
-      paddingHorizontal: spacing.base,
-      paddingVertical: spacing.md,
-      marginTop: spacing.xs,
-      borderRadius: radii.xl,
+      gap: 5,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: 999,
+      backgroundColor: colors.surfaceContainerHigh,
+    },
+    tripChipText: { fontFamily: fonts.semiBold, fontSize: 12.5, color: colors.onSurface, fontVariant: ['tabular-nums'] },
+    routePill: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+      height: 40,
+      marginHorizontal: spacing.sm,
+      paddingHorizontal: spacing.md,
+      borderRadius: 999,
+      backgroundColor: `${colors.surfaceCard}E6`,
       borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.outlineVariant,
+      borderColor: colors.rimLight,
     },
-    payIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
-    optionPrice: {
-      fontFamily: fonts.displaySemiBold,
-      fontSize: fontSizes.bodyLarge,
-      lineHeight: Math.round(fontSizes.bodyLarge * 1.3),
-      color: colors.onSurface,
-    },
+    routePillDot: { width: 8, height: 8, borderRadius: 4, borderWidth: 2 },
+    routePillPin: { width: 8, height: 8, borderRadius: 2 },
+    routePillText: { flexShrink: 1, fontFamily: fonts.semiBold, fontSize: 13, color: colors.onSurface },
+    payLine: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: spacing.sm },
+    payLineText: { fontFamily: fonts.medium, fontSize: 12.5, color: colors.onSurfaceVariant },
     stepper: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
     stepperBtn: {
       width: 32,
