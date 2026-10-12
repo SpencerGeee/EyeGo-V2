@@ -331,7 +331,11 @@ function ConfigureStageImpl() {
              * returns null, and drawing nothing is the honest result there.
              */
             if (q?.geometry?.coordinates?.length) {
-              setPreviewPath(q.geometry as { type: 'LineString'; coordinates: [number, number][] });
+              setPreviewPath({
+                ...(q.geometry as { type: 'LineString'; coordinates: [number, number][] }),
+                // For the map's own ETA pill at the drop-off.
+                durationMin: typeof q.durationMin === 'number' && Number.isFinite(q.durationMin) ? Math.max(1, Math.round(q.durationMin)) : null,
+              });
             }
             if (q && (Number.isFinite(q.distanceKm) || Number.isFinite(q.durationMin))) {
               setTripInfo({

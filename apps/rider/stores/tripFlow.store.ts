@@ -79,7 +79,7 @@ interface TripFlowState {
    * the route the rider is looking at and the price they are being shown the
    * same fact rather than two calls that might disagree.
    */
-  previewPath: { type: 'LineString'; coordinates: [number, number][] } | null;
+  previewPath: { type: 'LineString'; coordinates: [number, number][]; durationMin?: number | null } | null;
 
   /**
    * THE RIDER OPENED THIS SURFACE ON PURPOSE, WHILE ALREADY ON A RIDE.

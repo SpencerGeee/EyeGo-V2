@@ -20,8 +20,8 @@ import {
   type CameraMode,
   type Coord,
 } from '@eyego/maps';
-import { routeLine } from '@eyego/config';
-import { useSheetMetrics, PulseRing } from '@eyego/ui';
+import { routeLine, fonts } from '@eyego/config';
+import { useSheetMetrics, PulseRing, Text } from '@eyego/ui';
 import { socketEvents, type TripSnapshot, type TripStatus } from '@eyego/api';
 import { useThemeStore } from '../../stores/theme.store';
 import { useTripFlow } from '../../stores/tripFlow.store';
@@ -662,6 +662,13 @@ function TripMapImpl() {
     fitIncludesPuck: true,
     // The live route only: the vehicle drives the road the server routed it on.
     route: path?.geometry?.coordinates as [number, number][] | undefined,
+    /**
+     * Choosing a ride, the journey is the subject: the camera settles, then
+     * tilts down onto the route in one move ("the map at the top should be
+     * improved since it's looking old"), and the 3D pins stand up with it
+     * (they need ≥ 40°). Every other overview stays flat and north-up.
+     */
+    overviewPitch: !snapshot && (stage === 'configure' || stage === 'select') && !reduceMotion ? 46 : 0,
     padding: getPadding,
     active: isFocused,
   });
@@ -1288,6 +1295,20 @@ function TripMapImpl() {
             minPitch={40}
           />
         )}
+
+        {/* How long the drive is, on the map where it ends — the number a
+            rider weighs against the prices below. Pre-trip only; once a trip
+            exists the sheet carries the live ETA. */}
+        {!snapshot && dropoff && previewPath?.durationMin != null && (stage === 'configure' || stage === 'select') && (
+          <MapboxGL.MarkerView id="preview-eta" coordinate={dropoff} anchor="bottom">
+            <View pointerEvents="none" style={styles.etaPillWrap}>
+              <View style={styles.etaPill}>
+                <Text style={styles.etaPillNum}>{previewPath.durationMin}</Text>
+                <Text style={styles.etaPillUnit}>min</Text>
+              </View>
+            </View>
+          </MapboxGL.MarkerView>
+        )}
       </MapboxGL.MapView>
 
       {/*
@@ -1484,6 +1505,17 @@ const glideStyles = StyleSheet.create({
 });
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
+  /** Clears the 88-pt 3D drop-off pin it floats above. */
+  etaPillWrap: { paddingBottom: 58, alignItems: 'center' },
+  etaPill: {
+    flexDirection: 'row', alignItems: 'baseline', gap: 3,
+    paddingHorizontal: 11, paddingVertical: 6, borderRadius: 999,
+    backgroundColor: colors.onSurface,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.28, shadowRadius: 8, elevation: 8,
+  },
+  etaPillNum: { fontFamily: fonts.displayBold, fontSize: 15, color: colors.backgroundDeep, fontVariant: ['tabular-nums'] },
+  etaPillUnit: { fontFamily: fonts.semiBold, fontSize: 11, color: colors.backgroundDeep },
   vehiclePuck: {
     width: 36, height: 36, borderRadius: 18,
     backgroundColor: colors.primary,

@@ -103,6 +103,12 @@ export interface UseMapCameraArgs {
    * `PuckInterpolator.setRoute`.
    */
   route?: [number, number][] | null;
+  /**
+   * Tilt for the `overview` frame, degrees (0 = flat, the default). A change is
+   * applied as one cinematic move once the sheet has stopped springing — see
+   * `TILT_SETTLE_MS` in applyPlan.
+   */
+  overviewPitch?: number;
 }
 
 export interface MapCamera {
@@ -133,7 +139,7 @@ export function useMapCamera(args: UseMapCameraArgs): MapCamera {
   const {
     mode, fit, center, padding, fitMinSpanDeg,
     publishEveryMs = 400, active = true, fitIncludesPuck = false,
-    autoResumeMs = RESUME_AFTER_MS, route,
+    autoResumeMs = RESUME_AFTER_MS, route, overviewPitch = 0,
   } = args;
 
   const cameraRef = useRef<any>(null);
@@ -179,6 +185,8 @@ export function useMapCamera(args: UseMapCameraArgs): MapCamera {
   const fitIncludesPuckRef = useRef(fitIncludesPuck);
   fitIncludesPuckRef.current = fitIncludesPuck;
   // Read by the frame loop; a ref so changing it never re-arms the loop.
+  const tiltRef = useRef<Tilt>({ want: 0, applied: 0, paddingKey: '', stableSince: 0 });
+  tiltRef.current.want = overviewPitch;
   const autoResumeMsRef = useRef<number | null>(autoResumeMs);
   autoResumeMsRef.current = autoResumeMs;
 
@@ -339,14 +347,14 @@ export function useMapCamera(args: UseMapCameraArgs): MapCamera {
           lastSetKeyRef.current = key;
           applyPlan(
             cameraRef.current, plan, effectiveMode,
-            lastOverviewKeyRef, fitSettlesAtRef, lastPaddingKeyRef,
+            lastOverviewKeyRef, fitSettlesAtRef, lastPaddingKeyRef, tiltRef.current,
           );
         }
       } else {
         lastSetKeyRef.current = '';
         applyPlan(
           cameraRef.current, plan, effectiveMode,
-          lastOverviewKeyRef, fitSettlesAtRef, lastPaddingKeyRef,
+          lastOverviewKeyRef, fitSettlesAtRef, lastPaddingKeyRef, tiltRef.current,
         );
       }
 
@@ -402,6 +410,17 @@ export function useMapCamera(args: UseMapCameraArgs): MapCamera {
  * module-level variables would be shared by every map in the process, so the
  * rider's overview would suppress the driver's.
  */
+interface Tilt {
+  want: number;
+  applied: number;
+  paddingKey: string;
+  stableSince: number;
+}
+/** The sheet must hold still this long before the tilt-in starts. */
+const TILT_SETTLE_MS = 180;
+/** One unhurried move: tilt, fly and frame together. */
+const TILT_MS = 1100;
+
 function applyPlan(
   cameraRef: any,
   plan: ReturnType<typeof planCamera>,
@@ -409,18 +428,30 @@ function applyPlan(
   lastOverviewKeyRef: React.MutableRefObject<string>,
   fitSettlesAtRef: React.MutableRefObject<number>,
   lastPaddingKeyRef: React.MutableRefObject<string>,
+  tilt: Tilt,
 ): void {
   if (!cameraRef || plan.kind === 'none') return;
 
   if (plan.kind === 'fitBounds' && plan.bounds) {
     const padding = plan.padding ?? {};
-    const key = overviewKey(plan.bounds, padding);
+    const now = Date.now();
+    const paddingKey = paddingKeyOf(padding);
+    /**
+     * THE TILT-IN ("the map at the top should be improved since it's looking
+     * old"). A stage that wants a tilted overview gets it as ONE cinematic move
+     * — tilt, fly and frame together — but only after the sheet has stopped
+     * springing. Started earlier, the instant padding re-frames below (one per
+     * sheet frame) would cut it to a jump. Until then the frame keeps its old
+     * tilt; the move itself is the transition.
+     */
+    if (paddingKey !== tilt.paddingKey) { tilt.paddingKey = paddingKey; tilt.stableSince = now; }
+    const tiltDue = tilt.want !== tilt.applied && now - tilt.stableSince >= TILT_SETTLE_MS && now >= fitSettlesAtRef.current;
+    const pitch = tiltDue ? tilt.want : tilt.applied;
+    const key = `${overviewKey(plan.bounds, padding)}|${pitch}`;
     if (key === lastOverviewKeyRef.current) return;
 
-    const paddingKey = paddingKeyOf(padding);
     const stageChanged = paddingKey !== lastPaddingKeyRef.current;
-    const now = Date.now();
-    if (!stageChanged && now < fitSettlesAtRef.current) return;
+    if (!tiltDue && !stageChanged && now < fitSettlesAtRef.current) return;
 
     /**
      * A padding change used to mean "the sheet snapped to a new stage height",
@@ -438,7 +469,8 @@ function applyPlan(
      * sheet motion to track yet, only an empty map arriving at its subject.
      */
     const firstFit = lastPaddingKeyRef.current === '';
-    const duration = stageChanged && !firstFit ? 0 : plan.animationDuration ?? 0;
+    const duration = tiltDue ? TILT_MS : stageChanged && !firstFit ? 0 : plan.animationDuration ?? 0;
+    if (tiltDue) tilt.applied = tilt.want;
 
     lastOverviewKeyRef.current = key;
     lastPaddingKeyRef.current = paddingKey;
@@ -482,9 +514,9 @@ function applyPlan(
         left: padding.paddingLeft ?? 0,
       },
       duration > 0,
-      // An overview is north-up and flat. Without this a fit after a tilted,
-      // turning camera (the rider's search orbit) kept the tilt and the turn.
-      { bearing: 0, pitch: 0 },
+      // North-up, at the stage's tilt (flat unless it asked). Without an
+      // explicit pitch a fit after the search orbit kept its tilt and turn.
+      { bearing: 0, pitch },
     );
     return;
   }
