@@ -92,13 +92,19 @@ export function getGlobalNetInfoUnsubscribe(): (() => void) | null { return glob
 import * as Notifications from 'expo-notifications';
 
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
+  handleNotification: async (n: Notifications.Notification) => {
+    // The live-trip card is re-posted on every ETA tick. In the foreground the
+    // rider is already looking at the trip, so it updates the shade silently —
+    // a banner and a chime every few seconds was the alternative.
+    const live = (n?.request?.content?.data as { type?: string } | undefined)?.type === 'TRIP_LIVE';
+    return {
+      shouldShowAlert: !live,
+      shouldPlaySound: !live,
+      shouldSetBadge: false,
+      shouldShowBanner: !live,
+      shouldShowList: true,
+    };
+  },
 } as Parameters<typeof Notifications.setNotificationHandler>[0]);
 
 async function registerForPushNotifications() {

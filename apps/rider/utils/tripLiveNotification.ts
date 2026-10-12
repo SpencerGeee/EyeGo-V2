@@ -9,6 +9,28 @@ import { Platform } from 'react-native';
 // iOS gets the real lock-screen Live Activity instead — this module no-ops there.
 const NOTIFICATION_ID = 'eyego-trip-live';
 
+/**
+ * ITS OWN QUIET CHANNEL. Posted with no channel this landed on the default
+ * one, and it is re-posted on every ETA and status change — so a ride could
+ * chime or pop a heads-up banner every few seconds. LOW importance: it sits in
+ * the shade and the status bar and updates in place, silently. The moments
+ * worth a sound (driver arrived, ride ended) are their own pushes.
+ */
+const CHANNEL_ID = 'eyego-trip-live';
+let channelReady: Promise<unknown> | null = null;
+function ensureChannel() {
+  channelReady ??= Notifications.setNotificationChannelAsync(CHANNEL_ID, {
+    name: 'Live trip',
+    description: 'Your ride in progress — where your driver is and when you arrive.',
+    importance: Notifications.AndroidImportance.LOW,
+    sound: null,
+    vibrationPattern: null,
+    enableVibrate: false,
+    showBadge: false,
+  }).catch(() => {});
+  return channelReady;
+}
+
 const STATUS_LABEL: Record<string, string> = {
   DRIVER_EN_ROUTE: 'Driver is on the way',
   ARRIVED_AT_PICKUP: 'Driver has arrived',
@@ -29,6 +51,7 @@ async function present(status: string, etaMinutes: number | null) {
         : 'Tracking your trip…';
 
   try {
+    await ensureChannel();
     await Notifications.scheduleNotificationAsync({
       identifier: NOTIFICATION_ID,
       content: {
@@ -36,9 +59,10 @@ async function present(status: string, etaMinutes: number | null) {
         body,
         sticky: true,
         autoDismiss: false,
+        color: '#4be277',
         data: { type: 'TRIP_LIVE' },
       },
-      trigger: null,
+      trigger: { channelId: CHANNEL_ID },
     });
   } catch {
     // Non-critical — the app-wide TripStatusListener banner already covers this.
