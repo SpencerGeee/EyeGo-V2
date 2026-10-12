@@ -271,8 +271,8 @@
     .toast.show { opacity: 1; transform: translate(-50%, 0); }
 
     /* The vehicle — a top-down minibus that glides between fixes. */
-    .vehicle { width: 64px; height: 64px; display: grid; place-items: center; pointer-events: none; }
-    .vehicle .halo { position: absolute; width: 64px; height: 64px; border-radius: 50%; background: radial-gradient(circle, var(--brand-soft) 0%, transparent 70%); animation: breathe 2.4s ease-in-out infinite; }
+    .vehicle { width: 76px; height: 76px; display: grid; place-items: center; pointer-events: none; }
+    .vehicle .halo { position: absolute; width: 76px; height: 76px; border-radius: 50%; background: radial-gradient(circle, var(--brand-soft) 0%, transparent 70%); animation: breathe 2.4s ease-in-out infinite; }
     .vehicle svg { position: relative; filter: drop-shadow(0 6px 6px rgba(0, 0, 0, 0.45)); }
     @keyframes breathe { 0%, 100% { transform: scale(0.85); opacity: 0.7; } 50% { transform: scale(1.15); opacity: 1; } }
     .pin { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35); }
@@ -529,13 +529,13 @@
     map.addSource('route', { type: 'geojson', data: feature, lineMetrics: true });
     const width = (a, b) => ['interpolate', ['linear'], ['zoom'], 10, a, 17, b];
     map.addLayer({ id: 'route-casing', type: 'line', source: 'route', layout: { 'line-cap': 'round', 'line-join': 'round' },
-      paint: { 'line-color': casing, 'line-width': width(8, 16), 'line-opacity': 0.9 } });
+      paint: { 'line-color': casing, 'line-width': width(9, 17), 'line-opacity': 0.9 } });
     map.addLayer({ id: 'route-glow', type: 'line', source: 'route', layout: { 'line-cap': 'round', 'line-join': 'round' },
-      paint: { 'line-color': brand, 'line-width': width(10, 22), 'line-opacity': 0.22, 'line-blur': 8 } });
+      paint: { 'line-color': brand, 'line-width': width(12, 26), 'line-opacity': 0.28, 'line-blur': 8 } });
     map.addLayer({ id: 'route-line', type: 'line', source: 'route', layout: { 'line-cap': 'round', 'line-join': 'round' },
-      paint: { 'line-width': width(4, 7.5), 'line-gradient': upTo(0, brand) } });
+      paint: { 'line-width': width(5, 9), 'line-gradient': upTo(0, brand) } });
     map.addLayer({ id: 'route-flow', type: 'line', source: 'route', layout: { 'line-cap': 'round', 'line-join': 'round' },
-      paint: { 'line-width': width(4, 7.5), 'line-blur': 1.5, 'line-gradient': band(-1) } });
+      paint: { 'line-width': width(5, 9), 'line-blur': 1.5, 'line-gradient': band(-1) } });
     drawOn(animate && !reduceMotion ? 1500 : 0, brand);
   }
 
@@ -593,7 +593,7 @@
     el.className = 'vehicle';
     el.innerHTML =
       '<span class="halo"></span>' +
-      '<svg width="26" height="44" viewBox="0 0 26 44" aria-hidden="true">' +
+      '<svg width="32" height="54" viewBox="0 0 26 44" aria-hidden="true">' +
       '<rect x="1.5" y="1.5" width="23" height="41" rx="7" fill="#F4F6F5" stroke="#0B0D10" stroke-width="2"/>' +
       '<rect x="5" y="5" width="16" height="7" rx="2.5" fill="#1B2430"/>' +
       '<rect x="5" y="15" width="16" height="20" rx="3" fill="' + (css('--brand') || '#4BE277') + '"/>' +
@@ -718,7 +718,7 @@
     const r = d.route || {};
     const p = d.path;
     const eta = p && p.etaMinutes != null ? p.etaMinutes : null;
-    const km = p && p.distanceKm != null ? ' · ' + p.distanceKm + ' km' : '';
+    const km = p && Number.isFinite(Number(p.distanceKm)) ? ' · ' + (Math.round(Number(p.distanceKm) * 10) / 10) + ' km' : '';
     const arrive = eta != null ? 'arrives ' + clock.format(new Date(Date.now() + eta * 60000)) : '';
     if (s === 'ARRIVED_AT_PICKUP') return { eyebrow: 'Driver has arrived', head: 'At pickup', sub: r.originName || 'Waiting at the pickup point' };
     if (s === 'IN_PROGRESS') {

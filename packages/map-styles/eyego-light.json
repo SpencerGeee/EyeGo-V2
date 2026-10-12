@@ -160,7 +160,7 @@
       "minzoom": 6,
       "layout": { "line-cap": "round", "line-join": "round" },
       "paint": {
-        "line-color": "#B7ACC1",
+        "line-color": "#D2C29A",
         "line-width": ["interpolate", ["linear"], ["zoom"], 8, 3, 12, 8, 16, 16, 18, 24, 20, 46],
         "line-opacity": 1
       }
@@ -174,7 +174,7 @@
       "minzoom": 6,
       "layout": { "line-cap": "round", "line-join": "round" },
       "paint": {
-        "line-color": ["interpolate", ["linear"], ["zoom"], 6, "#8E8875", 11, "#3D6FE0", 15, "#2F6FED"],
+        "line-color": ["interpolate", ["linear"], ["zoom"], 6,"#C9C1AE",11,"#F4E7C2",15,"#F8EDCD"],
         "line-width": ["interpolate", ["linear"], ["zoom"], 8, 2, 12, 5.5, 16, 12, 18, 19, 20, 38],
         "line-opacity": 1
       }

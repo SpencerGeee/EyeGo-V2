@@ -174,7 +174,7 @@
       "minzoom": 6,
       "layout": { "line-cap": "round", "line-join": "round" },
       "paint": {
-        "line-color": ["interpolate", ["linear"], ["zoom"], 6, "#4C5872", 11, "#2F6FED", 15, "#4C8CFF"],
+        "line-color": ["interpolate", ["linear"], ["zoom"], 6, "#4C5872", 11,"#5A6681",15,"#6F7B96"],
         "line-width": ["interpolate", ["linear"], ["zoom"], 8, 2, 12, 5.5, 16, 12, 18, 19, 20, 38],
         "line-opacity": 1
       }
