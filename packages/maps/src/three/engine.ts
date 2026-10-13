@@ -41,6 +41,12 @@ export interface Face {
   decals?: Decal[];
   /** Unlit (ground rings, halos). */
   flat?: boolean;
+  /**
+   * Paint layer, before depth (default 0). An open interior needs it: a floor's
+   * centroid sits mid-cabin, so by depth alone it would paint over the far
+   * seats standing on it. Lower layers paint first.
+   */
+  order?: number;
 }
 
 export interface Model {
@@ -61,6 +67,7 @@ export interface ProjectedPoly {
 
 export interface ProjectedFace extends ProjectedPoly {
   depth: number;
+  order: number;
   decals: ProjectedPoly[];
 }
 
@@ -125,6 +132,7 @@ export function projectModel(model: Model, yawDeg: number, pitchDeg: number): Pr
       fill: shadeHex(f.color, k),
       alpha: f.alpha ?? 1,
       depth,
+      order: f.order ?? 0,
       decals: (f.decals ?? []).map((d) => ({
         pts: d.pts.map(rot).map(toScreen),
         // Glass catches the sky the more it faces up; lights are not lit, they light.
@@ -134,8 +142,23 @@ export function projectModel(model: Model, yawDeg: number, pitchDeg: number): Pr
       })),
     });
   }
-  out.sort((a, b) => a.depth - b.depth); // far → near
+  out.sort((a, b) => a.order - b.order || a.depth - b.depth); // layer, then far → near
   return out;
+}
+
+/** One model-space point → the same 2D space `projectModel` draws in (y up). */
+export function projectPoint(p: Vec3, yawDeg: number, pitchDeg: number): [number, number] {
+  const yaw = (yawDeg * Math.PI) / 180;
+  const th = (clamp(pitchDeg, 0, 72) * Math.PI) / 180;
+  const x = p[0] * Math.cos(yaw) + p[1] * Math.sin(yaw);
+  const y = -p[0] * Math.sin(yaw) + p[1] * Math.cos(yaw);
+  return [x, y * Math.cos(th) + p[2] * Math.sin(th)];
+}
+
+/** Where `drawModel` puts a projected point in a `px`-square frame (y down). */
+export function frameXY(model: Model, pt: [number, number], px: number): [number, number] {
+  const scale = (px * 0.46) / model.radius;
+  return [px / 2 + pt[0] * scale, px / 2 - pt[1] * scale];
 }
 
 // ── drawing (Skia, required lazily so the math above runs in plain node) ────

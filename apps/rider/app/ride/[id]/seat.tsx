@@ -13,7 +13,7 @@ import { formatGhs, clockTime } from '@eyego/utils';
 import { useRideStore } from '../../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
-import { VehicleCabin, layoutFor, type CabinSeat, type CabinLayout } from '../../../components/seat/VehicleCabin';
+import { layoutFor, type CabinSeat, type CabinLayout } from '../../../components/seat/VehicleCabin';
 import { RouteDropoffMap, type RouteDropoff } from '../../../components/seat/RouteDropoffMap';
 import { useThemeStore } from '../../../stores/theme.store';
 import {
@@ -30,7 +30,10 @@ import {
   depthEnter,
   depthEnterAfter,
   useDepthMotion,
+  useSnapCard,
 } from '@eyego/ui';
+import { GestureDetector } from 'react-native-gesture-handler';
+import { Cabin3D, CABIN_YAW } from '../../../components/seat/Cabin3D';
 import { HeroBusSlot, minibus } from '@eyego/maps';
 import { LIVERY } from '../../../components/trip/RidePicker';
 import type { Seat } from '@eyego/types';
@@ -89,8 +92,11 @@ export default function SeatPickerScreen() {
   const cabinDepth = useDepthMotion();
   // The cabin waits for the bus to arrive over it (settle + flight), then rises.
   const cabinEnter = useMemo(() => (cabinDepth ? depthEnterAfter(820) : FadeIn.duration(200)), [cabinDepth]);
-  const { width: winW } = useWindowDimensions();
+  const { width: winW, height: winH } = useWindowDimensions();
   const cabinHeroSize = Math.min(winW * 0.82, 320);
+  /** The stage is square and as wide as the phone allows. */
+  const cabinSize = Math.min(winW - spacing.lg, 460);
+  const { snap: sheetSnap, grab: sheetGrab } = useSnapCard(2);
   const { id, pickupStopId } = useLocalSearchParams<{ id: string; pickupStopId?: string }>();
   const queryClient = useQueryClient();
   const { setSelectedSeat, selectedTrip } = useRideStore(
@@ -297,6 +303,8 @@ export default function SeatPickerScreen() {
    */
   const routeLine: [number, number][] | null =
     (selectedTrip as any)?.path?.geometry?.coordinates ?? null;
+  /** Whether there is anywhere to get off but the end — the sheet's second snap. */
+  const hasAlight = (routeLine != null && routeLine.length >= 2) || stops.length > 0;
   const { data: farePreview } = useQuery({
     queryKey: ['seat-fare-preview', id, pickupStopId ?? null, dropoffStopId, dropoff?.latitude ?? null, dropoff?.longitude ?? null],
     queryFn: () =>
@@ -365,30 +373,17 @@ export default function SeatPickerScreen() {
         subtitle={routeLabel}
       />
 
-      {/* The trip at a glance — when it leaves, how many seats are left (live),
-          and what you are getting into. */}
+      {/* The trip in one quiet line — when it leaves, how many seats are left (live), the body. */}
       {seats.length ? (
         <Animated.View entering={cabinDepth ? depthEnter : FadeInDown.duration(320)} style={styles.facts}>
-          {departs && departs !== '—' ? (
-            <View style={styles.fact}>
-              <Ionicons name="time-outline" size={14} color={colors.onSurfaceVariant} />
-              <Text style={styles.factText}>Leaves {departs}</Text>
-            </View>
-          ) : null}
-          <View style={[styles.fact, freeCount > 0 && freeCount <= 2 ? { borderColor: colors.statusWarning } : null]}>
-            <PulseRing size={14} ringCount={1} color={freeCount > 2 ? colors.primary : colors.statusWarning}>
-              <View
-                style={[styles.liveDot, { backgroundColor: freeCount > 2 ? colors.primary : colors.statusWarning }]}
-              />
-            </PulseRing>
-            <Text style={styles.factText}>
-              {freeCount === 0 ? 'Full' : `${freeCount} left${freeCount <= 2 ? ' · filling fast' : ''}`}
-            </Text>
-          </View>
-          <View style={styles.fact}>
-            <Ionicons name="car-sport-outline" size={14} color={colors.onSurfaceVariant} />
-            <Text style={styles.factText}>{bodyLabel}</Text>
-          </View>
+          <View style={[styles.liveDot, { backgroundColor: freeCount > 2 ? colors.primary : colors.statusWarning }]} />
+          <Text style={styles.factText} numberOfLines={1}>
+            {[
+              departs && departs !== '—' ? `Leaves ${departs}` : null,
+              freeCount === 0 ? 'Full' : `${freeCount} left${freeCount <= 2 ? ' · filling fast' : ''}`,
+              bodyLabel,
+            ].filter(Boolean).join('  ·  ')}
+          </Text>
         </Animated.View>
       ) : null}
 
@@ -415,101 +410,39 @@ export default function SeatPickerScreen() {
         </View>
 
         {/*
-          THE BUS BECOMES THE CABIN.
+          THE BUS BECOMES THE CABIN — IN 3D.
 
-          BUGFIX ("the bus morphs and comes at the top very wrong — that's not
-          the 3D immersive feel"). It flew from the trip page into a 72 pt
-          header badge and parked in the corner. The cabin below IS that bus —
-          seen from straight above with the roof off — so that is where it
-          lands now: it drives down off the trip page, turns nose-up as the
-          camera rises overhead, grows to the cabin's size and gives way to it
-          as the cabin swings up into place underneath. Checkout and Back fly
-          it out of the cabin again.
+          ("the choose your seat page needs a redesign completely … make the 3D
+          effect appear here"). The bus drives in and lands top-down over the
+          cabin at the cabin's own heading; the roof is gone, and the camera
+          tilts down into the three-quarter view. One object the whole way:
+          see Cabin3D and @eyego/maps three/cabin.ts.
         */}
-        <View>
+        <View style={styles.stage}>
         <Animated.View entering={cabinEnter}>
-        <VehicleCabin
-          seats={seats}
-          seatCount={seatCount}
-          selectedId={selectedId}
-          onSelect={(seat: CabinSeat) => {
-            if (seat.status !== 'AVAILABLE') return;
-            chooseSeat(selectedId === seat.id ? null : seat.id);
-          }}
-          colors={colors as unknown as Record<string, string>}
-          accent={colors.primary}
-          fareLabel={farePesewas != null ? formatGhs(farePesewas) : null}
-          tierLabel={tierLabel}
-        />
+          <Cabin3D
+            seats={seats}
+            seatCount={seatCount}
+            selectedId={selectedId}
+            onSelect={(seat: CabinSeat) => {
+              if (seat.status !== 'AVAILABLE') return;
+              chooseSeat(selectedId === seat.id ? null : seat.id);
+            }}
+            size={cabinSize}
+            accent={colors.primary}
+            body={(LIVERY[busTier] ?? LIVERY.ECO).body}
+            dark={isDark}
+            motion={cabinDepth}
+            arriveAfterMs={cabinDepth ? 1000 : 0}
+          />
         </Animated.View>
+        {/* The bus lands top-down at the cabin's own heading and gives way to
+            it — the cabin then only TILTS down into view, it never turns. */}
         <View style={styles.cabinHero} pointerEvents="none">
-          <HeroBusSlot id={`seat-${id}`} size={cabinHeroSize} model={busModel} yaw={0} pitch={0} land="into" settleMs={380} />
+          <HeroBusSlot id={`seat-${id}`} size={cabinHeroSize} model={busModel} yaw={CABIN_YAW} pitch={0} land="into" settleMs={380} />
         </View>
         </View>
 
-        {/*
-          WHERE YOU GET OFF, ON THE ROAD. The whole route, a pin that snaps to
-          it, and the price above the seat re-asked for every move. Hidden only
-          when the server has no road for this trip yet.
-        */}
-        {routeLine && routeLine.length >= 2 ? (
-          <View style={styles.alight}>
-            <Text variant="caption" color={colors.onSurfaceVariant}>
-              WHERE DO YOU GET OFF?
-            </Text>
-            <RouteDropoffMap
-              route={routeLine}
-              origin={routeOrigin}
-              destination={routeDestination}
-              value={dropoff}
-              onChange={chooseDropoff}
-              isDark={isDark}
-              accent={colors.primary}
-              colors={colors as unknown as Record<string, string>}
-              destinationName={toName}
-              onInteract={setMapTouch}
-            />
-            <Text variant="caption" color={colors.onSurfaceVariant}>
-              {dropoff
-                ? `Dropping you at ${dropoff.address ?? 'your pin on the route'} — you pay for the part of the route you ride.`
-                : 'Ride to the end, or put the pin on the route where you want to get off. Getting off early costs less.'}
-            </Text>
-          </View>
-        ) : null}
-
-        {/* Only offered when the route actually has stops on it. A section
-            headed "where do you get off?" with one option is a worse answer
-            than no section at all. */}
-        {stops.length > 0 ? (
-          <View style={styles.alight}>
-            <Text variant="caption" color={colors.onSurfaceVariant}>
-              WHERE DO YOU GET OFF?
-            </Text>
-            <View style={styles.alightRow}>
-              <AlightChip
-                colors={colors}
-                label="Ride to the end"
-                selected={dropoffStopId == null && dropoff == null}
-                onPress={() => {
-                  chooseStop(null);
-                  setDropoff(null);
-                }}
-              />
-              {stops.map((stop) => (
-                <AlightChip
-                  key={stop.id}
-                  colors={colors}
-                  label={stop.name}
-                  selected={dropoffStopId === stop.id}
-                  onPress={() => chooseStop(stop.id)}
-                />
-              ))}
-            </View>
-            <Text variant="caption" color={colors.onSurfaceVariant}>
-              Getting off early costs less — you pay for the part of the route you ride.
-            </Text>
-          </View>
-        ) : null}
       </ScrollView>
 
       {/*
@@ -529,6 +462,88 @@ export default function SeatPickerScreen() {
       */}
       <MorphSheet radius={28} grabber={false} style={styles.sheet}>
         <View style={styles.sheetBody}>
+        {/* TWO SNAPS: the seat and the fare; one drag (or tap) up, where you get off. */}
+        {hasAlight ? (
+          <GestureDetector gesture={sheetGrab}>
+            <View style={styles.grabZone} accessible accessibilityRole="button" accessibilityLabel={sheetSnap ? 'Hide drop-off' : 'Choose where you get off'}>
+              <View style={[styles.grabber, { backgroundColor: colors.outline }]} />
+              {!sheetSnap ? (
+                <Text variant="caption" color={colors.onSurfaceVariant}>
+                  {dropoff || dropoffStopId ? 'Drop-off set · change it' : 'Getting off early? Set your stop'}
+                </Text>
+              ) : null}
+            </View>
+          </GestureDetector>
+        ) : null}
+        {hasAlight && sheetSnap ? (
+          <Animated.View entering={FadeInDown.duration(260)}>
+            <ScrollView style={{ maxHeight: winH * 0.46 }} scrollEnabled={!mapTouch} showsVerticalScrollIndicator={false} bounces={false}>
+        {/*
+                WHERE YOU GET OFF, ON THE ROAD. The whole route, a pin that snaps to
+                it, and the price above the seat re-asked for every move. Hidden only
+                when the server has no road for this trip yet.
+              */}
+              {routeLine && routeLine.length >= 2 ? (
+                <View style={styles.alight}>
+                  <Text variant="caption" color={colors.onSurfaceVariant}>
+                    WHERE DO YOU GET OFF?
+                  </Text>
+                  <RouteDropoffMap
+                    route={routeLine}
+                    origin={routeOrigin}
+                    destination={routeDestination}
+                    value={dropoff}
+                    onChange={chooseDropoff}
+                    isDark={isDark}
+                    accent={colors.primary}
+                    colors={colors as unknown as Record<string, string>}
+                    destinationName={toName}
+                    onInteract={setMapTouch}
+                  />
+                  <Text variant="caption" color={colors.onSurfaceVariant}>
+                    {dropoff
+                      ? `Dropping you at ${dropoff.address ?? 'your pin on the route'} — you pay for the part of the route you ride.`
+                      : 'Ride to the end, or put the pin on the route where you want to get off. Getting off early costs less.'}
+                  </Text>
+                </View>
+              ) : null}
+
+              {/* Only offered when the route actually has stops on it. A section
+                  headed "where do you get off?" with one option is a worse answer
+                  than no section at all. */}
+              {stops.length > 0 ? (
+                <View style={styles.alight}>
+                  <Text variant="caption" color={colors.onSurfaceVariant}>
+                    WHERE DO YOU GET OFF?
+                  </Text>
+                  <View style={styles.alightRow}>
+                    <AlightChip
+                      colors={colors}
+                      label="Ride to the end"
+                      selected={dropoffStopId == null && dropoff == null}
+                      onPress={() => {
+                        chooseStop(null);
+                        setDropoff(null);
+                      }}
+                    />
+                    {stops.map((stop) => (
+                      <AlightChip
+                        key={stop.id}
+                        colors={colors}
+                        label={stop.name}
+                        selected={dropoffStopId === stop.id}
+                        onPress={() => chooseStop(stop.id)}
+                      />
+                    ))}
+                  </View>
+                  <Text variant="caption" color={colors.onSurfaceVariant}>
+                    Getting off early costs less — you pay for the part of the route you ride.
+                  </Text>
+                </View>
+              ) : null}
+            </ScrollView>
+          </Animated.View>
+        ) : null}
         <View style={styles.sheetRow}>
           <View style={{ flex: 1 }}>
             <Text variant="caption" color={colors.onSurfaceVariant}>
@@ -763,6 +778,9 @@ const makeStyles = (colors: Colors) =>
      */
     alight: { gap: spacing.sm, marginTop: spacing.lg },
     // Centred over the cabin's top half — where the bus's nose and roof sit.
+    stage: { alignItems: 'center' },
+    grabZone: { alignItems: 'center', gap: spacing.xs, paddingBottom: spacing.xs },
+    grabber: { width: 38, height: 4, borderRadius: 2, marginTop: spacing.xs },
     cabinHero: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'flex-start', paddingTop: spacing.xl },
     alightRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     cabinScroll: { paddingHorizontal: spacing.xl, paddingTop: spacing.xs, paddingBottom: 220, gap: spacing.xl },
@@ -829,7 +847,7 @@ const makeStyles = (colors: Colors) =>
 
     facts: {
       flexDirection: 'row',
-      flexWrap: 'wrap',
+      alignItems: 'center',
       gap: spacing.sm,
       paddingHorizontal: spacing.xl,
       marginBottom: spacing.md,
