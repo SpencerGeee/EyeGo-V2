@@ -23,7 +23,7 @@ import { useRideStore } from '../../../stores/ride.store';
 import { useAuthStore } from '../../../stores/auth.store';
 import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
-import { Text, Button, AnimatedFareText, getTierTheme, depthEnter, useDepthMotion } from '@eyego/ui';
+import { Text, Button, AnimatedFareText, getTierTheme, depthEnter, useDepthMotion, Cascade } from '@eyego/ui';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { HeroBusSlot, minibus } from '@eyego/maps';
 import { LIVERY } from '../../../components/trip/RidePicker';
@@ -742,6 +742,7 @@ export default function PaymentScreen() {
         keyboardShouldPersistTaps="handled"
         bottomOffset={24}
       >
+        <Cascade>
           {/* Header */}
           <View style={styles.header}>
             <Pressable onPress={() => goBack()} hitSlop={12} accessibilityRole="button" accessibilityLabel="Go back">
@@ -1101,6 +1102,7 @@ export default function PaymentScreen() {
                 'Payment initialisation failed. Please try again.'}
             </Text>
           )}
+        </Cascade>
       </KeyboardAwareScrollView>
     </SafeAreaView>
   );

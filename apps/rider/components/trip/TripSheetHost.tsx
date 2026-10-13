@@ -49,6 +49,9 @@ export interface TripSheetHostProps {
   retired?: boolean;
 }
 
+/** Read at a glance while the ride is live: the shorter assembly. */
+const LIVE_STAGES: readonly TripStage[] = ['assigned', 'tracking'];
+
 export function TripSheetHost({ current, previous, retired = false }: TripSheetHostProps) {
   const colors = useColors();
   return (
@@ -61,6 +64,7 @@ export function TripSheetHost({ current, previous, retired = false }: TripSheetH
       auroraColor={colors.primary}
       solidBackground={colors.background}
       stageOrder={TRIP_STAGE_ORDER}
+      liveStages={LIVE_STAGES}
     />
   );
 }

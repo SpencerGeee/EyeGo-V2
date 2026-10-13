@@ -21,7 +21,7 @@ import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
 // that shadowed the shared one — harmless while money was cedis, a 100x
 // misquote to the driver the moment it became pesewas.
 import { formatGhs } from '@eyego/utils';
-import { Text, Button, GlassSurface, GradientGlowBorder, AppBackground, getTierTheme, goDeeper, goBack, notify, goFresh, depthEnter, depthEnterBack, depthExit, useDepthMotion } from '@eyego/ui';
+import { Text, Button, GlassSurface, GradientGlowBorder, AppBackground, getTierTheme, goDeeper, goBack, notify, goFresh, depthEnter, depthEnterBack, depthExit, useDepthMotion, Cascade } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
@@ -401,7 +401,7 @@ export default function CreateTripScreen() {
       >
         {/* STEP 1: Pickup + Destination — ad-hoc map locations, not a predefined route */}
         {step === 1 && (
-          <Animated.View key="step1" entering={stepEnter} exiting={stepExit}>
+          <Animated.View key="step1" entering={stepEnter} exiting={stepExit}><Cascade dir={stepDir}>
             <View style={styles.titleRow}>
               <Text style={[styles.stepTitle, { flex: 1 }]}>Where is this trip going?</Text>
               <HeroBusSlot id="drv-route" size={84} />
@@ -474,12 +474,12 @@ export default function CreateTripScreen() {
                 {distanceKm.toFixed(1)} km{etaMinutes ? ` · ~${etaMinutes} min in current traffic` : ' · calculating…'}
               </Text>
             )}
-          </Animated.View>
+          </Cascade></Animated.View>
         )}
 
         {/* STEP 2: Departure time */}
         {step === 2 && (
-          <Animated.View key="step2" entering={stepEnter} exiting={stepExit}>
+          <Animated.View key="step2" entering={stepEnter} exiting={stepExit}><Cascade dir={stepDir}>
             <View style={styles.titleRow}>
               <Text style={[styles.stepTitle, { flex: 1 }]}>When do you leave?</Text>
               <ClockRing date={departureTime} color={colors.primary} track={colors.outlineVariant} size={100}>
@@ -555,12 +555,12 @@ export default function CreateTripScreen() {
                 style={styles.timePicker}
               />
             )}
-          </Animated.View>
+          </Cascade></Animated.View>
         )}
 
         {/* STEP 3: Seats */}
         {step === 3 && (
-          <Animated.View key="step3" entering={stepEnter} exiting={stepExit}>
+          <Animated.View key="step3" entering={stepEnter} exiting={stepExit}><Cascade dir={stepDir}>
             <View style={styles.titleRow}>
               <Text style={[styles.stepTitle, { flex: 1 }]}>How many seats are free?</Text>
               {/* The cabin lights up as seats are offered — see heroModel. */}
@@ -605,12 +605,12 @@ export default function CreateTripScreen() {
                 />
               ))}
             </View>
-          </Animated.View>
+          </Cascade></Animated.View>
         )}
 
         {/* STEP 4: Summary */}
         {step === 4 && origin && destination && (
-          <Animated.View key="step4" entering={stepEnter} exiting={stepExit}>
+          <Animated.View key="step4" entering={stepEnter} exiting={stepExit}><Cascade dir={stepDir}>
             <View style={styles.titleRow}>
               <Text style={[styles.stepTitle, { flex: 1 }]}>Review and publish</Text>
               <HeroBusSlot id="drv-review" size={88} />
@@ -836,7 +836,7 @@ export default function CreateTripScreen() {
                 </View>
               </View>
             ) : null}
-          </Animated.View>
+          </Cascade></Animated.View>
         )}
       </ScrollView>
 

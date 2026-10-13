@@ -32,6 +32,10 @@ export interface DriverSheetHostProps {
   previous: DriverStage | null;
 }
 
+const DRIVER_STAGE_ORDER: readonly DriverStage[] = ['idle', 'enroute', 'arrived', 'intrip'];
+/** Everything after idle happens on the road: the shorter assembly. */
+const DRIVER_LIVE_STAGES: readonly DriverStage[] = ['enroute', 'arrived', 'intrip'];
+
 export function DriverSheetHost({ current, previous }: DriverSheetHostProps) {
   const colors = useColors();
   return (
@@ -43,6 +47,8 @@ export function DriverSheetHost({ current, previous }: DriverSheetHostProps) {
       auroraColor={colors.primary}
       solidBackground={colors.background}
       grabberColor={colors.outline}
+      stageOrder={DRIVER_STAGE_ORDER}
+      liveStages={DRIVER_LIVE_STAGES}
       /* 20, not the host's 32: the rider home board sits at 20 and the driver's
          cards read as "constricted to the middle" at 32 on a 390pt handset. */
       bodyStyle={{ paddingHorizontal: spacing.lg }}

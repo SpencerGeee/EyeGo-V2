@@ -2,7 +2,7 @@
 import { View, StyleSheet, Pressable, Image, ScrollView } from 'react-native';
 import MapboxGL from '../../utils/mapbox';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
-import { MotiView, goDeeper, goBack } from '@eyego/ui';
+import { MotiView, goDeeper, goBack, Cascade } from '@eyego/ui';
 import { useQuery } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { tripsApi, queryKeys } from '@eyego/api';
@@ -506,6 +506,7 @@ export default function RideDetailScreen() {
         grabberColor={colors.outline}
       >
         <View style={styles.sheetContent}>
+          <Cascade>
           {/* THE BUS YOU ARE BOOKING. Its class's own paint, parked beside where
               it is going — then it carries on to the seat map and the payment
               (HeroBus, across routes). */}
@@ -823,6 +824,7 @@ export default function RideDetailScreen() {
               </MotiView>
             </>
           )}
+        </Cascade>
         </View>
       </InlayPanel>
 

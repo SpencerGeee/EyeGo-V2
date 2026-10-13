@@ -61,14 +61,55 @@ export function Cascade({
   rowStyle?: StyleProp<ViewStyle>;
 }) {
   const depthOn = useDepthMotion();
-  let i = 0;
-  const rows = React.Children.map(children, (child) => {
-    if (child == null || child === false) return null;
-    const entering = depthOn ? stageRow(i, dir, strength) : FadeIn.duration(200);
-    i += 1;
-    return <Animated.View entering={entering} style={rowStyle}>{child}</Animated.View>;
-  });
+  const counter = { i: 0 };
+  const rows = cascadeRows(children, dir, strength, depthOn, rowStyle, counter, 0);
   return style ? <View style={style}>{rows}</View> : <>{rows}</>;
+}
+
+/**
+ * Wraps each row of `node` in its entering animation. A panel usually hands
+ * over ONE root — a Fragment, or a column View holding the rows — so a single
+ * such root is opened (twice at most) and its own children cascade, keeping
+ * the root's style. Rows that would not survive a wrapper are left alone:
+ * anything absolutely positioned (it would be positioned against the wrapper),
+ * and a horizontal View (its children are one row together).
+ */
+function cascadeRows(
+  node: React.ReactNode,
+  dir: 1 | -1,
+  strength: CascadeStrength,
+  depthOn: boolean,
+  rowStyle: StyleProp<ViewStyle> | undefined,
+  counter: { i: number },
+  depth: number,
+): React.ReactNode {
+  const list = React.Children.toArray(node);
+  if (list.length === 1 && depth < 2 && React.isValidElement(list[0])) {
+    const root = list[0] as React.ReactElement<{ children?: React.ReactNode; style?: StyleProp<ViewStyle> }>;
+    const flat = StyleSheet.flatten(root.props.style) ?? {};
+    const opens = root.type === React.Fragment || (root.type === View && flat.flexDirection !== 'row' && flat.flexDirection !== 'row-reverse');
+    if (opens && React.Children.count(root.props.children) > 1) {
+      return React.cloneElement(root, undefined, cascadeRows(root.props.children, dir, strength, depthOn, rowStyle, counter, depth + 1));
+    }
+  }
+  return list.map((child, idx) => {
+    if (!React.isValidElement(child)) return child;
+    const flat = StyleSheet.flatten((child.props as { style?: StyleProp<ViewStyle> }).style) ?? {};
+    if (flat.position === 'absolute') return child;
+    const entering = depthOn ? stageRow(counter.i, dir, strength) : FadeIn.duration(200);
+    counter.i += 1;
+    // A row that fills or stretches across its column keeps doing so through the wrapper.
+    const fill: ViewStyle = {};
+    if (flat.flex != null) fill.flex = flat.flex;
+    if (flat.flexGrow != null) fill.flexGrow = flat.flexGrow;
+    if (flat.alignSelf != null) fill.alignSelf = flat.alignSelf;
+    if (typeof flat.width === 'string') fill.width = flat.width;
+    return (
+      <Animated.View key={child.key ?? idx} entering={entering} style={[fill, rowStyle]}>
+        {child}
+      </Animated.View>
+    );
+  });
 }
 
 /**

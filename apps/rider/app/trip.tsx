@@ -911,7 +911,7 @@ export default function TripScreen() {
       entering={FadeIn.duration(420)}
     >
       <SheetMetricsProvider value={sheetMetrics}>
-      <HeroBusProvider model={heroModel} spinKey={heroTier} reduced={!depthOn}>
+      <HeroBusProvider model={heroModel} spinKey={heroTier} spinDir={depthDir} accent={colors.primary} reduced={!depthOn}>
       {/*
         THE FLOOR OF THIS SCREEN — AND WHY IT IS NOT SIMPLY TRANSPARENT.
 

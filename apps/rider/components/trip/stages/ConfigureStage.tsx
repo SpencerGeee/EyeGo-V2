@@ -17,7 +17,7 @@ import * as Haptics from 'expo-haptics';
 import { ridesApi, tripsApi } from '@eyego/api';
 import { formatGhs, clockTime } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii, MAX_SEATS_PER_BOOKING } from '@eyego/config';
-import { Text, Button, GradientGlowBorder, getTierTheme, normalizeTier, depthEnter, depthEnterBack, depthExit, useDepthMotion } from '@eyego/ui';
+import { Text, Button, GradientGlowBorder, getTierTheme, normalizeTier, depthEnter, depthEnterBack, depthExit, useDepthMotion, Cascade } from '@eyego/ui';
 import { HeroBusSlot } from '@eyego/maps';
 import { useColors, Colors } from '../../../utils/useColors';
 import { MapGestureHint } from '../MapGestureHint';
@@ -581,7 +581,7 @@ function ConfigureStageImpl() {
             shadow passes per frame.
           */}
           {step === 3 && (
-            <Animated.View key="step3" entering={stepEnter} exiting={stepExit} style={styles.list}>
+            <Animated.View key="step3" entering={stepEnter} exiting={stepExit} style={styles.list}><Cascade dir={stepDir}>
               <RidePicker
                 options={TIER_ORDER.map((id): RideOption => {
                   const km = nearestKm[id];
@@ -603,11 +603,11 @@ function ConfigureStageImpl() {
                 quoting={quoting}
                 nearbyKnown={nearbyKnown}
               />
-            </Animated.View>
+            </Cascade></Animated.View>
           )}
 
           {step === 4 && (
-            <Animated.View key="step4" entering={stepEnter} exiting={stepExit} style={styles.list}>
+            <Animated.View key="step4" entering={stepEnter} exiting={stepExit} style={styles.list}><Cascade dir={stepDir}>
               {/*
                 On the group flow the party size IS the booking, so it leads the
                 step with its own banner and a set of quick picks — a rider with
@@ -769,11 +769,11 @@ function ConfigureStageImpl() {
                   accessibilityLabel="Note for your driver"
                 />
               </View>
-            </Animated.View>
+            </Cascade></Animated.View>
           )}
 
           {step === 5 && (
-            <Animated.View key="step5" entering={stepEnter} exiting={stepExit} style={styles.list}>
+            <Animated.View key="step5" entering={stepEnter} exiting={stepExit} style={styles.list}><Cascade dir={stepDir}>
               <GradientGlowBorder
                 palette="brandGreen"
                 fillColor={colors.surfaceContainerHigh}
@@ -871,7 +871,7 @@ function ConfigureStageImpl() {
                   </View>
                 </View>
               </GradientGlowBorder>
-            </Animated.View>
+            </Cascade></Animated.View>
           )}
         </ScrollView>
 

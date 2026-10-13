@@ -693,7 +693,7 @@ export default function RootLayout() {
           {/* The hero bus across ROUTES (trip detail -> seat -> payment): each
               screen's slot names its trip's livery; see @eyego/maps HeroBus.
               The booking surface (/trip) nests its own. */}
-          <HeroBusProvider model={ROOT_HERO} spinKey="" reduced={!heroMotion}>
+          <HeroBusProvider model={ROOT_HERO} spinKey="" accent={colors.primary} reduced={!heroMotion}>
           <Stack
             /**
              * THE SMOOTHNESS SYSTEM, ON EVERY SCREEN AT ONCE.

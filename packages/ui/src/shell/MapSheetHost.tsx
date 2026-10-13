@@ -7,7 +7,7 @@ import { GlassSurface } from '../effects/GlassSurface';
 import { MorphSheet } from '../panel/MorphSheet';
 import { useSheetSlots } from './sheetSlot';
 import { depthIncoming, depthOutgoing, useDepthMotion, type DepthDirection } from '../motion/depth';
-import { StageSweep } from '../motion/Cascade';
+import { Cascade, StageSweep } from '../motion/Cascade';
 
 /**
  * The one sheet, hosted above every stage.
@@ -63,6 +63,11 @@ export interface MapSheetHostProps<TStage extends string = string> {
   grabberColor?: string;
   /** The flow's order — a swap to an EARLIER stage turns the deck backwards. */
   stageOrder?: readonly TStage[];
+  /**
+   * Stages read at a glance while moving (live trip): the same assembly,
+   * shorter and tighter, and a dimmer edge light.
+   */
+  liveStages?: readonly TStage[];
 }
 
 export function MapSheetHost<TStage extends string = string>({
@@ -76,6 +81,7 @@ export function MapSheetHost<TStage extends string = string>({
   bodyStyle,
   grabberColor = 'rgba(255,255,255,0.18)',
   stageOrder,
+  liveStages,
 }: MapSheetHostProps<TStage>) {
   const slots = useSheetSlots((s) => s.slots);
 
@@ -105,7 +111,8 @@ export function MapSheetHost<TStage extends string = string>({
    * The panel bodies now turn on the same card-deck move as the pages.
    */
   const depthOn = useDepthMotion();
-  // The same direction on the JS side, for the edge sweep.
+  const live = !!liveStages?.includes(current);
+  // The same direction on the JS side, for the edge sweep and the row cascade.
   const sweepDir: 1 | -1 = useMemo(() => {
     if (!previous) return 1;
     const a = stageOrder?.indexOf(previous) ?? -1;
@@ -150,10 +157,10 @@ export function MapSheetHost<TStage extends string = string>({
           <CardAuroraGlow color={auroraColor} intensity={chrome.aurora} reach={0.5} />
         ) : null}
         {/* The light that runs along the top edge as a new stage locks in. */}
-        <StageSweep trigger={String(current)} dir={sweepDir} color={auroraColor} />
+        <StageSweep trigger={String(current)} dir={sweepDir} color={auroraColor} dim={live} />
       </>
     ),
-    [chrome.glass, chrome.radius, chrome.aurora, auroraColor, current, sweepDir],
+    [chrome.glass, chrome.radius, chrome.aurora, auroraColor, current, sweepDir, live],
   );
 
   if (retired || currentNode == null) return null;
@@ -171,7 +178,12 @@ export function MapSheetHost<TStage extends string = string>({
       grabberColor={grabberColor}
       ghost={ghostNode ? <Animated.View style={ghostStyle}>{ghostNode}</Animated.View> : null}
     >
-      <Animated.View style={incomingStyle}>{currentNode}</Animated.View>
+      <Animated.View style={incomingStyle}>
+        {/* Keyed on the stage: every change re-assembles the panel row by row. */}
+        <Cascade key={String(current)} dir={sweepDir} strength={live ? 'live' : 'full'}>
+          {currentNode}
+        </Cascade>
+      </Animated.View>
     </MorphSheet>
   );
 }
