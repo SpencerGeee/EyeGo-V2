@@ -36,56 +36,65 @@ export interface FareBoostRowProps {
  * Steps are a % of the REQUESTED fare and never compound; any step that would
  * pass +50 % in total is hidden rather than offered and refused.
  */
-export function FareBoostRow({ farePesewas, requestedPesewas, boostPesewas, busy, onBoost }: FareBoostRowProps) {
+/** What the boost steps the server accepts are worth right now, within the cap. */
+function boostSteps(requestedPesewas: number, boostPesewas: number) {
+  const capPesewas = Math.round((requestedPesewas * CAP_PCT) / 100);
+  return STEPS.map((pct) => ({ pct, add: Math.round((requestedPesewas * pct) / 100) })).filter(
+    (s) => s.add > 0 && boostPesewas + s.add <= capPesewas,
+  );
+}
+
+/**
+ * THE BOOST IS A PILL, NOT A ROW ("the way the boost your ride thing is, it's
+ * making the card way too busy and non aesthetic"). It sits under the fare —
+ * the number it changes — and opens the tray only when asked.
+ */
+export function BoostPill({ boostPesewas, open, onPress }: { boostPesewas: number; open: boolean; onPress: () => void }) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  return (
+    <Pressable
+      onPress={onPress}
+      haptic="light"
+      hitSlop={8}
+      accessibilityRole="button"
+      accessibilityLabel={open ? 'Close boost' : 'Boost your fare to find a driver faster'}
+      style={[styles.pill, { backgroundColor: withOpacity(colors.primary, open ? 0.24 : 0.14), borderColor: withOpacity(colors.primary, 0.4) }]}
+    >
+      <Ionicons name="flash" size={12} color={colors.primary} />
+      <Text style={[styles.pillText, { color: colors.primary }]}>
+        {boostPesewas > 0 ? `+${formatGhs(boostPesewas)}` : 'Boost'}
+      </Text>
+    </Pressable>
+  );
+}
+
+/** The tray the pill opens: three steps, one line of policy, a confirm. */
+export function BoostTray({ farePesewas, requestedPesewas, boostPesewas, busy, onBoost, onClose }: FareBoostRowProps & { onClose: () => void }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [picked, setPicked] = useState<BoostStep | null>(null);
-
-  const capPesewas = Math.round((requestedPesewas * CAP_PCT) / 100);
-  const steps = STEPS.map((pct) => ({ pct, add: Math.round((requestedPesewas * pct) / 100) })).filter(
-    (s) => s.add > 0 && boostPesewas + s.add <= capPesewas,
-  );
+  const steps = boostSteps(requestedPesewas, boostPesewas);
   const choice = picked != null ? steps.find((s) => s.pct === picked) ?? null : null;
 
   return (
-    <View style={styles.root}>
-      <View style={styles.headRow}>
-        <Ionicons name="flash" size={14} color={colors.primary} />
-        {/* The amount already added is on the fare's badge above — said once.
-            The policy is three words, not a sentence. */}
-        <Text style={styles.title}>{boostPesewas > 0 ? 'Boost again' : 'Boost to find a driver faster'}</Text>
-        <Text style={styles.caption}>· 100% to your driver</Text>
-      </View>
-
+    <View style={[styles.root, { borderColor: withOpacity(colors.primary, 0.3) }]}>
+      <Text style={styles.caption}>100% goes to your driver.</Text>
       {steps.length === 0 ? (
         <Text style={styles.capNote}>Maximum boost reached.</Text>
       ) : choice ? (
-        // ── the inline confirm ──
-        <View style={[styles.confirm, { borderColor: withOpacity(colors.primary, 0.45) }]}>
-          <View style={styles.confirmFare}>
-            <Text style={styles.was}>{formatGhs(farePesewas)}</Text>
-            <Ionicons name="arrow-forward" size={14} color={colors.onSurfaceVariant} />
-            <Text style={styles.now}>{formatGhs(farePesewas + choice.add)}</Text>
-          </View>
-          <Text style={styles.caption}>All {formatGhs(choice.add)} goes to your driver.</Text>
-          <View style={styles.confirmActions}>
-            <Button
-              label="Not now"
-              variant="ghost"
-              onPress={() => setPicked(null)}
-              disabled={busy}
-              style={{ flex: 1 }}
-            />
-            <Button
-              label={`Offer ${formatGhs(farePesewas + choice.add)}`}
-              onPress={() => {
-                onBoost(choice.pct);
-                setPicked(null);
-              }}
-              loading={busy}
-              style={{ flex: 1.4 }}
-            />
-          </View>
+        <View style={styles.confirmActions}>
+          <Button label="Back" variant="ghost" onPress={() => setPicked(null)} disabled={busy} style={{ flex: 1 }} />
+          <Button
+            label={`Offer ${formatGhs(farePesewas + choice.add)}`}
+            onPress={() => {
+              onBoost(choice.pct);
+              setPicked(null);
+              onClose();
+            }}
+            loading={busy}
+            style={{ flex: 1.6 }}
+          />
         </View>
       ) : (
         <View style={styles.chips}>
@@ -97,9 +106,9 @@ export function FareBoostRow({ farePesewas, requestedPesewas, boostPesewas, busy
               haptic="light"
               style={[styles.chip, { borderColor: withOpacity(colors.primary, 0.35) }]}
               accessibilityRole="button"
-              accessibilityLabel={`Raise by ${s.pct} percent to ${formatGhs(farePesewas + s.add)}`}
+              accessibilityLabel={`Raise by ${formatGhs(s.add)} to ${formatGhs(farePesewas + s.add)}`}
             >
-              <Text style={styles.chipPct}>+{s.pct}%</Text>
+              <Text style={styles.chipPct}>+{formatGhs(s.add)}</Text>
               <Text style={styles.chipFare}>{formatGhs(farePesewas + s.add)}</Text>
             </Pressable>
           ))}
@@ -115,12 +124,19 @@ const makeStyles = (colors: Colors) =>
       gap: spacing.sm,
       padding: spacing.md,
       borderRadius: radii.lg,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.outline,
-      backgroundColor: colors.surfaceContainer,
+      borderWidth: 1,
+      backgroundColor: withOpacity(colors.primary, 0.05),
     },
-    headRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    title: { flexShrink: 1, fontFamily: fonts.semiBold, fontSize: 14, color: colors.onSurface },
+    pill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      borderRadius: radii.full,
+      borderWidth: StyleSheet.hairlineWidth,
+    },
+    pillText: { fontFamily: fonts.semiBold, fontSize: 12, fontVariant: ['tabular-nums'] },
     caption: { fontFamily: fonts.regular, fontSize: 12, lineHeight: 16, color: colors.onSurfaceVariant },
     capNote: { fontFamily: fonts.medium, fontSize: 12, color: colors.onSurfaceVariant },
     chips: { flexDirection: 'row', gap: spacing.sm },
@@ -135,17 +151,7 @@ const makeStyles = (colors: Colors) =>
     },
     chipPct: { fontFamily: fonts.semiBold, fontSize: 13, color: colors.primary },
     chipFare: { fontFamily: fonts.medium, fontSize: 12, color: colors.onSurface, fontVariant: ['tabular-nums'] },
-    confirm: { gap: spacing.sm, padding: spacing.md, borderRadius: radii.md, borderWidth: 1 },
-    confirmFare: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-    was: {
-      fontFamily: fonts.medium,
-      fontSize: 15,
-      color: colors.onSurfaceVariant,
-      textDecorationLine: 'line-through',
-      fontVariant: ['tabular-nums'],
-    },
-    now: { fontFamily: fonts.displayBold, fontSize: 20, color: colors.onSurface, fontVariant: ['tabular-nums'] },
     confirmActions: { flexDirection: 'row', gap: spacing.sm },
   });
 
-export default FareBoostRow;
+export default BoostTray;

@@ -116,6 +116,7 @@ export {
 export { depthIncoming, depthOutgoing, depthEnter, depthEnterAfter, depthEnterBack, depthExit, useDepthMotion } from './motion/depth';
 export type { DepthDirection } from './motion/depth';
 export { Cascade, StageSweep, stageRow, type CascadeStrength } from './motion/Cascade';
+export { useSnapCard } from './motion/useSnapCard';
 
 /**
  * THE SMOOTHNESS SYSTEM — one import path for the whole of it.

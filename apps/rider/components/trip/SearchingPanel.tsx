@@ -114,6 +114,15 @@ export interface SearchingPanelProps {
    * map behind it already shows where the ride goes.
    */
   compact?: boolean;
+  /**
+   * THREE SNAPS ("the card seems small and busy … different snap points to show
+   * appropriate details per snap point"). 0 peek: the status and the money.
+   * 1 half: + the journey and the booking in one line. 2 full: + how the
+   * search is going, in numbers. Defaults to full (the route screen).
+   */
+  level?: 0 | 1 | 2;
+  /** Sits under the fare — the boost pill. */
+  fareAccessory?: React.ReactNode;
 }
 
 /** How long the rider has been waiting, in whole seconds. */
@@ -173,70 +182,6 @@ function ProgressSweep({ colors, active, compact }: { colors: Colors; active: bo
   );
 }
 
-/** The small radar chip beside the headline. Two rings off one phase. */
-function RadarChip({ colors, status }: { colors: Colors; status: SearchStatus }) {
-  const reduceMotion = useReducedMotion();
-  const searching = status === 'searching' || status === 'sending';
-  const phase = useSharedValue(0);
-  const pop = useSharedValue(0);
-
-  useEffect(() => {
-    if (searching && !reduceMotion) {
-      phase.value = withRepeat(
-        withTiming(1, { duration: 2000, easing: Easing.out(Easing.quad) }),
-        -1,
-        false,
-      );
-    } else {
-      phase.value = withTiming(0, { duration: 200 });
-    }
-    return () => cancelAnimation(phase);
-  }, [searching, reduceMotion, phase]);
-
-  useEffect(() => {
-    if (status !== 'matched') return;
-    // The one overshoot in the whole flow, and it is earned: see springs.accent.
-    pop.value = withSequence(withSpring(1, springs.accent), withSpring(0, springs.standard));
-    return () => cancelAnimation(pop);
-  }, [status, pop]);
-
-  const ringA = useAnimatedStyle(() => ({
-    transform: [{ scale: 1 + phase.value * 1.5 }],
-    opacity: (1 - phase.value) * 0.5,
-  }));
-  // The trailing ring IS the leading ring, half a cycle behind — an offset,
-  // not a second animation.
-  const ringB = useAnimatedStyle(() => {
-    const p = (phase.value + 0.5) % 1;
-    return { transform: [{ scale: 1 + p * 1.5 }], opacity: (1 - p) * 0.5 };
-  });
-  const core = useAnimatedStyle(() => ({ transform: [{ scale: 1 + pop.value * 0.14 }] }));
-
-  const tone =
-    status === 'matched' ? colors.statusSuccess
-    : status === 'error' || status === 'timeout' ? colors.error
-    : colors.primary;
-
-  return (
-    <View style={styles.radar}>
-      <Animated.View style={[styles.radarRing, { borderColor: tone }, ringA]} pointerEvents="none" />
-      <Animated.View style={[styles.radarRing, { borderColor: tone }, ringB]} pointerEvents="none" />
-      <Animated.View style={[styles.radarCore, { backgroundColor: withOpacity(tone, 0.18), borderColor: tone }, core]}>
-        <Ionicons
-          name={
-            status === 'matched' ? 'checkmark'
-            : status === 'error' ? 'close'
-            : status === 'timeout' ? 'time-outline'
-            : 'car-sport'
-          }
-          size={15}
-          color={tone}
-        />
-      </Animated.View>
-    </View>
-  );
-}
-
 export function SearchingPanel({
   status,
   originText,
@@ -254,7 +199,10 @@ export function SearchingPanel({
   boostedPesewas = 0,
   waiting = false,
   compact = false,
+  level,
+  fareAccessory,
 }: SearchingPanelProps) {
+  const lv = level ?? (compact ? 0 : 2);
   const colors = useColors();
   const styles2 = useMemo(() => makeStyles(colors), [colors]);
   const live = status === 'searching' || status === 'sending';
@@ -341,23 +289,29 @@ export function SearchingPanel({
     AccessibilityInfo.announceForAccessibility(headline);
   }, [headline]);
 
-  return (
-    <View style={[styles2.root, compact && styles2.rootCompact]}>
-      {/* THE SEARCH, ON THE EDGE. See the header — this is the move all three
-          products share, and it keeps the middle of the sheet for content. */}
-      <ProgressSweep colors={colors} active={live} compact={compact} />
+  const facts = [tierLabel, seats > 1 ? `${seats} seats` : null, paymentLabel, scheduledFor].filter(Boolean).join(' · ');
+  const detail: [string, string][] = [];
+  if (live) {
+    if (radiusKm != null && Number.isFinite(radiusKm)) detail.push(['Search radius', `${radiusKm} km`]);
+    if (attempt.total > 0) detail.push(['Drivers nearby', String(attempt.total)]);
+    if (offerPending && attempt.total > 0) detail.push(['Asking now', `Driver ${attempt.attempt} of ${attempt.total}`]);
+    detail.push(['Waiting', mmss]);
+  }
 
+  return (
+    <View style={[styles2.root, lv === 0 && styles2.rootCompact]}>
+      {/* THE SEARCH, ON THE EDGE — the only progress indicator on the card. */}
+      <ProgressSweep colors={colors} active={live} compact={lv === 0} />
+
+      {/* PEEK: what you are waiting on, and what you are offering. Nothing else. */}
       <View style={styles2.headRow}>
-        <RadarChip colors={colors} status={status} />
-        {/* Each new beat of the search — a new driver asked, the ring widened,
-            the queue emptied — fades in rather than snapping, so the rider
-            notices the line changed. The once-a-second countdown is not a beat. */}
         <View style={styles2.headText}>
           <Animated.View key={headline} entering={FadeIn.duration(240).reduceMotion(ReduceMotion.System)}>
             <Text style={styles2.headline} numberOfLines={1}>
               {headline}
             </Text>
           </Animated.View>
+          {/* Each new beat of the search fades in, so the rider notices it changed. */}
           <Animated.View
             key={`${status}|${offerPending ? attempt.attempt : 0}|${waiting}|${radiusKm ?? ''}`}
             entering={FadeIn.duration(240).reduceMotion(ReduceMotion.System)}
@@ -367,18 +321,25 @@ export function SearchingPanel({
             </Text>
           </Animated.View>
         </View>
-        {/* Tabular figures — a clock whose digits shift width jitters once a
-            second for as long as the rider is watching it. */}
-        {live && elapsed >= 5 && (
-          <View style={styles2.clock}>
-            <Text style={styles2.clockText}>{mmss}</Text>
+        {farePesewas != null && farePesewas > 0 ? (
+          <View style={styles2.fareCol}>
+            {/* Rolls up, odometer-style, when a boost lands. */}
+            <RollingDigits
+              text={formatGhs(farePesewas)}
+              value={farePesewas}
+              fontSize={fontSizes.headlineSmall}
+              fontFamily={fonts.displayBold}
+              color={colors.onSurface}
+            />
+            {fareAccessory ?? (boostedPesewas > 0 ? (
+              <Text style={[styles2.boostText, { color: colors.primary }]}>+{formatGhs(boostedPesewas)} boost</Text>
+            ) : null)}
           </View>
-        )}
+        ) : null}
       </View>
 
-      {/* THE ITINERARY. Shown, not described — the rider's question in this
-          minute is "is this going where I said". */}
-      {!compact && (originText || destinationText) && (
+      {/* HALF: the journey, and the booking in one quiet line. */}
+      {lv >= 1 && (originText || destinationText) ? (
         <View style={styles2.itinerary}>
           <View style={styles2.rail}>
             <View style={[styles2.railDot, { borderColor: colors.onSurface }]} />
@@ -400,70 +361,24 @@ export function SearchingPanel({
             </View>
           </View>
         </View>
-      )}
+      ) : null}
+      {lv >= 1 && facts ? (
+        <Text style={styles2.factsLine} numberOfLines={1}>
+          {facts}
+        </Text>
+      ) : null}
 
-      {/* The facts of the booking, as chips. Small, quiet, and only the ones
-          that exist — an empty row of placeholders is worse than no row. */}
-      {!compact && (tierLabel || seats > 1 || scheduledFor || paymentLabel) && (
-        <View style={styles2.chips}>
-          {tierLabel ? (
-            <View style={styles2.chip}>
-              <Ionicons name="car-outline" size={12} color={colors.onSurfaceVariant} />
-              <Text style={styles2.chipText}>{tierLabel}</Text>
+      {/* FULL: how the search is actually going, in numbers. */}
+      {lv === 2 && detail.length ? (
+        <View style={[styles2.detail, { borderColor: colors.outline }]}>
+          {detail.map(([k, v]) => (
+            <View key={k} style={styles2.detailRow}>
+              <Text style={styles2.detailKey}>{k}</Text>
+              <Text style={styles2.detailValue}>{v}</Text>
             </View>
-          ) : null}
-          {paymentLabel ? (
-            <View style={styles2.chip}>
-              <Ionicons name="cash-outline" size={12} color={colors.onSurfaceVariant} />
-              <Text style={styles2.chipText}>{paymentLabel}</Text>
-            </View>
-          ) : null}
-          {seats > 1 ? (
-            <View style={styles2.chip}>
-              <Ionicons name="people-outline" size={12} color={colors.onSurfaceVariant} />
-              <Text style={styles2.chipText}>{seats} seats</Text>
-            </View>
-          ) : null}
-          {scheduledFor ? (
-            <View style={styles2.chip}>
-              <Ionicons name="calendar-outline" size={12} color={colors.onSurfaceVariant} />
-              <Text style={styles2.chipText}>{scheduledFor}</Text>
-            </View>
-          ) : null}
+          ))}
         </View>
-      )}
-
-      {/* THE PRICE BEING ASKED FOR. Every rival shows it here; this screen
-          showed everything except the money. Tabular, so a boost that changes
-          it does not make the line jump. */}
-      {farePesewas != null && farePesewas > 0 && (
-        <View style={styles2.fareRow}>
-          {/* The money explains itself; the caps label was one more word to read. */}
-          {!compact ? <Text style={styles2.fareLabel}>{boostedPesewas > 0 ? 'YOUR OFFER' : 'FARE'}</Text> : null}
-          {/* Rolls up, odometer-style, when a boost lands — the raise is seen
-              happening, not just a number that changed. */}
-          <RollingDigits
-            text={formatGhs(farePesewas)}
-            value={farePesewas}
-            fontSize={fontSizes.titleMedium}
-            fontFamily={fonts.displayBold}
-            color={colors.onSurface}
-          />
-          {boostedPesewas > 0 ? (
-            <View style={[styles2.boostBadge, { backgroundColor: withOpacity(colors.primary, 0.14) }]}>
-              <Ionicons name="flash" size={11} color={colors.primary} />
-              <Text style={[styles2.boostText, { color: colors.primary }]}>
-                +{formatGhs(boostedPesewas)}
-              </Text>
-            </View>
-          ) : null}
-          {compact ? (
-            <Text style={styles2.factsLine} numberOfLines={1}>
-              {[tierLabel, paymentLabel, seats > 1 ? `${seats} seats` : null, scheduledFor].filter(Boolean).join(' · ')}
-            </Text>
-          ) : null}
-        </View>
-      )}
+      ) : null}
     </View>
   );
 }
@@ -482,16 +397,6 @@ const styles = StyleSheet.create({
     bottom: 0,
     width: '38%',
     borderRadius: 2,
-  },
-  radar: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  radarRing: { position: 'absolute', width: 32, height: 32, borderRadius: 16, borderWidth: 1.5 },
-  radarCore: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
 });
 
@@ -593,6 +498,15 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radii.full,
     },
     boostText: { fontFamily: fonts.semiBold, fontSize: 11, fontVariant: ['tabular-nums'] },
+    fareCol: { alignItems: 'flex-end', gap: 4 },
+    detail: {
+      borderTopWidth: StyleSheet.hairlineWidth,
+      paddingTop: spacing.md,
+      gap: spacing.sm,
+    },
+    detailRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    detailKey: { fontFamily: fonts.regular, fontSize: fontSizes.bodySmall, color: colors.onSurfaceVariant },
+    detailValue: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodySmall, color: colors.onSurface, fontVariant: ['tabular-nums'] },
   });
 
 export default SearchingPanel;

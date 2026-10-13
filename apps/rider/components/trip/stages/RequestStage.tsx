@@ -11,13 +11,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii, springs, withOpacity } from '@eyego/config';
 import {
   Text, Button, GlassSurface, MorphTarget, AppBackground, GradientGlowBorder,
-  goDeeper, goBack, notify, goOut, goFresh, Pressable as HapticPressable, getTierTheme, useSheetMetrics,
+  goDeeper, goBack, notify, goOut, goFresh, Pressable as HapticPressable, getTierTheme, useSheetMetrics, useSnapCard,
 } from '@eyego/ui';
 import * as Haptics from 'expo-haptics';
 import { formatGhs, shortDateTime } from '@eyego/utils';
 import { useThemeStore } from '../../../stores/theme.store';
 import { SearchingPanel } from '../SearchingPanel';
-import { FareBoostRow, type BoostStep } from '../FareBoostRow';
+import { BoostPill, BoostTray, type BoostStep } from '../FareBoostRow';
 import { tripsApi, ridesApi, queryKeys, secondsRemaining } from '@eyego/api';
 import { useColors, Colors } from '../../../utils/useColors';
 import { useTripFlow } from '../../../stores/tripFlow.store';
@@ -166,21 +166,10 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
    * the price and the three actions; the route, the booking's facts and the
    * leave-in-the-background link are one drag (or tap) up, and scroll.
    */
-  const [expanded, setExpanded] = useState(false);
-  const grabGesture = useMemo(
-    () =>
-      Gesture.Exclusive(
-        Gesture.Pan()
-          .runOnJS(true)
-          .activeOffsetY([-12, 12])
-          .onEnd((e) => {
-            if (e.translationY < -24 || e.velocityY < -500) setExpanded(true);
-            else if (e.translationY > 24 || e.velocityY > 500) setExpanded(false);
-          }),
-        Gesture.Tap().runOnJS(true).onEnd(() => setExpanded((v) => !v)),
-      ),
-    [],
-  );
+  // Three snaps — peek / half / full — on the same physics as the driver's offer card.
+  const { snap, grab: grabGesture, dragStyle: cardDrag } = useSnapCard(3);
+  const expanded = snap >= 1;
+  const [boostOpen, setBoostOpen] = useState(false);
   /**
    * The money on the table: what the ride was requested at, and how much the
    * rider has added since. Null until known (a resumed search reads it back
@@ -1105,6 +1094,11 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
     ? shortDateTime(scheduledAt)
     : null;
 
+  // The boost is offered once the wait has started to bite (or at once when
+  // nobody is in range) — a boost in the first seconds reads as an upsell.
+  const boostAvailable =
+    searching && fare != null && currentFarePesewas != null && (dispatch?.waiting === true || boostOffered) && !confirmCancel;
+
   const body = (variant: 'route' | 'stage') => (
     <>
       {/*
@@ -1155,7 +1149,12 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
           </>
         ) : (
           <SearchingPanel
-            compact={variant === 'stage' && !expanded}
+            level={variant === 'stage' ? (snap as 0 | 1 | 2) : 2}
+            fareAccessory={
+              boostAvailable ? (
+                <BoostPill boostPesewas={fare?.boostPesewas ?? 0} open={boostOpen} onPress={() => setBoostOpen((v) => !v)} />
+              ) : undefined
+            }
             status={status as any}
             originText={originLabel}
             destinationText={destinationLabel}
@@ -1239,7 +1238,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
             no `palette` it also swept blue/orange over a green-brand screen.
             Faint on purpose ("or better still make it faint"): it only has to say
             "still looking". */}
-        {variant === 'route' && (
+        {(variant === 'route' || snap === 2) && (
         <GradientGlowBorder
           palette="brandGreen"
           borderRadius={radii.lg}
@@ -1263,14 +1262,17 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
         {/* RAISE THE FARE. Offered once the wait has started to bite (or at
             once when nobody is in range at all) — a boost chip in the first
             seconds reads as an upsell, not as help. */}
-        {searching && fare != null && currentFarePesewas != null && (dispatch?.waiting === true || boostOffered) && !confirmCancel ? (
-          <FareBoostRow
-            farePesewas={currentFarePesewas}
-            requestedPesewas={fare.requestedPesewas}
-            boostPesewas={fare.boostPesewas}
-            busy={boosting}
-            onBoost={boostFare}
-          />
+        {boostAvailable && boostOpen && fare != null && currentFarePesewas != null ? (
+          <Animated.View entering={FadeInDown.duration(260).reduceMotion(ReduceMotion.System)}>
+            <BoostTray
+              farePesewas={currentFarePesewas}
+              requestedPesewas={fare.requestedPesewas}
+              boostPesewas={fare.boostPesewas}
+              busy={boosting}
+              onBoost={boostFare}
+              onClose={() => setBoostOpen(false)}
+            />
+          </Animated.View>
         ) : null}
 
         {status === 'searching' ? (
@@ -1297,7 +1299,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
             </View>
           ) : (
             <>
-              {variant === 'stage' ? (
+              {variant === 'stage' ? (snap >= 1 ? (
                 <View style={styles.actionRow}>
                   {!pickupMoved && (
                     <ActionTile
@@ -1324,7 +1326,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                     styles={styles}
                   />
                 </View>
-              ) : (
+              ) : null) : (
                 <Button
                   label="Cancel request"
                   variant="ghost"
@@ -1332,7 +1334,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                   style={{ width: '100%', marginTop: spacing.xl }}
                 />
               )}
-              {(variant === 'route' || expanded) && (
+              {(variant === 'route' || snap === 2) && (
                 <Pressable
                   style={styles.activityBtn}
                   onPress={() => goOut('/(tabs)/home')}
@@ -1512,7 +1514,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
         onLayout={onCardLayout}
       >
         <Animated.View
-          style={styles.panel}
+          style={[styles.panel, cardDrag]}
           layout={LinearTransition.springify()
             .stiffness(springs.emphasized.stiffness)
             .damping(springs.emphasized.damping)
@@ -1529,7 +1531,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
             </View>
           </GestureDetector>
           <ScrollView
-            style={{ maxHeight: expanded ? screenH * 0.58 - insets.top : screenH * 0.42 }}
+            style={{ maxHeight: snap === 2 ? screenH * 0.62 - insets.top : screenH * 0.42 }}
             bounces={false}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.panelScroll}

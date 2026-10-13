@@ -196,12 +196,12 @@
       "type": "fill-extrusion",
       "source": "openfreemap",
       "source-layer": "building",
-      "minzoom": 14,
+      "minzoom": 13.5,
       "paint": {
         "fill-extrusion-color": "#E3DDCF",
         "fill-extrusion-height": ["coalesce", ["get", "render_height"], 8],
         "fill-extrusion-base": ["coalesce", ["get", "render_min_height"], 0],
-        "fill-extrusion-opacity": ["interpolate", ["linear"], ["zoom"], 14, 0, 15.5, 0.9]
+        "fill-extrusion-opacity": ["interpolate", ["linear"], ["zoom"], 13.5, 0, 15, 0.9]
       }
     },
     {

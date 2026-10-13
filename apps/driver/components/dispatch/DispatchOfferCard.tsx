@@ -51,6 +51,7 @@ import {
   rowLayout,
   contentEnter,
   contentExit,
+  useSnapCard,
 } from '@eyego/ui';
 import type { Coord } from '@eyego/maps';
 import Svg, { Rect } from 'react-native-svg';
@@ -487,48 +488,11 @@ export function DispatchOfferCard({
    * back as the panel reflows on the sheet's own spring; rows that arrive or
    * leave fade. A strong fling skips straight to full / peek.
    */
-  const [snap, setSnap] = useState<0 | 1 | 2>(0);
-  const snapSV = useSharedValue(0);
-  const drag = useSharedValue(0);
-  useEffect(() => {
-    snapSV.value = snap;
-  }, [snap, snapSV]);
+  const { snap, setSnap: toSnap, grab, dragStyle } = useSnapCard(3);
   const peek = isSheet && snap === 0;
   const half = !isSheet || snap >= 1;
   const full = !isSheet || snap === 2;
   const { height: screenH } = useWindowDimensions();
-  const toSnap = useCallback((n: number) => {
-    void Haptics.selectionAsync().catch(() => {});
-    setSnap(Math.max(0, Math.min(2, n)) as 0 | 1 | 2);
-  }, []);
-  // Worklets end to end — JS only through runOnJS (a bare JS call from a
-  // gesture callback aborts the app; see the sweep notes).
-  const grab = useMemo(
-    () =>
-      Gesture.Exclusive(
-        Gesture.Pan()
-          .activeOffsetY([-10, 10])
-          .onUpdate((e) => {
-            const y = e.translationY;
-            drag.value = y < 0 ? -Math.min(56, -y * 0.45) : Math.min(90, y * 0.55);
-          })
-          .onEnd((e) => {
-            const cur = snapSV.value;
-            let next = cur;
-            if (e.velocityY < -1600) next = 2;
-            else if (e.velocityY > 1600) next = 0;
-            else if (e.translationY < -28 || e.velocityY < -450) next = cur + 1;
-            else if (e.translationY > 28 || e.velocityY > 450) next = cur - 1;
-            drag.value = withSpring(0, springs.standard);
-            if (next !== cur) runOnJS(toSnap)(next);
-          }),
-        Gesture.Tap().onEnd(() => {
-          runOnJS(toSnap)(snapSV.value >= 2 ? 0 : snapSV.value + 1);
-        }),
-      ),
-    [drag, snapSV, toSnap],
-  );
-  const dragStyle = useAnimatedStyle(() => ({ transform: [{ translateY: drag.value }] }));
   const asksCount = (offer.pickupNote ? 1 : 0) + (offer.ridePrefs?.length ?? 0);
   useEffect(() => {
     if (!declineArmed) {

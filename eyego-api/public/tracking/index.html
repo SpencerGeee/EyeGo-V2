@@ -1076,12 +1076,12 @@ function riderPuck(color = '#3B82F6') {
     try {
       if (!map.getLayer('buildings-3d') && map.getSource('openfreemap')) {
         map.addLayer({
-          id: 'buildings-3d', type: 'fill-extrusion', source: 'openfreemap', 'source-layer': 'building', minzoom: 14,
+          id: 'buildings-3d', type: 'fill-extrusion', source: 'openfreemap', 'source-layer': 'building', minzoom: 13.5,
           paint: {
             'fill-extrusion-color': dark ? '#242B3D' : '#E3DDCF',
             'fill-extrusion-height': ['coalesce', ['get', 'render_height'], 8],
             'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0],
-            'fill-extrusion-opacity': ['interpolate', ['linear'], ['zoom'], 14, 0, 15.5, dark ? 0.85 : 0.9],
+            'fill-extrusion-opacity': ['interpolate', ['linear'], ['zoom'], 13.5, 0, 15, dark ? 0.85 : 0.9],
           },
         });
       }

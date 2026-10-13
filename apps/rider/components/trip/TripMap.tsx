@@ -53,9 +53,10 @@ import { fetchRoute, fetchWalkingRoute } from '../../utils/routing';
 
 /** Fraction of the screen the bottom sheet covers, per stage. */
 /** The search orbit — see `searchOrbit`. One turn every two minutes. */
-const ORBIT_PITCH = 45;
+const ORBIT_PITCH = 52;
 const ORBIT_LEG_MS = 8000;
-const ORBIT_STEP_DEG = 24;
+/** ~2.25° a second — the share page's turn rate, so web and app orbit alike. */
+const ORBIT_STEP_DEG = 18;
 const ORBIT_ARRIVE_MS = 1600;
 /** How long the search ring takes to grow to a new radius. */
 const RING_GROW_MS = 900;
@@ -762,7 +763,11 @@ function TripMapImpl() {
     // MapLibre: metres per point at zoom z = C·cos(lat) / (512·2^z). Fit the
     // reach into ~42% of the width either side of the centre.
     const z = Math.log2((40075016.686 * cosLat * screenWidth * 0.42) / (512 * reach));
-    return Math.round(Math.min(15.5, Math.max(12, z)) * 4) / 4;
+    // Floored at 14.5 ("the search panel should rotate in 3D the way the share
+    // trip map does"): below ~14 the buildings never stand up and the turn reads
+    // as a flat map spinning. The ring and the line to the asked driver still
+    // say where the far cars are.
+    return Math.round(Math.min(15.5, Math.max(14.5, z)) * 4) / 4;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orbitCentre?.[0], orbitCentre?.[1], nearbyDrivers, dispatchRadiusKm, screenWidth]);
 
