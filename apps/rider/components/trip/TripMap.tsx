@@ -670,8 +670,12 @@ function TripMapImpl() {
      * seems flat"). This was configure/select only, so every live stage —
      * driver coming, on the way — framed the minibus straight from above. Every
      * stage tilts now; `follow` takes the same pitch (useMapCamera).
+     *
+     * It still didn't ("the rider map is still in 2D"): a `!snapshot` guard
+     * stayed on this line, and every live stage HAS a snapshot. 50° is the
+     * share page's number, so the web and the app frame a trip the same way.
      */
-    overviewPitch: !snapshot && !reduceMotion ? 46 : 0,
+    overviewPitch: reduceMotion ? 0 : 50,
     padding: getPadding,
     active: isFocused,
   });

@@ -192,6 +192,19 @@
       }
     },
     {
+      "id": "buildings-3d",
+      "type": "fill-extrusion",
+      "source": "openfreemap",
+      "source-layer": "building",
+      "minzoom": 14,
+      "paint": {
+        "fill-extrusion-color": "#242B3D",
+        "fill-extrusion-height": ["coalesce", ["get", "render_height"], 8],
+        "fill-extrusion-base": ["coalesce", ["get", "render_min_height"], 0],
+        "fill-extrusion-opacity": ["interpolate", ["linear"], ["zoom"], 14, 0, 15.5, 0.85]
+      }
+    },
+    {
       "id": "place-label-city",
       "type": "symbol",
       "source": "openfreemap",

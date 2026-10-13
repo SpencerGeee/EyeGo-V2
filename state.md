@@ -1,3 +1,8 @@
+# State — 2026-10-13 (immersive 3D pass: grilled, PLANNED, nothing coded)
+
+Executing plan at docs/superpowers/plans/2026-10-13-immersive-3d-pass.md — next: P1 (map parity).
+All decisions D1–D8 approved by user. Diagnoses for items 1–3 verified (see plan). Push only on approval.
+
 # State — 2026-10-12 (4-item request: sched expiry, driver uri crash, request card, share page + premium UI pass)
 
 ## 9-item device report (2026-10-12, second pass) — ALL FIXED, uncommitted, NOT device-verified

@@ -583,3 +583,14 @@ Decisions:
 Rejected: a fake vehicle on the request map; continuous orbit on every map (battery); hand-coded web bus.
 Open: device-verify every RN visual; push not yet approved.
 
+
+## 2026-10-13 [saved]
+Goal: immersive 3D pass — away digest, HeroBus spin, rider 3D map, stage motion, seat + request card redesigns.
+Decisions:
+- Away feed: ≥2 facts → one summary sheet; same ride = one row (repeat was 4 facts, not seen-state).
+- Stage change = bus reacts in place + rows assemble in depth + map camera swoops; card tip retired.
+- Bus moves on UI-thread spring glide, yaw capped ±35°, spin only on landing; flights only to NEWER slots.
+- Seat page = real 3D cabin (Skia engine, hit-test projected seats, orbit ±40°); request card = 3 snaps + boost pill/tray.
+- Two strengths: FULL for booking/create, LIVE (faster, turn not spin) for live-trip stages.
+Rejected: whole-page rotateX card tip (reads as a fade); yaw-to-travel turns on every flight.
+Open: execute P1–P7; device-verify all RN visuals.
