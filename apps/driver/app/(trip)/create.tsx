@@ -380,7 +380,7 @@ export default function CreateTripScreen() {
   });
 
   return (
-    <HeroBusProvider model={heroModel} spinKey={`${step}`} reduced={!depthOn}>
+    <HeroBusProvider model={heroModel} spinKey="" spinDir={stepDir} accent={colors.primary} reduced={!depthOn}>
     <SafeAreaView style={styles.safe}>
       <AppBackground isDark={theme !== 'light'} />
       {/* Header */}

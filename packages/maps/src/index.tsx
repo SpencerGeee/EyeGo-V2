@@ -1485,6 +1485,6 @@ export default MapAvailable
   ? { MapView, Camera, NavCamera, MarkerView, AnimatedMarkerView, PointAnnotation, ShapeSource, LineLayer, FillLayer, CircleLayer, SymbolLayer, UserLocation }
   : fallback!;
 export { Model3D, type Model3DProps } from './three/Model3D';
-export { HeroBusProvider, HeroBusSlot, SHOWROOM_YAW, SHOWROOM_PITCH } from './three/HeroBus';
+export { HeroBusProvider, HeroBusSlot, SHOWROOM_YAW, SHOWROOM_PITCH, type HeroStrength } from './three/HeroBus';
 export { minibus, pickupPin, dropoffPin, busStop, riderPuck, type Livery } from './three/models';
 export { modelDataUri, modelPicture, projectModel, type Model } from './three/engine';
