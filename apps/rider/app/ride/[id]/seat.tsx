@@ -316,6 +316,9 @@ export default function SeatPickerScreen() {
       }),
     enabled: !!id,
     staleTime: 30_000,
+    // While a moved pin is re-priced, the last real price stays — never a
+    // flash of the full-route fare the rider is not going to pay.
+    placeholderData: (prev) => prev,
   });
   const farePesewas = farePreview?.farePerSeatPesewas ?? (selectedTrip as any)?.farePerSeatPesewas ?? null;
 

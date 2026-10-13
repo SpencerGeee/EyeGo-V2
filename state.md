@@ -1,6 +1,6 @@
-# State — 2026-10-13 (immersive 3D pass: grilled, PLANNED, nothing coded)
+# State — 2026-10-13 (immersive 3D pass: P1–P7 DONE + seat fare fairness; local commits, NOT pushed)
 
-Executing plan at docs/superpowers/plans/2026-10-13-immersive-3d-pass.md — next: P1 (map parity).
+Plan docs/superpowers/plans/2026-10-13-immersive-3d-pass.md ALL DONE: P1 e36d5ec · P2 66d8b15 · P3 f2127b9 · P4 9fdb4b8 · P5 8a72dea · P6 8e9eeca · P7 ebf9389 · fare fix (next commit). Cabin render harness: scratchpad/cab (project.mjs + paint.py). NOT device-verified. Push only on approval.
 All decisions D1–D8 approved by user. Diagnoses for items 1–3 verified (see plan). Push only on approval.
 
 # State — 2026-10-12 (4-item request: sched expiry, driver uri crash, request card, share page + premium UI pass)

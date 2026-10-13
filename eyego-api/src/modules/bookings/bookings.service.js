@@ -249,6 +249,29 @@ function resolveDropoff(trip, routeLine, dropoff, board) {
 }
 
 /**
+ * The share of the road a passenger rides between two stops (absent = the
+ * trip's own start / end), or null when either stop is too far off the line
+ * to place on it honestly — the caller then falls back to the straight line.
+ */
+function alongRouteRatio(routeLine, board, alight) {
+  const { projectOntoPolyline } = require('../../utils/geo');
+  const at = (stop) => {
+    if (!stop) return null;
+    const p = projectOntoPolyline(stop.lat, stop.lng, routeLine);
+    return p && p.distanceM <= DROPOFF_MAX_OFF_ROUTE_M ? p : undefined;
+  };
+  const b = at(board);
+  const a = at(alight);
+  if (b === undefined || a === undefined) return null;
+  const total = (a ?? b)?.totalM ?? null;
+  if (!total) return null;
+  const from = b ? b.alongM : 0;
+  const to = a ? a.alongM : total;
+  if (to <= from) return null; // order is the stops' `sequence` to judge, above
+  return Math.min(1, (to - from) / total);
+}
+
+/**
  * ── ONE PRICE FOR ONE SEAT ──────────────────────────────────────────────────
  *
  * BUGFIX ("it was showing I was going to pay 11 cedis and when I confirmed
@@ -319,16 +342,28 @@ function priceSeat(trip, { pickupStopId = null, dropoffStopId = null, dropoff = 
     if (board && alight && alight.sequence <= board.sequence) {
       throw new AppError('Your drop-off stop must come after your pickup stop', 400, 'INVALID_STOP_ORDER');
     }
-    const segment = calculateSegmentFare({
-      fullFarePerSeatPesewas: fareData.farePerPersonPesewas,
-      // Absent stop = the trip's own end. Boarding at the origin and riding
-      // to the destination is ratio 1, i.e. exactly the undiscounted fare.
-      boardLat: board?.lat ?? trip.route.originLat,
-      boardLng: board?.lng ?? trip.route.originLng,
-      alightLat: alight?.lat ?? trip.route.destLat,
-      alightLng: alight?.lng ?? trip.route.destLng,
-      totalRouteKm: trip.route.distanceKm,
-    });
+    /**
+     * ALONG THE ROAD, THE SAME AS A PIN ("it should accurately calculate the
+     * fare based on the distance from the start of the trip to where they are
+     * alighting, so it's super fair"). A stop was priced on the straight line
+     * between the two ends while a pin at the same kerb was priced along the
+     * road — on any route that bends, picking the named stop was cheaper than
+     * dropping a pin on it. Both now measure the road; the straight line is
+     * only the fallback when no road geometry exists.
+     */
+    const roadRatio = routeLine ? alongRouteRatio(routeLine, board, alight) : null;
+    const segment = roadRatio != null
+      ? calculateSegmentFareByRatio({ fullFarePerSeatPesewas: fareData.farePerPersonPesewas, ratio: roadRatio })
+      : calculateSegmentFare({
+          fullFarePerSeatPesewas: fareData.farePerPersonPesewas,
+          // Absent stop = the trip's own end. Boarding at the origin and riding
+          // to the destination is ratio 1, i.e. exactly the undiscounted fare.
+          boardLat: board?.lat ?? trip.route.originLat,
+          boardLng: board?.lng ?? trip.route.originLng,
+          alightLat: alight?.lat ?? trip.route.destLat,
+          alightLng: alight?.lng ?? trip.route.destLng,
+          totalRouteKm: trip.route.distanceKm,
+        });
     finalFareAmount = segment.farePerSeatPesewas;
     finalCommission = percentOf(finalFareAmount, commissionRateFor(trip));
     enRouteRatio = segment.ratio;
@@ -368,7 +403,7 @@ async function previewSeatFare(tripId, { pickupStopId = null, dropoffStopId = nu
   });
   if (!trip) throw new NotFoundError('Trip');
   if (!trip.route) throw new AppError('This trip has no route to price against', 400, 'NO_ROUTE');
-  const routeLine = dropoff ? await routeLineForTrip(tripId) : null;
+  const routeLine = dropoff || pickupStopId || dropoffStopId ? await routeLineForTrip(tripId).catch(() => null) : null;
   const priced = priceSeat(trip, { pickupStopId, dropoffStopId, dropoff, joinerPickup, routeLine });
   return {
     farePerSeatPesewas: priced.finalFareAmount,
@@ -385,7 +420,7 @@ async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, payment
   // The road this trip drives, for a free drop-off pin. Fetched BEFORE the
   // serializable transaction: it may be a Mapbox round trip, and a network
   // call inside a Serializable tx is a lock held for the length of the internet.
-  const routeLine = dropoff ? await routeLineForTrip(tripId) : null;
+  const routeLine = dropoff || pickupStopId || dropoffStopId ? await routeLineForTrip(tripId).catch(() => null) : null;
   // Use $transaction with Serializable isolation to prevent race conditions.
   // This ensures two riders can't book the same seat simultaneously and the
   // capacity check races are eliminated.
