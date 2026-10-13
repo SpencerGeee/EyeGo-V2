@@ -2,32 +2,27 @@ import { Easing, Keyframe, useReducedMotion } from 'react-native-reanimated';
 import { useMeasuredPerformanceTier } from '../effects/usePerformanceTier';
 
 /**
- * DEPTH — the booking flow's page turn ("everything should be having a 3D
- * effect that morphs and moves from one stage to the next … one continuous
- * story").
+ * DEPTH — the container half of a stage change.
  *
- * A CARD DECK. Going forward, the page you are on tips back on its hinge and
- * sinks away into the distance while the next one swings up from below and
- * lands flat in front of you. Going back is the same move in reverse: the
- * current card drops away below and the previous one comes back down out of
- * the depth it fell into. Every stage of both apps turns on this one move, so
- * the flow reads as ONE story told card by card, not a set of screens.
+ * ("the stages should transform and move around giving off the high-tech
+ * feel"). The first two passes tipped the whole page on a hinge — measured on
+ * a phone it read as a fancy fade, because one big flat card turning is still
+ * one flat card. The 3D now lives in the ROWS (`Cascade`: each row flies out
+ * of depth and locks in, one after another) and in the hero bus. The container
+ * only does what a container should: the old stage pulls back into the
+ * distance and is gone, the new one rises a little and is simply there for
+ * its rows to land in.
  *
  * Transform and opacity only, so it composites on the UI thread with no
  * layout. `perspective` must be the FIRST transform and every frame must list
  * the same transforms in the same order, or Android drops the 3D and iOS
  * interpolates nonsense.
- *
- * The first pass was 9° and 28 pt — measured on a phone it read as a fade.
- * These numbers are deliberately theatrical; the perspective is deep enough
- * that a full-screen page tipping 24° does not swing its near edge off the
- * sides of the display.
  */
 const P = 1100;
-const RISE = 84;
-const TILT_IN = -24;
-const TILT_OUT = 20;
-const SINK = 0.14;
+const RISE = 22;
+const TILT_IN = 0;
+const TILT_OUT = 12;
+const SINK = 0.12;
 /** Expo-out: the card arrives fast and spends its last frames settling flat. */
 const LAND = Easing.bezier(0.16, 1, 0.3, 1);
 

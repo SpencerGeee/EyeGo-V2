@@ -328,6 +328,9 @@ function sampleRoute(coords: [number, number][] | undefined, max = 24): Coord[] 
   return out;
 }
 
+/** The overview camera's turn per stage — see `overviewBearing`. */
+const STAGE_BEARING: Record<string, number> = { configure: -16, select: 14, request: 0, assigned: -12, tracking: 10 };
+
 function TripMapImpl() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -676,6 +679,12 @@ function TripMapImpl() {
      * share page's number, so the web and the app frame a trip the same way.
      */
     overviewPitch: reduceMotion ? 0 : 50,
+    /**
+     * ONE SHOT PER STAGE ("the stages should transform and move around"). Each
+     * stage frames the journey from its own side, so a stage change is also a
+     * camera swoop — the map moves with the sheet instead of sitting still.
+     */
+    overviewBearing: reduceMotion ? 0 : (STAGE_BEARING[stage as string] ?? 0),
     padding: getPadding,
     active: isFocused,
   });

@@ -109,6 +109,11 @@ export interface UseMapCameraArgs {
    * `TILT_SETTLE_MS` in applyPlan.
    */
   overviewPitch?: number;
+  /**
+   * Turn of the `overview` frame, degrees (0 = north-up). Each stage gets its
+   * own shot; a change re-frames as one swoop with the stage change.
+   */
+  overviewBearing?: number;
 }
 
 export interface MapCamera {
@@ -139,7 +144,7 @@ export function useMapCamera(args: UseMapCameraArgs): MapCamera {
   const {
     mode, fit, center, padding, fitMinSpanDeg,
     publishEveryMs = 400, active = true, fitIncludesPuck = false,
-    autoResumeMs = RESUME_AFTER_MS, route, overviewPitch = 0,
+    autoResumeMs = RESUME_AFTER_MS, route, overviewPitch = 0, overviewBearing = 0,
   } = args;
 
   const cameraRef = useRef<any>(null);
@@ -185,8 +190,9 @@ export function useMapCamera(args: UseMapCameraArgs): MapCamera {
   const fitIncludesPuckRef = useRef(fitIncludesPuck);
   fitIncludesPuckRef.current = fitIncludesPuck;
   // Read by the frame loop; a ref so changing it never re-arms the loop.
-  const tiltRef = useRef<Tilt>({ want: 0, applied: 0, paddingKey: '', stableSince: 0 });
+  const tiltRef = useRef<Tilt>({ want: 0, bearing: 0, applied: 0, paddingKey: '', stableSince: 0 });
   tiltRef.current.want = overviewPitch;
+  tiltRef.current.bearing = overviewBearing;
   const autoResumeMsRef = useRef<number | null>(autoResumeMs);
   autoResumeMsRef.current = autoResumeMs;
 
@@ -426,6 +432,8 @@ export function useMapCamera(args: UseMapCameraArgs): MapCamera {
  */
 interface Tilt {
   want: number;
+  /** The overview's bearing for this stage — see `overviewBearing`. */
+  bearing: number;
   applied: number;
   paddingKey: string;
   stableSince: number;
@@ -461,7 +469,7 @@ function applyPlan(
     if (paddingKey !== tilt.paddingKey) { tilt.paddingKey = paddingKey; tilt.stableSince = now; }
     const tiltDue = tilt.want !== tilt.applied && now - tilt.stableSince >= TILT_SETTLE_MS && now >= fitSettlesAtRef.current;
     const pitch = tiltDue ? tilt.want : tilt.applied;
-    const key = `${overviewKey(plan.bounds, padding)}|${pitch}`;
+    const key = `${overviewKey(plan.bounds, padding)}|${pitch}|${tilt.bearing}`;
     if (key === lastOverviewKeyRef.current) return;
 
     const stageChanged = paddingKey !== lastPaddingKeyRef.current;
@@ -530,7 +538,7 @@ function applyPlan(
       duration > 0,
       // North-up, at the stage's tilt (flat unless it asked). Without an
       // explicit pitch a fit after the search orbit kept its tilt and turn.
-      { bearing: 0, pitch },
+      { bearing: tilt.bearing, pitch },
     );
     return;
   }

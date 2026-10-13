@@ -7,6 +7,7 @@ import { GlassSurface } from '../effects/GlassSurface';
 import { MorphSheet } from '../panel/MorphSheet';
 import { useSheetSlots } from './sheetSlot';
 import { depthIncoming, depthOutgoing, useDepthMotion, type DepthDirection } from '../motion/depth';
+import { StageSweep } from '../motion/Cascade';
 
 /**
  * The one sheet, hosted above every stage.
@@ -104,6 +105,13 @@ export function MapSheetHost<TStage extends string = string>({
    * The panel bodies now turn on the same card-deck move as the pages.
    */
   const depthOn = useDepthMotion();
+  // The same direction on the JS side, for the edge sweep.
+  const sweepDir: 1 | -1 = useMemo(() => {
+    if (!previous) return 1;
+    const a = stageOrder?.indexOf(previous) ?? -1;
+    const b = stageOrder?.indexOf(current) ?? -1;
+    return a >= 0 && b >= 0 && b < a ? -1 : 1;
+  }, [current, previous, stageOrder]);
   const incomingStyle = useAnimatedStyle(
     () => (depthOn ? depthIncoming(swap.value, dir.value) : { opacity: swap.value }),
     [depthOn],
@@ -141,9 +149,11 @@ export function MapSheetHost<TStage extends string = string>({
         {chrome.aurora != null ? (
           <CardAuroraGlow color={auroraColor} intensity={chrome.aurora} reach={0.5} />
         ) : null}
+        {/* The light that runs along the top edge as a new stage locks in. */}
+        <StageSweep trigger={String(current)} dir={sweepDir} color={auroraColor} />
       </>
     ),
-    [chrome.glass, chrome.radius, chrome.aurora, auroraColor],
+    [chrome.glass, chrome.radius, chrome.aurora, auroraColor, current, sweepDir],
   );
 
   if (retired || currentNode == null) return null;
