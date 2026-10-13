@@ -8,7 +8,7 @@ export { ColorsProvider, useThemedColors } from './ColorsContext';
 
 // Inputs & Forms
 export { Button } from './Button';
-export { OutcomeSheet, type OutcomeSheetProps } from './OutcomeSheet';
+export { OutcomeSheet, type OutcomeSheetProps, type OutcomeRow } from './OutcomeSheet';
 export { Input } from './Input';
 export { OTPInput } from './OTPInput';
 export type { OTPInputRef } from './OTPInput';

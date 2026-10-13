@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react';
-import { BackHandler, Modal, StyleSheet, View } from 'react-native';
+import { BackHandler, Modal, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
@@ -48,6 +48,24 @@ export interface OutcomeSheetProps {
    * the top layer, so a View is all this needs there.
    */
   inline?: boolean;
+  /**
+   * SEVERAL THINGS HAPPENED — ONE SHEET, NOT A CHAIN OF THEM.
+   *
+   * BUGFIX ("it seems to be showing the same away outcome … it should've shown
+   * once appropriately"). Four facts from one absence used to be four sheets in
+   * a row, three of them the same headline. With `rows` the sheet is a digest:
+   * the headline is the absence, each row one fact that opens where it leads.
+   */
+  rows?: OutcomeRow[] | null;
+}
+
+export interface OutcomeRow {
+  key: string;
+  icon: IconName;
+  tone: 'bad' | 'neutral' | 'good';
+  title: string;
+  body: string;
+  onPress?: () => void;
 }
 
 /**
@@ -73,6 +91,7 @@ export function OutcomeSheet({
   secondary,
   onDismiss,
   inline = false,
+  rows = null,
 }: OutcomeSheetProps) {
   const colors = useThemedColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -161,6 +180,33 @@ export function OutcomeSheet({
 
           <Text style={styles.title}>{title}</Text>
           <Text style={styles.body}>{body}</Text>
+
+          {rows?.length ? (
+            <ScrollView style={styles.rows} contentContainerStyle={{ gap: spacing.xs }} bounces={false}>
+              {rows.map((r) => {
+                const c = r.tone === 'bad' ? colors.error : r.tone === 'good' ? colors.statusSuccess : colors.primary;
+                return (
+                  <Pressable
+                    key={r.key}
+                    onPress={r.onPress}
+                    disabled={!r.onPress}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${r.title}. ${r.body}`}
+                    style={[styles.row, { borderColor: colors.outline }]}
+                  >
+                    <View style={[styles.rowIcon, { backgroundColor: withOpacity(c, 0.14) }]}>
+                      <Ionicons name={r.icon} size={18} color={c} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.rowTitle} numberOfLines={1}>{r.title}</Text>
+                      <Text style={styles.rowBody} numberOfLines={2}>{r.body}</Text>
+                    </View>
+                    {r.onPress ? <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} /> : null}
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          ) : null}
 
           {money ? (
             <View style={[styles.moneyRow, { borderColor: colors.outline }]}>
@@ -281,4 +327,18 @@ const makeStyles = (colors: ColorTokens) =>
     primaryText: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodyLarge },
     secondary: { minHeight: 44, justifyContent: 'center', paddingHorizontal: spacing.xl },
     secondaryText: { fontFamily: fonts.medium, fontSize: fontSizes.bodyMedium },
+    rows: { alignSelf: 'stretch', maxHeight: 300 },
+    row: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.md,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.md,
+      borderRadius: radii.lg,
+      borderWidth: StyleSheet.hairlineWidth,
+      backgroundColor: withOpacity(colors.onSurface, 0.04),
+    },
+    rowIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+    rowTitle: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodyMedium, color: colors.onSurface },
+    rowBody: { fontFamily: fonts.regular, fontSize: fontSizes.bodySmall, lineHeight: 17, color: colors.onSurfaceVariant, marginTop: 2 },
   });

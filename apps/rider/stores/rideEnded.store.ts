@@ -96,6 +96,8 @@ export interface RideEndedNotice {
   preview?: string | null;
   /** Set when raised, so a notice cannot outlive the session that made it. */
   atMs: number;
+  /** Which ride (trip or scheduled intent) this is about — the digest's grouping key. */
+  rideKey?: string | null;
 }
 
 type RaiseInput = Omit<RideEndedNotice, 'atMs' | 'journey'> & { journey?: RideEndedJourney | null };
@@ -105,9 +107,27 @@ interface RideEndedState {
   queue: RideEndedNotice[];
   /** Live path: shown now, last one wins. Marks its trip as told. */
   raise: (n: RaiseInput) => void;
-  /** Away feed: shown after whatever is on screen. */
+  /** Away feed: shown after whatever is on screen. Two or more facts become ONE digest. */
   enqueue: (list: RaiseInput[]) => void;
   clear: () => void;
+  /** Everything one absence brought, told on one sheet. */
+  digest: RideEndedNotice[] | null;
+  clearDigest: () => void;
+}
+
+/**
+ * One row per ride, newest first (the feed is sorted newest first). A seat
+ * hold that ran out and the trip it belonged to expiring are one piece of
+ * news about one ride, not two.
+ */
+export function groupByRide<T extends { rideKey?: string | null }>(list: T[]): T[] {
+  const seen = new Set<string>();
+  return list.filter((n) => {
+    if (!n.rideKey) return true;
+    if (seen.has(n.rideKey)) return false;
+    seen.add(n.rideKey);
+    return true;
+  });
 }
 
 /**
@@ -154,10 +174,14 @@ export const useRideEnded = create<RideEndedState>((set) => ({
   },
   enqueue: (list) =>
     set((s) => {
-      const queued = [...s.queue, ...list.map((n) => ({ ...n, journey: n.journey ?? null, atMs: Date.now() }))];
+      const fresh = groupByRide(list.map((n) => ({ ...n, journey: n.journey ?? null, atMs: Date.now() })));
+      if (fresh.length >= 2) return { digest: groupByRide([...fresh, ...(s.digest ?? [])]) };
+      const queued = [...s.queue, ...fresh];
       return s.notice ? { queue: queued } : { notice: queued[0] ?? null, queue: queued.slice(1) };
     }),
   clear: () => set((s) => ({ notice: s.queue[0] ?? null, queue: s.queue.slice(1) })),
+  digest: null,
+  clearDigest: () => set({ digest: null }),
 }));
 
 /**

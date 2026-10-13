@@ -193,6 +193,7 @@ export function noticeOf(o: AwayOutcome): RideEndedNotice {
     ticketId: o.ticketId ?? null,
     preview: o.preview ?? null,
     atMs: Date.now(),
+    rideKey: o.tripId ?? (o.intentId ? `intent:${o.intentId}` : null),
   };
 }
 
@@ -209,63 +210,104 @@ function moneyFor(n: RideEndedNotice): { icon: Icon; text: string; good?: boolea
     : { icon: 'shield-checkmark-outline', text: 'You have not been charged for this trip.' };
 }
 
+/**
+ * "FIND ANOTHER DRIVER" MUST FIND ANOTHER DRIVER.
+ *
+ * BUGFIX ("when the ride was marked as no-show there was an option that said
+ * find another rider — but when I clicked on it, it brought me to the search
+ * stage"). With the journey carried out of the terminal event there is
+ * nothing left to ask: re-seed the ride store and land on `request`, which
+ * prices and dispatches on mount. `search` is the honest fallback when no
+ * journey survived (an ending learned after a cold start).
+ */
+function rebook(notice: RideEndedNotice) {
+  const journey = notice.journey;
+  if (journey?.origin && journey?.destination) {
+    const ride = useRideStore.getState();
+    ride.setOrigin(journey.origin);
+    ride.setDestination(journey.destination);
+    if (journey.seatCount > 1) ride.setRequestSeats(journey.seatCount, ride.requestCoverAll);
+    goDeeper('/trip?stage=request' as never);
+    return;
+  }
+  goDeeper('/trip?stage=search' as never);
+}
+
+/** Where one notice leads — the sheet's primary action and a digest row's tap. */
+function openNotice(notice: RideEndedNotice) {
+  const tripId = notice.tripId ?? null;
+  const bookingQs = notice.bookingId ? `?bookingId=${notice.bookingId}` : '';
+  switch (notice.reason) {
+    case 'COMPLETED':
+      if (tripId) return goDeeper(`/ride/${tripId}/complete${bookingQs}` as never);
+      return;
+    case 'SCHEDULED_MATCHED':
+      if (tripId) return goDeeper(`/trip?stage=assigned&tripId=${tripId}` as never);
+      return goDeeper('/scheduled-rides' as never);
+    case 'SEAT_RELEASED':
+      if (tripId) return goDeeper(`/ride/${tripId}` as never);
+      return rebook(notice);
+    case 'REFUND_ISSUED':
+      if (tripId) return goDeeper(`/ride/${tripId}/complete?viewOnly=1${notice.bookingId ? `&bookingId=${notice.bookingId}` : ''}` as never);
+      return;
+    case 'SUPPORT_REPLY':
+      return goDeeper(`/profile/help${notice.ticketId ? `?ticket=${notice.ticketId}` : ''}` as never);
+    case 'MONEY_RECEIVED':
+    case 'CASH_CHANGE':
+    case 'REFERRAL_REWARD':
+      return goDeeper('/profile/wallet' as never);
+    default:
+      return rebook(notice);
+  }
+}
+
+/** Everything one absence brought, on one sheet — see OutcomeSheet `rows`. */
+function DigestSheet({ list, onDone }: { list: RideEndedNotice[]; onDone: () => void }) {
+  const rows = list
+    .filter((n) => shouldAnnounce(n.reason))
+    .map((n, i) => {
+      const c = copyFor(n);
+      return {
+        key: `${n.reason}:${n.rideKey ?? i}`,
+        icon: c.icon,
+        tone: c.tone,
+        title: c.title,
+        // The place tells two "seat hold ran out" rows apart at a glance.
+        body: n.destinationLabel ?? c.body,
+        onPress: () => { onDone(); openNotice(n); },
+      };
+    });
+  const bad = rows.some((r) => r.tone === 'bad');
+  return (
+    <OutcomeSheet
+      visible
+      icon="time-outline"
+      tone={bad ? 'bad' : 'neutral'}
+      title="While you were away"
+      body={`${rows.length} updates about your rides. Tap one to open it.`}
+      rows={rows}
+      primary={{ label: 'Got it', onPress: onDone }}
+      onDismiss={onDone}
+    />
+  );
+}
+
 export function RideEndedSheet() {
   const notice = useRideEnded((s) => s.notice);
   const clear = useRideEnded((s) => s.clear);
+  const digest = useRideEnded((s) => s.digest);
+  const clearDigest = useRideEnded((s) => s.clearDigest);
 
+  // A live ending in progress is told first; the digest waits behind it.
+  if (!notice && digest?.length) return <DigestSheet list={digest} onDone={clearDigest} />;
   if (!notice || !shouldAnnounce(notice.reason)) return null;
 
   const copy = copyFor(notice);
   const tripId = notice.tripId ?? null;
-  const bookingQs = notice.bookingId ? `?bookingId=${notice.bookingId}` : '';
-
-  /**
-   * "FIND ANOTHER DRIVER" MUST FIND ANOTHER DRIVER.
-   *
-   * BUGFIX ("when the ride was marked as no-show there was an option that said
-   * find another rider — but when I clicked on it, it brought me to the search
-   * stage"). With the journey carried out of the terminal event there is
-   * nothing left to ask: re-seed the ride store and land on `request`, which
-   * prices and dispatches on mount. `search` is the honest fallback when no
-   * journey survived (an ending learned after a cold start).
-   */
-  const rebook = () => {
-    const journey = notice.journey;
-    if (journey?.origin && journey?.destination) {
-      const ride = useRideStore.getState();
-      ride.setOrigin(journey.origin);
-      ride.setDestination(journey.destination);
-      if (journey.seatCount > 1) ride.setRequestSeats(journey.seatCount, ride.requestCoverAll);
-      goDeeper('/trip?stage=request' as never);
-      return;
-    }
-    goDeeper('/trip?stage=search' as never);
-  };
 
   const primary = () => {
     clear();
-    switch (notice.reason) {
-      case 'COMPLETED':
-        if (tripId) return goDeeper(`/ride/${tripId}/complete${bookingQs}` as never);
-        return;
-      case 'SCHEDULED_MATCHED':
-        if (tripId) return goDeeper(`/trip?stage=assigned&tripId=${tripId}` as never);
-        return goDeeper('/scheduled-rides' as never);
-      case 'SEAT_RELEASED':
-        if (tripId) return goDeeper(`/ride/${tripId}` as never);
-        return rebook();
-      case 'REFUND_ISSUED':
-        if (tripId) return goDeeper(`/ride/${tripId}/complete?viewOnly=1${notice.bookingId ? `&bookingId=${notice.bookingId}` : ''}` as never);
-        return;
-      case 'SUPPORT_REPLY':
-        return goDeeper(`/profile/help${notice.ticketId ? `?ticket=${notice.ticketId}` : ''}` as never);
-      case 'MONEY_RECEIVED':
-      case 'CASH_CHANGE':
-      case 'REFERRAL_REWARD':
-        return goDeeper('/profile/wallet' as never);
-      default:
-        return rebook();
-    }
+    openNotice(notice);
   };
 
   // A rider marked absent who WAS there needs a way to say so, right here.

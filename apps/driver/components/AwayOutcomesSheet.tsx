@@ -212,6 +212,40 @@ export function AwayOutcomesSheet() {
     return () => sub.remove();
   }, []);
 
+  /*
+   * Two or more facts from one absence are ONE sheet, one row per trip — not a
+   * chain of sheets with the same headline (the rider app's bug, same shape).
+   */
+  if (queue.length >= 2) {
+    const seenTrip = new Set<string>();
+    const rows = queue.flatMap((o) => {
+      const pr = present(o);
+      if (!pr) return [];
+      if (o.tripId && o.kind !== 'SEATS_CHANGED') {
+        if (seenTrip.has(o.tripId)) return [];
+        seenTrip.add(o.tripId);
+      }
+      return [{
+        key: o.key, icon: pr.icon, tone: pr.tone, title: pr.title, body: pr.body,
+        onPress: () => { setQueue([]); if (pr.go) goDeeper(pr.go); },
+      }];
+    });
+    const done = () => setQueue([]);
+    return (
+      <OutcomeSheet
+        visible
+        icon="time-outline"
+        tone={rows.some((r) => r.tone === 'bad') ? 'bad' : 'neutral'}
+        title="While you were away"
+        body={`${rows.length} updates. Tap one to open it.`}
+        rows={rows}
+        primary={{ label: 'Got it', onPress: done }}
+        onDismiss={done}
+        inline
+      />
+    );
+  }
+
   const current = queue[0];
   const p = current ? present(current) : null;
   if (!current || !p) return null;
