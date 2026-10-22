@@ -99,12 +99,13 @@ export type { PanelSheetProps, InlayPanelProps, PanelState, PanelSnapPoints, Pan
 export {
   MorphSheet,
   MORPH_SHEET_SPRING,
+  SnapSheet,
   SheetMetricsProvider,
   useSheetMetrics,
   useCreateSheetMetrics,
   createSheetMetrics,
 } from './panel';
-export type { MorphSheetProps, SheetMetrics } from './panel';
+export type { MorphSheetProps, SnapSheetProps, SheetMetrics } from './panel';
 export { MorphCTA } from './MorphCTA';
 export type { MorphCTAProps } from './MorphCTA';
 export {

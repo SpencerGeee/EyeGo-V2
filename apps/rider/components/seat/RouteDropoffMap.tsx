@@ -53,6 +53,15 @@ export interface RouteDropoffMapProps {
   destinationName?: string | null;
   /** True while a finger is on the map — the page stops scrolling so the pan reaches it. */
   onInteract?: (active: boolean) => void;
+  /**
+   * `screen`: the map IS the page — full-bleed, tilted, with a close button.
+   * The seat page opens it this way; a pannable map inside a dragging sheet
+   * fights the sheet for every vertical swipe.
+   */
+  variant?: 'card' | 'screen';
+  onClose?: () => void;
+  /** Safe-area insets for the `screen` variant's chrome. */
+  insets?: { top: number; bottom: number };
 }
 
 function haversineM(aLat: number, aLng: number, bLat: number, bLng: number): number {
@@ -130,7 +139,11 @@ export function RouteDropoffMap({
   colors,
   destinationName,
   onInteract,
+  variant = 'card',
+  onClose,
+  insets = { top: 0, bottom: 0 },
 }: RouteDropoffMapProps) {
+  const screen = variant === 'screen';
   const cameraRef = useRef<CameraRef | null>(null);
   const line = useMemo(() => (Array.isArray(route) ? route.filter(isUsableCoord) : []), [route]);
   const mid = useMemo(() => midpointOf(line), [line]);
@@ -164,13 +177,15 @@ export function RouteDropoffMap({
       const cam = cameraRef.current;
       if (!cam) return;
       if (value) {
-        cam.setCamera({ centerCoordinate: [value.longitude, value.latitude], zoomLevel: 15, animationDuration: 0 });
+        cam.setCamera({ centerCoordinate: [value.longitude, value.latitude], zoomLevel: 15, pitch: screen ? 45 : 0, animationDuration: 0 });
         return;
       }
       const box = boundsFor([...line, ...[origin, destination].filter(isUsableCoord)]);
-      if (box) cam.fitBounds([box.ne, box.sw], { top: 48, bottom: 48, left: 40, right: 40 }, false);
-      // Same zoom, re-centred on the road so the pin begins ON the route.
-      if (mid) setTimeout(() => cameraRef.current?.setCamera({ centerCoordinate: mid, animationDuration: 0 }), 40);
+      const pad = screen ? { top: insets.top + 90, bottom: insets.bottom + 190, left: 40, right: 40 } : { top: 48, bottom: 48, left: 40, right: 40 };
+      if (box) cam.fitBounds([box.ne, box.sw], pad, false, { bearing: 0, pitch: 0 });
+      // Same zoom, re-centred on the road so the pin begins ON the route — and,
+      // full-screen, tilted into the city like the share page.
+      if (mid) setTimeout(() => cameraRef.current?.setCamera({ centerCoordinate: mid, pitch: screen ? 45 : 0, animationDuration: screen ? 700 : 0 }), 40);
     };
     const timers = [120, 420, 900].map((ms) => setTimeout(frame, ms));
     return () => timers.forEach(clearTimeout);
@@ -241,18 +256,11 @@ export function RouteDropoffMap({
     [line],
   );
 
+  const Frame = screen ? ScreenFrame : CardFrame;
   return (
-    <GradientGlowBorder
-      palette="brandGreen"
-      fillColor={colors.surfaceCard}
-      borderRadius={radii.xl}
-      thickness="thin"
-      glow
-      glowIntensity={0.5}
-      maxGlowRadius={12}
-    >
+    <Frame fill={colors.surfaceCard}>
       <View
-        style={styles.wrap}
+        style={screen ? StyleSheet.absoluteFill : styles.wrap}
         // The page scrolls; a vertical pan on the map must move the map.
         onTouchStart={() => onInteract?.(true)}
         onTouchEnd={() => onInteract?.(false)}
@@ -266,7 +274,7 @@ export function RouteDropoffMap({
           compassEnabled={false}
           scaleBarEnabled={false}
           rotateEnabled={false}
-          pitchEnabled={false}
+          pitchEnabled={screen}
           onRegionDidChange={(e) => {
             const c = e?.geometry?.coordinates;
             if (Array.isArray(c) && c.length === 2) setCentre([c[0], c[1]]);
@@ -315,7 +323,18 @@ export function RouteDropoffMap({
           <Ionicons name="location" size={34} color={onRoute ? accent : colors.error} style={styles.crosshairGlyph} />
         </View>
 
-        <View style={styles.chrome} pointerEvents="box-none">
+        {screen && onClose ? (
+          <Pressable
+            onPress={onClose}
+            accessibilityRole="button"
+            accessibilityLabel="Close the drop-off map"
+            style={[styles.close, { top: insets.top + spacing.sm, backgroundColor: colors.surfaceCard }]}
+          >
+            <Ionicons name="close" size={20} color={colors.onSurface} />
+          </Pressable>
+        ) : null}
+
+        <View style={[styles.chrome, screen && { left: spacing.base, right: spacing.base, bottom: insets.bottom + spacing.base }]} pointerEvents="box-none">
           <View style={styles.hint}>
             <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii.lg} intensity="low" />
             <Text variant="caption" color={onRoute ? colors.onSurface : colors.error} numberOfLines={2}>
@@ -358,8 +377,20 @@ export function RouteDropoffMap({
           </View>
         </View>
       </View>
+    </Frame>
+  );
+}
+
+function CardFrame({ fill, children }: { fill: string; children: React.ReactNode }) {
+  return (
+    <GradientGlowBorder palette="brandGreen" fillColor={fill} borderRadius={radii.xl} thickness="thin" glow glowIntensity={0.5} maxGlowRadius={12}>
+      {children}
     </GradientGlowBorder>
   );
+}
+
+function ScreenFrame({ fill, children }: { fill: string; children: React.ReactNode }) {
+  return <View style={[StyleSheet.absoluteFill, { backgroundColor: fill }]}>{children}</View>;
 }
 
 const styles = StyleSheet.create({
@@ -389,6 +420,15 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.35)',
   },
   btnPrimary: {},
+  close: {
+    position: 'absolute',
+    left: spacing.base,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   btnText: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodySmall },
   endDot: { width: 12, height: 12, borderRadius: 6, borderWidth: 2.5, backgroundColor: '#0A0D14' },
   endPin: { width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#fff' },

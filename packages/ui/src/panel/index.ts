@@ -14,3 +14,5 @@ export {
   createSheetMetrics,
 } from './sheetMetrics';
 export type { SheetMetrics } from './sheetMetrics';
+export { SnapSheet } from './SnapSheet';
+export type { SnapSheetProps } from './SnapSheet';
