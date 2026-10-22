@@ -116,7 +116,7 @@ export {
 } from './motion/layoutTransitions';
 export { depthIncoming, depthOutgoing, depthEnter, depthEnterAfter, depthEnterBack, depthExit, useDepthMotion } from './motion/depth';
 export type { DepthDirection } from './motion/depth';
-export { Cascade, StageSweep, stageRow, type CascadeStrength } from './motion/Cascade';
+export { Cascade, type CascadeStrength } from './motion/Cascade';
 export { useSnapCard } from './motion/useSnapCard';
 
 /**

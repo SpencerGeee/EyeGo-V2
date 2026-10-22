@@ -1,13 +1,13 @@
 import React, { useEffect, useMemo } from 'react';
 import { StyleSheet, type ViewStyle } from 'react-native';
-import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
-import { springs, spacing } from '@eyego/config';
+import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import { spacing } from '@eyego/config';
 import { CardAuroraGlow } from '../effects/CardAuroraGlow';
 import { GlassSurface } from '../effects/GlassSurface';
 import { MorphSheet } from '../panel/MorphSheet';
 import { useSheetSlots } from './sheetSlot';
 import { depthIncoming, depthOutgoing, useDepthMotion, type DepthDirection } from '../motion/depth';
-import { Cascade, StageSweep } from '../motion/Cascade';
+
 
 /**
  * The one sheet, hosted above every stage.
@@ -100,25 +100,16 @@ export function MapSheetHost<TStage extends string = string>({
     const b = stageOrder?.indexOf(current) ?? -1;
     dir.value = a >= 0 && b >= 0 && b < a ? -1 : 1;
     swap.value = 0;
-    swap.value = withSpring(1, springs.morph);
+    swap.value = withTiming(1, { duration: 320, easing: Easing.linear });
   }, [current, previous, swap, dir, stageOrder]);
 
   /**
-   * BUGFIX ("the rest don't do anything … it needs to be morphing from one
-   * stage to the next"). Every panel the rider and driver actually read lives
-   * in THIS sheet, and the swap here was an opacity crossfade — so while the
-   * map-level chrome turned in 3D, the card you were looking at just faded.
-   * The panel bodies now turn on the same card-deck move as the pages.
+   * ONE MOVE PER STAGE CHANGE ("the morph from driver-is-here to arriving-in
+   * is bad and laggy"). The sheet resizes on its own spring (MorphSheet) while
+   * the panel fades through on one axis — the old body gone in the first third,
+   * the new one rising in after it. No 3D turn, no row cascade, no edge sweep.
    */
   const depthOn = useDepthMotion();
-  const live = !!liveStages?.includes(current);
-  // The same direction on the JS side, for the edge sweep and the row cascade.
-  const sweepDir: 1 | -1 = useMemo(() => {
-    if (!previous) return 1;
-    const a = stageOrder?.indexOf(previous) ?? -1;
-    const b = stageOrder?.indexOf(current) ?? -1;
-    return a >= 0 && b >= 0 && b < a ? -1 : 1;
-  }, [current, previous, stageOrder]);
   const incomingStyle = useAnimatedStyle(
     () => (depthOn ? depthIncoming(swap.value, dir.value) : { opacity: swap.value }),
     [depthOn],
@@ -156,11 +147,9 @@ export function MapSheetHost<TStage extends string = string>({
         {chrome.aurora != null ? (
           <CardAuroraGlow color={auroraColor} intensity={chrome.aurora} reach={0.5} />
         ) : null}
-        {/* The light that runs along the top edge as a new stage locks in. */}
-        <StageSweep trigger={String(current)} dir={sweepDir} color={auroraColor} dim={live} />
       </>
     ),
-    [chrome.glass, chrome.radius, chrome.aurora, auroraColor, current, sweepDir, live],
+    [chrome.glass, chrome.radius, chrome.aurora, auroraColor],
   );
 
   if (retired || currentNode == null) return null;
@@ -178,12 +167,8 @@ export function MapSheetHost<TStage extends string = string>({
       grabberColor={grabberColor}
       ghost={ghostNode ? <Animated.View style={ghostStyle}>{ghostNode}</Animated.View> : null}
     >
-      <Animated.View style={incomingStyle}>
-        {/* Keyed on the stage: every change re-assembles the panel row by row. */}
-        <Cascade key={String(current)} dir={sweepDir} strength={live ? 'live' : 'full'}>
-          {currentNode}
-        </Cascade>
-      </Animated.View>
+      {/* One fade-through for the whole panel — see depth.ts. */}
+      <Animated.View style={incomingStyle}>{currentNode}</Animated.View>
     </MorphSheet>
   );
 }

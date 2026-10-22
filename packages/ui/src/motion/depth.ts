@@ -2,29 +2,24 @@ import { Easing, Keyframe, useReducedMotion } from 'react-native-reanimated';
 import { useMeasuredPerformanceTier } from '../effects/usePerformanceTier';
 
 /**
- * DEPTH — the container half of a stage change.
+ * ── A STAGE CHANGE IS A FADE-THROUGH ON ONE AXIS ────────────────────────────
  *
- * ("the stages should transform and move around giving off the high-tech
- * feel"). The first two passes tipped the whole page on a hinge — measured on
- * a phone it read as a fancy fade, because one big flat card turning is still
- * one flat card. The 3D now lives in the ROWS (`Cascade`: each row flies out
- * of depth and locks in, one after another) and in the hero bus. The container
- * only does what a container should: the old stage pulls back into the
- * distance and is gone, the new one rises a little and is simply there for
- * its rows to land in.
+ * REPLACED the 3D card-deck turn (perspective, tilt, sink) that every step of
+ * both apps used. On a phone it read as heavy and laggy ("the morph from
+ * driver-is-here to arriving-in is bad and laggy") and it was one of five
+ * motion systems stacked on the same transition.
  *
- * Transform and opacity only, so it composites on the UI thread with no
- * layout. `perspective` must be the FIRST transform and every frame must list
- * the same transforms in the same order, or Android drops the 3D and iOS
- * interpolates nonsense.
+ * This is Material's shared-axis / fade-through, which is also what Uber and
+ * Bolt do inside their sheets: the old content leaves fast (fades and lifts a
+ * few points), the new content waits for it, then rises a few points and
+ * fades in. Short, calm, transform + opacity only — nothing to lay out, nothing
+ * a busy JS thread can stall. The names are kept so every caller switches at once.
  */
-const P = 1100;
-const RISE = 22;
-const TILT_IN = 0;
-const TILT_OUT = 12;
-const SINK = 0.12;
-/** Expo-out: the card arrives fast and spends its last frames settling flat. */
-const LAND = Easing.bezier(0.16, 1, 0.3, 1);
+const RISE = 10;
+const LIFT = 6;
+/** Material's emphasized-decelerate: arrives quickly, settles softly, never overshoots. */
+const IN = Easing.bezier(0.05, 0.7, 0.1, 1);
+const OUT = Easing.bezier(0.3, 0, 0.8, 0.15);
 
 /** Forward (+1) or back (−1) through a flow. */
 export type DepthDirection = 1 | -1;
@@ -34,84 +29,53 @@ const clamp01 = (v: number) => {
   return v < 0 ? 0 : v > 1 ? 1 : v;
 };
 
-/** Incoming page for a 0→1 progress. Worklet. */
+/** Incoming content for a 0→1 progress: waits for the outgoing, then rises in. Worklet. */
 export function depthIncoming(progress: number, dir: number = 1) {
   'worklet';
-  const p = clamp01(progress);
-  const q = 1 - p;
+  const p = clamp01((progress - 0.3) / 0.7);
   return {
-    opacity: clamp01(p * 1.7),
-    transform: [
-      { perspective: P },
-      // Forward: up from below, top edge leaning toward you. Back: down from
-      // the depth above, top edge leaning away — where the old card went.
-      { translateY: q * (dir >= 0 ? RISE : -RISE * 0.7) },
-      { rotateX: `${q * (dir >= 0 ? TILT_IN : TILT_OUT)}deg` },
-      { scale: 1 - q * (dir >= 0 ? 0.08 : SINK) },
-    ],
+    opacity: p,
+    transform: [{ translateY: (1 - p) * (dir >= 0 ? RISE : -RISE) }],
   };
 }
 
-/** Outgoing page for the same progress. Worklet. */
+/** Outgoing content for the same progress: gone in the first third. Worklet. */
 export function depthOutgoing(progress: number, dir: number = 1) {
   'worklet';
-  const p = clamp01(progress);
+  const p = clamp01(progress / 0.3);
   return {
-    opacity: clamp01(1 - p * 1.6),
-    transform: [
-      { perspective: P },
-      { translateY: p * (dir >= 0 ? -RISE * 0.55 : RISE) },
-      { rotateX: `${p * (dir >= 0 ? TILT_OUT : TILT_IN)}deg` },
-      { scale: 1 - p * (dir >= 0 ? SINK : 0.06) },
-    ],
+    opacity: 1 - p,
+    transform: [{ translateY: p * (dir >= 0 ? -LIFT : LIFT) }],
   };
 }
 
-const flat = { opacity: 1, transform: [{ perspective: P }, { translateY: 0 }, { rotateX: '0deg' }, { scale: 1 }] };
-
-const enterFrames = () => ({
-  0: { opacity: 0, transform: [{ perspective: P }, { translateY: RISE }, { rotateX: `${TILT_IN}deg` }, { scale: 0.92 }] },
-  100: { ...flat, easing: LAND },
+const enterFrames = (dy: number) => ({
+  0: { opacity: 0, transform: [{ translateY: dy }] },
+  // The hold is the "through": the old content is leaving during it.
+  30: { opacity: 0, transform: [{ translateY: dy }] },
+  100: { opacity: 1, transform: [{ translateY: 0 }], easing: IN },
 });
 
-/** A step inside one stage arriving FORWARD: swings up from below and lands flat. */
-export const depthEnter = new Keyframe(enterFrames()).duration(640);
+/** A step arriving forward. */
+export const depthEnter = new Keyframe(enterFrames(RISE)).duration(340);
 
-/**
- * The forward entrance held back `ms` — a NEW instance every call. Never write
- * `depthEnter.delay(…)`: Keyframe's builders mutate and return `this`, so that
- * would delay every other user of the shared one too. Memoise the result.
- */
-export const depthEnterAfter = (ms: number) => new Keyframe(enterFrames()).duration(640).delay(ms);
+/** The forward entrance held back `ms` — a NEW instance every call (Keyframe builders mutate). */
+export const depthEnterAfter = (ms: number) => new Keyframe(enterFrames(RISE)).duration(340).delay(ms);
 
-/** A step arriving BACK: comes down out of the depth the forward move sent it into. */
-export const depthEnterBack = new Keyframe({
-  0: { opacity: 0, transform: [{ perspective: P }, { translateY: -RISE * 0.7 }, { rotateX: `${TILT_OUT}deg` }, { scale: 1 - SINK }] },
-  100: { ...flat, easing: LAND },
-}).duration(600);
+/** A step arriving back. */
+export const depthEnterBack = new Keyframe(enterFrames(-RISE)).duration(340);
 
-/**
- * A step leaving. Direction-neutral ON PURPOSE: Reanimated reads `exiting` from
- * the element's LAST render, which happened before anyone knew which way the
- * next step goes. Tipping back and sinking straight away reads right for both.
- */
+/** A step leaving. Direction-neutral: `exiting` reads the element's last render. */
 export const depthExit = new Keyframe({
-  0: flat,
-  100: {
-    opacity: 0,
-    transform: [{ perspective: P }, { translateY: -RISE * 0.3 }, { rotateX: `${TILT_OUT * 0.8}deg` }, { scale: 1 - SINK }],
-    easing: Easing.in(Easing.cubic),
-  },
-}).duration(340);
+  0: { opacity: 1, transform: [{ translateY: 0 }] },
+  100: { opacity: 0, transform: [{ translateY: -LIFT }], easing: OUT },
+}).duration(110);
 
 /**
- * Should the flow turn in 3D on this phone right now?
+ * Should stage changes animate at all on this phone right now?
  *
- * ONE gate for every stage of both apps (it used to be re-derived in six
- * files). Reduce Motion always wins. Otherwise only a device the probe has
- * measured as genuinely struggling — in all three windows, not once during
- * launch — falls back to the flat dissolve. The static shader ceiling (old
- * Android) is NOT consulted: tilting a card costs the GPU nothing.
+ * Reduce Motion always wins; otherwise only a device the probe measured as
+ * genuinely struggling gets the plain dissolve.
  */
 export function useDepthMotion(): boolean {
   const reduce = useReducedMotion();

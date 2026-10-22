@@ -5,7 +5,6 @@ import {
   ScrollView,
   Pressable,
   Platform,
-  useWindowDimensions,
 } from 'react-native';
 import Animated, { FadeIn, useAnimatedProps, useSharedValue, withSpring } from 'react-native-reanimated';
 import Svg, { Circle } from 'react-native-svg';
@@ -77,7 +76,6 @@ export default function CreateTripScreen() {
     setDepartureTime(next);
   };
   const [seats, setSeats] = useState(14);
-  const [published, setPublished] = useState(false);
   /**
    * Each step is a card in the rider's deck: forward, the old step tips back
    * and sinks as the next swings up from below; Back reverses it. Steps used to
@@ -92,7 +90,6 @@ export default function CreateTripScreen() {
     setStepDir(d);
     setStep((s) => s + d);
   };
-  const { width: screenW } = useWindowDimensions();
   const [tier, setTier] = useState<'ECONOMY' | 'COMFORT' | 'PREMIUM'>('ECONOMY');
 
   // Default pickup to the driver's current GPS location — they're typically
@@ -328,17 +325,13 @@ export default function CreateTripScreen() {
       // there right after — the new trip wouldn't appear under Upcoming/Active.
       queryClient.invalidateQueries({ queryKey: ['driver', 'trips', 'all'] });
       queryClient.invalidateQueries({ queryKey: ['driver', 'activeTrip'] });
-      // THE TRIP IS LIVE. The bus pulls away off the right edge before the
-      // screen goes — the publish is seen happening, not just a navigation.
-      setPublished(true);
+      // BUGFIX ("I click create and this morph effect comes on, goes out of
+      // the screen and then shows me the tracking screen"). The bus used to
+      // fly off the right edge for 950 ms before the screen went. Straight to
+      // the trip just published; goFresh closes this modal first, so home is
+      // one back away.
       notify('Trip is live', 'Riders heading your way can book it now.', { tone: 'success' });
-      // To the trip just published, not home ("if I schedule a trip it
-      // shouldn't bring me back to the homepage"). goFresh closes this modal
-      // first, so home is one back away.
-      setTimeout(
-        () => goFresh({ pathname: '/(trip)/active/[id]', params: { id: tripId } }),
-        depthOn ? 950 : 0,
-      );
+      goFresh({ pathname: '/(trip)/active/[id]', params: { id: tripId } });
     },
     onError: (err) => {
       const axiosErr = err as { response?: { data?: { code?: string; message?: string } } };
@@ -849,9 +842,6 @@ export default function CreateTripScreen() {
           loading={publishTrip.isPending}
         />
       </View>
-      {published ? (
-        <HeroBusSlot id="drv-away" size={88} land style={{ position: 'absolute', left: screenW + 60, top: 200 }} />
-      ) : null}
     </SafeAreaView>
     </HeroBusProvider>
   );

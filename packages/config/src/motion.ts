@@ -129,7 +129,9 @@ export const springs = {
    * 510 ms sits under the ~600 ms at which a transition starts costing the user
    * time rather than telling them where they came from.
    */
-  morph: { stiffness: 91, damping: 15.7, mass: 1 },
+  // Critically damped (2·√91 ≈ 19.1). It was 15.7 — ζ ≈ 0.82, a visible
+  // overshoot on a container the size of the screen.
+  morph: { stiffness: 91, damping: 19.1, mass: 1 },
 } as const;
 
 /**
