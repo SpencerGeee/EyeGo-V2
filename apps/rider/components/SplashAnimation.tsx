@@ -1,314 +1,135 @@
 import React, { useCallback, useEffect } from 'react';
-import { Image, StyleSheet, View } from 'react-native';
+import { StyleSheet, View, useWindowDimensions } from 'react-native';
 import Animated, {
-  useSharedValue,
+  Easing,
+  interpolate,
+  Extrapolation,
+  runOnJS,
   useAnimatedStyle,
-  withRepeat,
-  withSequence,
+  useSharedValue,
   withDelay,
   withTiming,
-  Easing,
-  runOnJS,
-  type SharedValue,
-  cancelAnimation,
 } from 'react-native-reanimated';
-import Svg, { Defs, RadialGradient, Stop, Circle } from 'react-native-svg';
+import Svg, { Defs, RadialGradient, Stop, Rect } from 'react-native-svg';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as SplashScreen from 'expo-splash-screen';
-import { fonts, colors, withOpacity, durations, easings } from '@eyego/config';
-import { Text, LensSheen } from '@eyego/ui';
-
-const PRIMARY = colors.primary;
-const BG = colors.backgroundDeep;
-
-// Master timeline (ms). Entrance staggers off these, then the whole surface
-// cross-fades out and hands control back to the router.
-const T_WORDMARK = 420;
-const T_MICROCOPY = 760;
-const T_FADE_OUT = 2000;
-const FADE_MS = 350;
-
-interface Props {
-  onComplete: () => void;
-}
+import { fonts, colors } from '@eyego/config';
+import { Grain } from './intro/Grain';
 
 /**
- * EyeGo rider splash — green "Onyx" adaptation of the design-system v3 mockup.
- * Pure Reanimated (Moti 0.28 misbehaves on Reanimated 4, moti#391), JS-only
- * so it ships over-the-air. The first painted pixel is BG (#0A0A0B), identical
- * to app.json's native splash colour, so the native→JS handoff is seamless.
+ * ── THE LAUNCH ──────────────────────────────────────────────────────────────
+ *
+ * Black, then the wordmark: EYEGO in wide caps, fading in with a 4 % scale-up
+ * while its tracking tightens. A thin green streak of light then sweeps right
+ * to left through it, a soft glow trailing it, and the letters brighten as it
+ * passes. A beat's hold, and the surface lifts — under two seconds in all.
+ *
+ * The first painted pixel is the same near-black as the native splash, so the
+ * native → JS hand-off cannot flash. Whatever sits beneath (onboarding's cloud
+ * forming, or the sign-in scene whose logo rises from this exact spot to the
+ * corner) takes over as this fades, so the launch reads as one motion.
  */
-export function SplashAnimation({ onComplete }: Props) {
-  // Surface + element drivers.
-  const surface = useSharedValue(1);
-  const glowPulse = useSharedValue(0);
-  const logoIn = useSharedValue(0);
-  const ringPulse = useSharedValue(0);
-  const wordmarkIn = useSharedValue(0);
-  const microIn = useSharedValue(0);
 
-  // Hand the native splash off to us: cross-fade rather than hard-cut. Both
-  // surfaces are the same colour, so this only smooths sub-pixel timing.
+const BG = '#050506';
+const GREEN = colors.primary;
+const T_WORD = 120;
+const T_STREAK = 520;
+const STREAK_MS = 720;
+const T_OUT = 1450;
+const OUT_MS = 380;
+
+export function SplashAnimation({ onComplete }: { onComplete: () => void }) {
+  const { width: W } = useWindowDimensions();
+  const word = useSharedValue(0);
+  const streak = useSharedValue(0);
+  const surface = useSharedValue(1);
+
   const handoff = useCallback(() => {
     SplashScreen.setOptions?.({ fade: true, duration: 200 });
     SplashScreen.hideAsync().catch(() => {});
   }, []);
 
   useEffect(() => {
-    // Entrance choreography.
-    // Timing, not spring: the splash is a scripted sequence whose beats are
-    // hand-tuned against T_WORDMARK/T_MICROCOPY, so it needs a duration it can
-    // be choreographed against rather than a settle time.
-    const entranceCurve = {
-      duration: durations.standard,
-      easing: Easing.bezier(...(easings.decelerate as unknown as [number, number, number, number])),
-    };
-    logoIn.value = withTiming(1, entranceCurve);
-    wordmarkIn.value = withDelay(T_WORDMARK, withTiming(1, entranceCurve));
-    microIn.value = withDelay(T_MICROCOPY, withTiming(1, { duration: 300 }));
-
-    // Ambient loops.
-    glowPulse.value = withRepeat(
-      withTiming(1, { duration: 2400, easing: Easing.inOut(Easing.quad) }),
-      -1,
-      true
-    );
-    ringPulse.value = withRepeat(
-      withTiming(1, { duration: 2000, easing: Easing.inOut(Easing.quad) }),
-      -1,
-      true
-    );
-
-    // Exit: fade the whole surface, then release the router.
-    const t = setTimeout(() => {
-      surface.value = withTiming(0, { duration: FADE_MS, easing: Easing.in(Easing.quad) }, (done) => {
+    const soft = Easing.bezier(0.22, 1, 0.36, 1);
+    word.value = withDelay(T_WORD, withTiming(1, { duration: 600, easing: soft }));
+    streak.value = withDelay(T_STREAK, withTiming(1, { duration: STREAK_MS, easing: Easing.bezier(0.4, 0, 0.2, 1) }));
+    surface.value = withDelay(
+      T_OUT,
+      withTiming(0, { duration: OUT_MS, easing: Easing.bezier(0.4, 0, 0.2, 1) }, (done) => {
         if (done) runOnJS(onComplete)();
-      });
-    }, T_FADE_OUT);
-    /**
-     * ── THE AMBIENT LOOPS MUST DIE WITH THE SPLASH ──────────────────────────
-     *
-     * A `-1` repeat is a UI-thread frame callback that Reanimated keeps driving
-     * until it is cancelled; unmounting the component does not stop it. This
-     * cleanup only cleared the exit timer, so glowPulse and ringPulse (and the
-     * Dots/ProgressBar loops below) went on running for the rest of the session,
-     * invisibly, behind the whole app.
-     *
-     * That was always wrong and is now worse: the splash renders as an OVERLAY
-     * above a booting app rather than instead of it, so these orphans no longer
-     * outlive nothing — they outlive into a live app and compete with it.
-     */
-    return () => {
-      clearTimeout(t);
-      cancelAnimation(glowPulse);
-      cancelAnimation(ringPulse);
-    };
-  }, [onComplete, glowPulse, ringPulse]);
+      }),
+    );
+  }, [onComplete, word, streak, surface]);
 
   const surfaceStyle = useAnimatedStyle(() => ({ opacity: surface.value }));
-
-  const glowStyle = useAnimatedStyle(() => ({
-    opacity: 0.55 + glowPulse.value * 0.35,
-    transform: [{ scale: 0.92 + glowPulse.value * 0.16 }],
+  const wordStyle = useAnimatedStyle(() => ({
+    opacity: word.value,
+    letterSpacing: interpolate(word.value, [0, 1], [10.8, 9.6]),
+    transform: [{ scale: 0.96 + word.value * 0.04 }],
   }));
-
-  const logoStyle = useAnimatedStyle(() => ({
-    opacity: logoIn.value,
-    transform: [{ scale: 0.6 + logoIn.value * 0.4 }],
+  // The letters catch the light as the streak crosses the middle.
+  const flashStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(streak.value, [0.3, 0.5, 0.75], [0, 0.85, 0], Extrapolation.CLAMP),
+    letterSpacing: 9.6,
   }));
-
-  const ringStyle = useAnimatedStyle(() => ({
-    opacity: 0.35 + ringPulse.value * 0.45,
-    transform: [{ scale: 0.98 + ringPulse.value * 0.08 }],
+  const BAND = 220;
+  const streakStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(streak.value, [0, 0.08, 0.9, 1], [0, 1, 1, 0]),
+    transform: [{ translateX: W + 40 - streak.value * (W + BAND + 80) }],
   }));
-
-  const wordmarkStyle = useAnimatedStyle(() => ({
-    opacity: wordmarkIn.value,
-    transform: [{ translateY: (1 - wordmarkIn.value) * 18 }],
-  }));
-
-  const microStyle = useAnimatedStyle(() => ({ opacity: microIn.value }));
 
   return (
     <Animated.View style={[styles.container, surfaceStyle]} pointerEvents="none" onLayout={handoff}>
-      {/* Ambient radial glow — pulses scale + opacity behind the mark. */}
-      <Animated.View style={[styles.ambient, glowStyle]}>
-        <Svg width={360} height={360} viewBox="0 0 360 360">
-          <Defs>
-            <RadialGradient id="splashGlow" cx="50%" cy="50%" r="50%">
-              <Stop offset="0%" stopColor={PRIMARY} stopOpacity={0.28} />
-              <Stop offset="55%" stopColor={PRIMARY} stopOpacity={0.08} />
-              <Stop offset="100%" stopColor={PRIMARY} stopOpacity={0} />
-            </RadialGradient>
-          </Defs>
-          <Circle cx={180} cy={180} r={180} fill="url(#splashGlow)" />
-        </Svg>
-      </Animated.View>
+      {/* Near-black into a faint green-tinted charcoal at the centre. */}
+      <Svg style={StyleSheet.absoluteFill} width="100%" height="100%">
+        <Defs>
+          <RadialGradient id="launchAura" cx="50%" cy="50%" r="55%">
+            <Stop offset="0%" stopColor="#0E1A13" stopOpacity={1} />
+            <Stop offset="100%" stopColor={BG} stopOpacity={1} />
+          </RadialGradient>
+        </Defs>
+        <Rect x="0" y="0" width="100%" height="100%" fill="url(#launchAura)" />
+      </Svg>
+      <Grain />
 
-      {/* Logo mark + thin breathing glow ring. */}
-      <Animated.View style={[styles.logoWrapper, logoStyle]}>
-        <Animated.View style={[styles.glowRing, ringStyle]} />
-        <Image source={require('../assets/splash-icon.png')} style={styles.logo} resizeMode="contain" />
-      </Animated.View>
+      <View style={styles.center}>
+        <Animated.Text style={[styles.wordmark, wordStyle]}>EYEGO</Animated.Text>
+        <Animated.Text style={[styles.wordmark, styles.flash, flashStyle]}>EYEGO</Animated.Text>
+      </View>
 
-      {/* Wordmark with a single sheen sweep across the glyphs. */}
-      <Animated.View style={[styles.wordmarkRow, wordmarkStyle]}>
-        <Text style={styles.wordmark}>EyeGo</Text>
-        <LensSheen style={styles.wordmarkSheen} bandWidth={90} durationMs={2600} />
-      </Animated.View>
-
-      {/* Mono microcopy + animated dots + indeterminate progress bar. */}
-      <Animated.View style={[styles.footer, microStyle]}>
-        <View style={styles.microRow}>
-          <Text style={styles.microcopy}>STARTING ENGINE</Text>
-          <Dots />
-        </View>
-        <ProgressBar />
+      {/* The streak: a soft glow band, and a thin bright core through it. */}
+      <Animated.View style={[styles.streak, { width: BAND }, streakStyle]}>
+        <LinearGradient
+          colors={['transparent', `${GREEN}55`, 'transparent']}
+          start={{ x: 0, y: 0.5 }}
+          end={{ x: 1, y: 0.5 }}
+          style={styles.glow}
+        />
+        <LinearGradient
+          colors={['transparent', GREEN, '#E9FFF0', GREEN, 'transparent']}
+          locations={[0, 0.35, 0.5, 0.65, 1]}
+          start={{ x: 0, y: 0.5 }}
+          end={{ x: 1, y: 0.5 }}
+          style={styles.core}
+        />
       </Animated.View>
     </Animated.View>
   );
 }
 
-/** Three JetBrains-Mono dots pulsing in sequence. */
-function Dot({ index, driver }: { index: number; driver: SharedValue<number> }) {
-  const style = useAnimatedStyle(() => {
-    const phase = (driver.value - index + 3) % 3;
-    return { opacity: phase < 1 ? 0.3 + (1 - phase) * 0.7 : 0.3 };
-  });
-  return <Animated.Text style={[styles.microcopy, style]}>.</Animated.Text>;
-}
-
-function Dots() {
-  const d = useSharedValue(0);
-  useEffect(() => {
-    d.value = withRepeat(withTiming(3, { duration: 1200, easing: Easing.linear }), -1, false);
-    // See the main effect: an uncancelled -1 repeat outlives unmount.
-    return () => cancelAnimation(d);
-  }, [d]);
-  return (
-    <View style={styles.dotsRow}>
-      <Dot index={0} driver={d} />
-      <Dot index={1} driver={d} />
-      <Dot index={2} driver={d} />
-    </View>
-  );
-}
-
-/** Indeterminate glowing bar — a green gradient segment translating L→R. */
-function ProgressBar() {
-  const x = useSharedValue(0);
-  useEffect(() => {
-    x.value = withRepeat(
-      withSequence(
-        withTiming(1, { duration: 1100, easing: Easing.inOut(Easing.cubic) }),
-        withTiming(0, { duration: 0 })
-      ),
-      -1,
-      false
-    );
-    return () => cancelAnimation(x);
-  }, [x]);
-  const segStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: -SEG_W + x.value * (BAR_W + SEG_W) }],
-  }));
-  return (
-    <View style={styles.progressTrack}>
-      <Animated.View style={[styles.progressSeg, segStyle]}>
-        <LinearGradient
-          colors={['transparent', PRIMARY, 'transparent']}
-          start={{ x: 0, y: 0.5 }}
-          end={{ x: 1, y: 0.5 }}
-          style={StyleSheet.absoluteFillObject}
-        />
-      </Animated.View>
-    </View>
-  );
-}
-
-const BAR_W = 120;
-const SEG_W = 44;
-
 const styles = StyleSheet.create({
-  container: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: BG,
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 9999,
-    gap: 20,
-  },
-  ambient: {
-    position: 'absolute',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  logoWrapper: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: 100,
-    height: 100,
-  },
-  glowRing: {
-    position: 'absolute',
-    width: 92,
-    height: 92,
-    borderRadius: 46,
-    borderWidth: 1,
-    borderColor: withOpacity(PRIMARY, 0.5),
-    shadowColor: PRIMARY,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.6,
-    shadowRadius: 24,
-  },
-  logo: { width: 80, height: 80 },
-  wordmarkRow: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-    borderRadius: 8,
-  },
+  container: { ...StyleSheet.absoluteFillObject, backgroundColor: BG, zIndex: 9999, justifyContent: 'center' },
+  center: { alignItems: 'center', justifyContent: 'center' },
   wordmark: {
-    fontFamily: fonts.displayBold,
-    fontSize: 36,
-    lineHeight: 44,
-    color: colors.onSurface,
-    letterSpacing: -1,
+    fontFamily: fonts.displaySemiBold,
+    fontSize: 24,
+    lineHeight: 30,
+    color: '#F4F6F8',
+    // Tracking pads the trailing edge too; nudge so the word is optically centred.
+    paddingLeft: 9.6,
   },
-  wordmarkSheen: {
-    borderRadius: 8,
-  },
-  footer: {
-    position: 'absolute',
-    bottom: 96,
-    alignItems: 'center',
-    gap: 16,
-  },
-  microRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  microcopy: {
-    fontFamily: fonts.labelCaps,
-    fontSize: 11,
-    lineHeight: 14,
-    letterSpacing: 2,
-    color: withOpacity(colors.onSurface, 0.55),
-  },
-  dotsRow: {
-    flexDirection: 'row',
-    width: 18,
-  },
-  progressTrack: {
-    width: BAR_W,
-    height: 2,
-    borderRadius: 1,
-    backgroundColor: withOpacity(colors.onSurface, 0.1),
-    overflow: 'hidden',
-  },
-  progressSeg: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    width: SEG_W,
-  },
+  flash: { position: 'absolute', color: '#FFFFFF', textShadowColor: GREEN, textShadowRadius: 14 },
+  streak: { position: 'absolute', top: '50%', left: 0, height: 40, marginTop: -20, justifyContent: 'center' },
+  glow: { position: 'absolute', left: 0, right: 0, height: 40, borderRadius: 20 },
+  core: { height: 2, borderRadius: 1 },
 });

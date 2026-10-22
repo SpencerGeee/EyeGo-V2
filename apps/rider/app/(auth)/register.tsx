@@ -1,13 +1,12 @@
-﻿import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   StyleSheet,
   Platform,
   Pressable,
-  } from 'react-native';
-import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
+  ScrollView,
+} from 'react-native';
 import { Image } from 'expo-image';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Entrance, notify } from '@eyego/ui';
 import * as ImagePicker from 'expo-image-picker';
@@ -20,6 +19,7 @@ import { useColors, Colors } from '../../utils/useColors';
 import { Text, Button, Input } from '@eyego/ui';
 import { getInitials } from '@eyego/utils';
 import { Ionicons } from '@expo/vector-icons';
+import { leaveAuthScene } from '../../components/intro/authScene';
 
 export default function RegisterScreen() {
   const colors = useColors();
@@ -93,7 +93,8 @@ export default function RegisterScreen() {
       // fresh for 60s. Without this, useProfileSync re-merges that blank over
       // the name we just saved and index.tsx bounces straight back here.
       qc.invalidateQueries({ queryKey: ['user', 'profile'] });
-      router.replace('/(onboarding)');
+      // The scene plays its exit, then the intro tour.
+      leaveAuthScene(() => router.replace('/(onboarding)'));
     },
     onError: (err: any) => {
       notify('Couldn\'t save profile', err?.response?.data?.message ?? err?.message ?? 'Please check your connection and try again.');
@@ -145,21 +146,21 @@ export default function RegisterScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <KeyboardAwareScrollView
+    // Inside the sign-in scene's sheet, which rides the keyboard itself, so a
+    // plain scroll - not a keyboard-aware one that would lift a second time.
+    <View style={styles.safe}>
+      <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={styles.scroll}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
-        bottomOffset={24}
       >
+          <View style={styles.grabber} />
           {/* Header */}
           <Entrance animation="slideUp" delay={50}>
-            <Text variant="headlineLarge" style={styles.headline}>
-              Complete your{'\n'}profile
-            </Text>
+            <Text style={styles.headline}>Create your account</Text>
             <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.subtext}>
-              Just a few details to personalise your experience.
+              Join group rides across Accra. Two details and you are in.
             </Text>
           </Entrance>
 
@@ -264,8 +265,8 @@ export default function RegisterScreen() {
               </Text>
             </Pressable>
           </Entrance>
-      </KeyboardAwareScrollView>
-    </SafeAreaView>
+      </ScrollView>
+    </View>
   );
 }
 
@@ -277,12 +278,15 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   scroll: {
     flexGrow: 1,
     paddingHorizontal: spacing['2xl'],
-    paddingTop: spacing['2xl'],
-    paddingBottom: spacing['3xl'],
+    paddingBottom: 160,
   },
+  grabber: { alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.18)', marginTop: 10, marginBottom: spacing.lg },
   headline: {
-    letterSpacing: -1,
-    lineHeight: 34,
+    fontFamily: fonts.displayBold,
+    fontSize: 26,
+    lineHeight: 31,
+    letterSpacing: -0.5,
+    color: colors.onSurface,
   },
   subtext: {
     marginTop: spacing.sm,
@@ -290,8 +294,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   avatarSection: {
     alignItems: 'center',
-    marginTop: spacing['3xl'],
-    marginBottom: spacing['2xl'],
+    marginTop: spacing.xl,
+    marginBottom: spacing.xl,
   },
   avatarContainer: {
     position: 'relative',

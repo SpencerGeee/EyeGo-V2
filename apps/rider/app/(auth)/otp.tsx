@@ -1,24 +1,26 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { View, StyleSheet, Pressable } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import React, { useState, useRef, useEffect } from 'react';
+import { View, StyleSheet, Pressable, ScrollView, ActivityIndicator, AccessibilityInfo } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { Entrance, goBack, notify, OTPInput, type OTPInputRef } from '@eyego/ui';
+import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
+import { goBack, notify, OTPInput, Text, type OTPInputRef } from '@eyego/ui';
 import { useMutation } from '@tanstack/react-query';
 import { authApi } from '@eyego/api';
 import { useAuthStore } from '../../stores/auth.store';
-import { spacing, radii } from '@eyego/config';
-import { Text } from '@eyego/ui';
-import { describeError, formatPhone } from '@eyego/utils';
+import { fonts, spacing, radii } from '@eyego/config';
+import { describeError } from '@eyego/utils';
 import { Ionicons } from '@expo/vector-icons';
-import { useColors, Colors } from '../../utils/useColors';
+import { useColors } from '../../utils/useColors';
 import { consumeReturnTo } from '../../utils/returnTo';
+import { AUTH_SHEET, leaveAuthScene, maskPhone } from '../../components/intro/authScene';
+import { BlurWordText } from '../../components/intro/BlurWordText';
 
 const OTP_LENGTH = 6;
+/** Matches the server's resend window — asking sooner is a 429. */
 const RESEND_SECONDS = 60;
 
 export default function OtpScreen() {
   const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
   const { phone: rawPhone, devOtp } = useLocalSearchParams<{ phone: string; devOtp?: string }>();
   // URL encoding can eat the '+'.
   const phone = rawPhone ? `+${rawPhone.replace(/^\+/, '')}` : '';
@@ -27,6 +29,7 @@ export default function OtpScreen() {
 
   const otpRef = useRef<OTPInputRef>(null);
   const [error, setError] = useState('');
+  const [verified, setVerified] = useState(false);
   const [countdown, setCountdown] = useState(RESEND_SECONDS);
   const [currentDevOtp, setCurrentDevOtp] = useState(devOtp ?? '');
 
@@ -40,15 +43,24 @@ export default function OtpScreen() {
     mutationFn: (code: string) => authApi.verifyOtp({ phone, otp: code }),
     onSuccess: async ({ data }) => {
       const { user, accessToken, refreshToken, isNewUser } = data.data;
+      // Tokens go to secure storage inside `login` — nothing sensitive is logged.
       await login(user, { accessToken, refreshToken });
-      // A returning rider goes home — or back to the invite link that sent
-      // them here. This went to the intro carousel, so they swiped through it
-      // on every sign-in. A new rider keeps the target until setup finishes.
+      setVerified(true);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      // A returning rider goes home (or back to the invite that sent them); a
+      // new one finishes their profile first.
       const needsProfile = isNewUser || !user.name;
-      router.replace((needsProfile ? '/(auth)/register' : consumeReturnTo() ?? '/(tabs)/home') as any);
+      if (needsProfile) {
+        setTimeout(() => router.replace('/(auth)/register' as any), 300);
+        return;
+      }
+      leaveAuthScene(() => router.replace((consumeReturnTo() ?? '/(tabs)/home') as any));
     },
     onError: (err) => {
-      setError(describeError(err, 'That code didn’t work. Try again.').message);
+      const msg = describeError(err, 'That code didn’t work. Try again.').message;
+      setError(msg);
+      AccessibilityInfo.announceForAccessibility?.(msg);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
       otpRef.current?.shake();
       otpRef.current?.clear();
       setTimeout(() => otpRef.current?.focus(), 120);
@@ -71,85 +83,92 @@ export default function OtpScreen() {
         setCountdown(RESEND_SECONDS);
         notify('Too many attempts', 'Wait a minute before asking for a new code.');
       } else {
-        notify('Couldn’t resend', describeError(err, 'Please try again.').message);
+        setError(describeError(err, 'We couldn’t resend the code. Try again.').message);
       }
     },
   });
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <Pressable onPress={() => goBack()} hitSlop={12} accessibilityRole="button" accessibilityLabel="Go back" style={styles.back}>
-        <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
-      </Pressable>
-
-      <View style={styles.container}>
-        <Entrance animation="slideUp" delay={50}>
-          <Text variant="headlineLarge" style={styles.headline}>Enter the code</Text>
-          <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.subtext}>
-            Sent by SMS to {formatPhone(phone)}
-          </Text>
-          <Pressable onPress={() => goBack()} accessibilityRole="button" accessibilityLabel="Change phone number" hitSlop={8}>
-            <Text variant="label" color={colors.primary} style={{ marginTop: spacing.xs }}>Change number</Text>
-          </Pressable>
-          {!!currentDevOtp && (
-            <View style={styles.devBanner}>
-              <Text variant="caption" color={colors.onSurfaceVariant}>Dev OTP: </Text>
-              <Text variant="label" color={colors.primary}>{currentDevOtp}</Text>
-            </View>
-          )}
-        </Entrance>
-
-        <View style={styles.otp}>
-          <OTPInput
-            ref={otpRef}
-            length={OTP_LENGTH}
-            hasError={!!error}
-            onErrorReset={() => setError('')}
-            onComplete={(code) => !verifyOtp.isPending && verifyOtp.mutate(code)}
-          />
-        </View>
-
-        {error ? (
-          <Text variant="caption" color={colors.error} style={styles.center}>{error}</Text>
-        ) : verifyOtp.isPending ? (
-          <Text variant="bodySmall" color={colors.onSurfaceVariant} style={styles.center}>Checking…</Text>
-        ) : null}
-
-        <View style={styles.resend}>
-          {countdown > 0 ? (
-            <Text variant="bodySmall" color={colors.onSurfaceVariant}>
-              Resend code in <Text variant="bodySmall" color={colors.onSurface}>{countdown}s</Text>
-            </Text>
-          ) : (
-            <Pressable onPress={() => resendOtp.mutate()} disabled={resendOtp.isPending} accessibilityRole="button" accessibilityLabel="Resend verification code" hitSlop={8}>
-              <Text variant="label" color={colors.primary}>{resendOtp.isPending ? 'Sending…' : 'Resend code'}</Text>
-            </Pressable>
-          )}
-        </View>
+    <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+      <View style={styles.top}>
+        <Pressable onPress={() => goBack()} hitSlop={12} accessibilityRole="button" accessibilityLabel="Change phone number" style={styles.back}>
+          <Ionicons name="arrow-back" size={20} color={AUTH_SHEET.text} />
+        </Pressable>
+        <View style={styles.grabber} />
+        <View style={{ width: 36 }} />
       </View>
-    </SafeAreaView>
+
+      <BlurWordText text="Enter the code" textKey="otp-title" style={[styles.title, { color: AUTH_SHEET.text }]} containerStyle={styles.left} />
+      <Animated.View entering={FadeIn.duration(300).delay(160)}>
+        <Text style={[styles.subtitle, { color: AUTH_SHEET.textDim }]}>
+          We sent a 6-digit code to {maskPhone(phone)}
+        </Text>
+        {!!currentDevOtp && (
+          <View style={[styles.devBanner, { backgroundColor: `${colors.primary}14` }]}>
+            <Text variant="caption" color={AUTH_SHEET.textDim}>Dev OTP: </Text>
+            <Text variant="label" color={colors.primary}>{currentDevOtp}</Text>
+          </View>
+        )}
+      </Animated.View>
+
+      <Animated.View entering={FadeInDown.duration(320).delay(220)} style={styles.otp} accessible accessibilityLabel="Verification code, six digits">
+        <OTPInput
+          ref={otpRef}
+          length={OTP_LENGTH}
+          hasError={!!error}
+          onErrorReset={() => setError('')}
+          onComplete={(code) => !verifyOtp.isPending && !verified && verifyOtp.mutate(code)}
+        />
+      </Animated.View>
+
+      <View style={styles.status} accessibilityLiveRegion="polite">
+        {verified ? (
+          <Animated.View entering={FadeIn.duration(200)} style={styles.row}>
+            <Ionicons name="checkmark-circle" size={18} color={colors.primary} />
+            <Text style={[styles.statusText, { color: colors.primary }]}>Verified</Text>
+          </Animated.View>
+        ) : error ? (
+          <Animated.View entering={FadeInDown.duration(180)} style={styles.row}>
+            <Ionicons name="alert-circle" size={15} color={colors.error} />
+            <Text style={[styles.statusText, { color: colors.error }]}>{error}</Text>
+          </Animated.View>
+        ) : verifyOtp.isPending ? (
+          <View style={styles.row}>
+            <ActivityIndicator size="small" color={colors.primary} />
+            <Text style={[styles.statusText, { color: AUTH_SHEET.textDim }]}>Checking…</Text>
+          </View>
+        ) : null}
+      </View>
+
+      <View style={styles.resend}>
+        {countdown > 0 ? (
+          <Text style={[styles.statusText, { color: AUTH_SHEET.textDim }]}>
+            Resend code in <Text style={[styles.statusText, { color: AUTH_SHEET.text }]}>{countdown}s</Text>
+          </Text>
+        ) : (
+          <Pressable onPress={() => resendOtp.mutate()} disabled={resendOtp.isPending} accessibilityRole="button" accessibilityLabel="Resend verification code" hitSlop={10}>
+            <Text style={[styles.statusText, { color: colors.primary, fontFamily: fonts.semiBold }]}>
+              {resendOtp.isPending ? 'Sending…' : 'Resend code'}
+            </Text>
+          </Pressable>
+        )}
+      </View>
+    </ScrollView>
   );
 }
 
-const makeStyles = (colors: Colors) =>
-  StyleSheet.create({
-    // Transparent like the rest of the auth flow — the root AppBackground shows through.
-    safe: { flex: 1, backgroundColor: 'transparent' },
-    back: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', marginLeft: spacing.sm, marginTop: spacing.xs },
-    container: { flex: 1, paddingHorizontal: spacing['2xl'], paddingTop: spacing.xl },
-    headline: { letterSpacing: -1 },
-    subtext: { marginTop: spacing.sm },
-    devBanner: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      marginTop: spacing.base,
-      paddingHorizontal: spacing.sm,
-      paddingVertical: spacing.xs,
-      backgroundColor: `${colors.primary}14`,
-      borderRadius: radii.md,
-      alignSelf: 'flex-start',
-    },
-    otp: { marginTop: spacing['3xl'], marginBottom: spacing.lg },
-    center: { textAlign: 'center', marginBottom: spacing.md },
-    resend: { alignItems: 'center', marginTop: spacing.sm },
-  });
+const styles = StyleSheet.create({
+  body: { paddingHorizontal: spacing['2xl'], paddingBottom: 140 },
+  top: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6, marginBottom: spacing.base },
+  back: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.06)' },
+  grabber: { width: 40, height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.18)' },
+  left: { justifyContent: 'flex-start' },
+  title: { fontFamily: fonts.displayBold, fontSize: 26, lineHeight: 31, letterSpacing: -0.5 },
+  subtitle: { fontFamily: fonts.regular, fontSize: 15, lineHeight: 21, marginTop: spacing.xs },
+  devBanner: { flexDirection: 'row', alignItems: 'center', marginTop: spacing.sm, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radii.md, alignSelf: 'flex-start' },
+  otp: { marginTop: spacing['2xl'] },
+  status: { minHeight: 28, marginTop: spacing.base, alignItems: 'center', justifyContent: 'center' },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  statusText: { fontFamily: fonts.regular, fontSize: 13.5 },
+  resend: { alignItems: 'center', marginTop: spacing.sm },
+});

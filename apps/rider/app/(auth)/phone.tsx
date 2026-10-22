@@ -1,229 +1,157 @@
-﻿import React, { useState, useRef, useMemo } from 'react';
-import {
-  View,
-  TextInput,
-  StyleSheet,
-  Pressable,
-} from 'react-native';
-import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { Entrance, goDeeper, notify } from '@eyego/ui';
+﻿import React, { useRef, useState } from 'react';
+import { View, TextInput, StyleSheet, Pressable, ScrollView, AccessibilityInfo } from 'react-native';
+import Animated, { FadeInDown, FadeIn, useAnimatedStyle, useSharedValue, withTiming, interpolateColor } from 'react-native-reanimated';
 import { useMutation } from '@tanstack/react-query';
 import { authApi } from '@eyego/api';
 import { ghanaLocalDigits, describeError } from '@eyego/utils';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text } from '@eyego/ui';
-import { Button } from '@eyego/ui';
-import { useColors, Colors } from '../../utils/useColors';
+import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
+import { Text, goDeeper } from '@eyego/ui';
+import { Ionicons } from '@expo/vector-icons';
+import { useColors } from '../../utils/useColors';
+import { LoadingButton, type LoadingState } from '../../components/intro/LoadingButton';
+import { AUTH_SHEET, formatGhLocal } from '../../components/intro/authScene';
+import { BlurWordText } from '../../components/intro/BlurWordText';
 
+/**
+ * Sign in — and sign up: a Ghanaian number and a one-time code serve both, so
+ * this one screen is the door for new and returning riders alike. Lives inside
+ * the sign-in scene's sheet (see _layout).
+ */
 export default function PhoneScreen() {
   const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [phone, setPhone] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [state, setState] = useState<LoadingState>('idle');
   const inputRef = useRef<TextInput>(null);
-  const router = useRouter();
-  const isValid = phone.replace(/\s/g, '').length === 9;
+  const isValid = phone.length === 9;
+
+  const focus = useSharedValue(0);
+  const fieldStyle = useAnimatedStyle(() => ({
+    borderColor: interpolateColor(focus.value, [0, 1], [AUTH_SHEET.fieldBorder, withOpacity(colors.primary, 0.6)]),
+    shadowOpacity: focus.value * 0.35,
+  }));
 
   const sendOtp = useMutation({
-    mutationFn: () => authApi.sendOtp({ phone: `+233${phone.replace(/\s/g, '')}` }),
+    mutationFn: () => authApi.sendOtp({ phone: `+233${phone}` }),
+    onMutate: () => {
+      setError(null);
+      setState('loading');
+    },
     onSuccess: (res) => {
-      // Surface the dev OTP whenever the backend returns it (NODE_ENV=development).
-      // Keyed off the response — NOT __DEV__ — so it still works in sideloaded
-      // preview/release builds. A production backend never returns _dev_otp.
+      // The dev OTP whenever the backend returns it (development servers only).
       const devOtp = (res as any)?.data?.data?._dev_otp;
-      goDeeper({
-        pathname: '/(auth)/otp',
-        // Strip '+' prefix to avoid URL encoding issues in dev builds
-        params: { phone: `233${phone.replace(/\s/g, '')}`, ...(devOtp ? { devOtp } : {}) },
-      });
+      setState('success');
+      setTimeout(() => {
+        goDeeper({
+          pathname: '/(auth)/otp',
+          // No '+' — URL encoding eats it.
+          params: { phone: `233${phone}`, ...(devOtp ? { devOtp } : {}) },
+        });
+        setState('idle');
+      }, 380);
     },
     onError: (err) => {
-      // One message, the server's words — the inline axios text
-      // ("Request failed with status code 400") used to sit under it.
-      notify('Could not send code', describeError(err, 'Please check your connection and try again.').message);
+      const msg = describeError(err, 'We couldn’t send the code. Check your connection and try again.').message;
+      setError(msg);
+      AccessibilityInfo.announceForAccessibility?.(msg);
+      setState('error');
+      setTimeout(() => setState('idle'), 450);
     },
   });
 
-  // "0244123456" and "+233 24…" both reduce to the 9 local digits.
-  const handlePhoneChange = (text: string) => setPhone(ghanaLocalDigits(text));
-
   return (
-    <SafeAreaView style={styles.safe}>
-      {/* Animated background orbs — subtle ambient glow that fades in to low opacity,
-          not a full-scale entrance. Uses standalone Animated.View with useSharedValue
-          for the continuous pulse effect. */}
-      <View style={styles.orb1} pointerEvents="none" />
+    <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+      <View style={styles.grabber} />
+      <BlurWordText text="Welcome to EyeGo" textKey="phone-title" style={[styles.title, { color: AUTH_SHEET.text }]} containerStyle={styles.left} />
+      <Animated.View entering={FadeIn.duration(300).delay(180)}>
+        <Text style={[styles.subtitle, { color: AUTH_SHEET.textDim }]}>Sign in or create your account with your phone number.</Text>
+      </Animated.View>
 
-      <KeyboardAwareScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={styles.scroll}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
-          {/* Logo */}
-          <Entrance animation="slideDown" delay={50}>
-            <Text style={styles.logo}>EyeGo</Text>
-          </Entrance>
-
-          {/* Headline */}
-          <Entrance animation="slideUp" delay={100} style={styles.headlineContainer}>
-            <Text variant="headlineLarge" style={styles.headline}>
-              What's your{'\n'}number?
-            </Text>
-            <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.subtext}>
-              We'll send you a one-time verification code.
-            </Text>
-          </Entrance>
-
-          {/* Phone input */}
-          <Entrance animation="slideUp" delay={150} style={styles.inputWrapper}>
-            <Pressable
-              style={styles.phoneContainer}
-              onPress={() => inputRef.current?.focus()}
-              accessibilityRole="none"
-            >
-              <View style={styles.countryCode}>
-                <Text style={styles.flag}>🇬🇭</Text>
-                <Text style={styles.code}>+233</Text>
-              </View>
-              <View style={styles.divider} />
-              <TextInput maxFontSizeMultiplier={1.4}
-                ref={inputRef}
-                style={styles.phoneInput}
-                value={phone}
-                onChangeText={handlePhoneChange}
-                keyboardType="number-pad"
-                placeholder="24X XXX XXXX"
-                placeholderTextColor={colors.onSurfaceVariant}
-                returnKeyType="done"
-                onSubmitEditing={() => isValid && !sendOtp.isPending && sendOtp.mutate()}
-                textContentType="telephoneNumber"
-                autoComplete="tel"
-                autoFocus
-                selectionColor={colors.primary}
-                accessibilityLabel="Phone number input"
-              />
-            </Pressable>
-          </Entrance>
-
-          {/* CTA */}
-          <Entrance animation="slideUp" delay={180} style={styles.ctaContainer}>
-            <Button
-              label="Send Code"
-              onPress={() => sendOtp.mutate()}
-              disabled={!isValid}
-              loading={sendOtp.isPending}
-              accessibilityLabel="Send verification code"
+      <Animated.View entering={FadeInDown.duration(320).delay(240)}>
+        <Text style={[styles.label, { color: AUTH_SHEET.textDim }]}>Phone number</Text>
+        <Pressable onPress={() => inputRef.current?.focus()} accessibilityRole="none">
+          <Animated.View style={[styles.field, { backgroundColor: AUTH_SHEET.field, shadowColor: colors.primary }, fieldStyle, error ? { borderColor: colors.error } : null]}>
+            <View style={styles.chip}>
+              <Text style={styles.flag}>🇬🇭</Text>
+              <Text style={[styles.code, { color: AUTH_SHEET.text }]}>+233</Text>
+            </View>
+            <View style={[styles.divider, { backgroundColor: AUTH_SHEET.fieldBorder }]} />
+            <TextInput
+              maxFontSizeMultiplier={1.4}
+              ref={inputRef}
+              style={[styles.input, { color: AUTH_SHEET.text }]}
+              value={formatGhLocal(phone)}
+              onChangeText={(t) => {
+                setPhone(ghanaLocalDigits(t));
+                if (error) setError(null);
+              }}
+              onFocus={() => { focus.value = withTiming(1, { duration: 150 }); }}
+              onBlur={() => { focus.value = withTiming(0, { duration: 150 }); }}
+              keyboardType="number-pad"
+              placeholder="24 123 4567"
+              placeholderTextColor={withOpacity(AUTH_SHEET.text, 0.3)}
+              returnKeyType="done"
+              onSubmitEditing={() => isValid && state === 'idle' && sendOtp.mutate()}
+              textContentType="telephoneNumber"
+              autoComplete="tel"
+              selectionColor={colors.primary}
+              accessibilityLabel="Phone number"
+              accessibilityHint="Nine digits after +233"
             />
-          </Entrance>
+            {isValid ? <Ionicons name="checkmark-circle" size={20} color={colors.primary} style={{ marginRight: spacing.base }} /> : null}
+          </Animated.View>
+        </Pressable>
+        {error ? (
+          <Animated.View entering={FadeInDown.duration(180)} style={styles.errorRow} accessibilityLiveRegion="polite">
+            <Ionicons name="alert-circle" size={14} color={colors.error} />
+            <Text style={[styles.error, { color: colors.error }]}>{error}</Text>
+          </Animated.View>
+        ) : null}
+      </Animated.View>
 
-          {/* No "Continue with Google/Apple": the server verifies FIREBASE
-              tokens, the app never had a Firebase credential exchange, and the
-              Google SDK was never installed — both buttons ended in an error
-              toast. Phone + OTP is the sign-in. */}
-      </KeyboardAwareScrollView>
-    </SafeAreaView>
+      <Animated.View entering={FadeInDown.duration(320).delay(300)} style={{ marginTop: spacing.xl }}>
+        <LoadingButton
+          label="Continue"
+          onPress={() => sendOtp.mutate()}
+          state={state}
+          disabled={!isValid}
+          color={colors.primary}
+          onColor={colors.onPrimary}
+          accessibilityLabel="Send verification code"
+        />
+      </Animated.View>
+
+      <Animated.View entering={FadeIn.duration(300).delay(360)}>
+        <Text style={[styles.foot, { color: AUTH_SHEET.textDim }]}>
+          New to EyeGo? The code creates your account — no password to remember.
+        </Text>
+      </Animated.View>
+    </ScrollView>
   );
 }
 
-const makeStyles = (colors: Colors) => StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: 'transparent',
-  },
-  scroll: {
-    flexGrow: 1,
-    paddingHorizontal: spacing['2xl'],
-    paddingBottom: spacing['3xl'],
-  },
-  orb1: {
-    position: 'absolute',
-    width: 300,
-    height: 300,
-    borderRadius: 150,
-    backgroundColor: colors.primary,
-    top: -100,
-    right: -80,
-  },
-  orb2: {
-    position: 'absolute',
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    backgroundColor: colors.secondary,
-    bottom: 100,
-    left: -80,
-  },
-  logo: {
-    fontFamily: fonts.displayBold,
-    fontSize: 22,
-    lineHeight: 28,
-    color: colors.primary,
-    marginTop: spacing.lg,
-    letterSpacing: -0.5,
-  },
-  headlineContainer: {
-    marginTop: 52,
-    marginBottom: spacing['2xl'],
-  },
-  headline: {
-    letterSpacing: -1,
-    lineHeight: 34,
-  },
-  subtext: {
-    marginTop: spacing.sm,
-    lineHeight: 22,
-  },
-  inputWrapper: {
-    marginBottom: spacing.lg,
-  },
-  phoneContainer: {
+const styles = StyleSheet.create({
+  body: { paddingHorizontal: spacing['2xl'], paddingBottom: 140 },
+  grabber: { alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.18)', marginTop: 10, marginBottom: spacing.lg },
+  left: { justifyContent: 'flex-start' },
+  title: { fontFamily: fonts.displayBold, fontSize: 26, lineHeight: 31, letterSpacing: -0.5 },
+  subtitle: { fontFamily: fonts.regular, fontSize: 15, lineHeight: 21, marginTop: spacing.xs, marginBottom: spacing.xl },
+  label: { fontFamily: fonts.medium, fontSize: 12, letterSpacing: 0.4, marginBottom: spacing.sm },
+  field: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.surfaceContainer,
-    borderRadius: radii.lg,
-    borderWidth: 1.5,
-    borderColor: colors.outline,
-    height: 60,
-    overflow: 'hidden',
+    height: 56,
+    borderRadius: 14,
+    borderWidth: 1,
+    shadowOffset: { width: 0, height: 0 },
+    shadowRadius: 10,
   },
-  countryCode: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing.base,
-    gap: spacing.xs,
-    minWidth: 80,
-  },
-  flag: {
-    fontSize: 20,
-    lineHeight: 26,
-  },
-  code: {
-    fontFamily: fonts.medium,
-    fontSize: fontSizes.bodyMedium,
-    lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
-    color: colors.onSurface,
-  },
-  divider: {
-    width: 1,
-    height: 28,
-    backgroundColor: colors.outline,
-  },
-  phoneInput: {
-    flex: 1,
-    paddingHorizontal: spacing.base,
-    fontFamily: fonts.medium,
-    fontSize: fontSizes.titleSmall,
-    lineHeight: Math.round(fontSizes.titleSmall * 1.3),
-    color: colors.onSurface,
-    letterSpacing: 1,
-  },
-  errorText: {
-    marginBottom: spacing.md,
-    marginLeft: spacing.xs,
-  },
-  ctaContainer: {
-    marginBottom: spacing.xl,
-  },
+  chip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: spacing.base },
+  flag: { fontSize: 18, lineHeight: 24 },
+  code: { fontFamily: fonts.medium, fontSize: fontSizes.bodyMedium },
+  divider: { width: 1, height: 26 },
+  input: { flex: 1, paddingHorizontal: spacing.base, fontFamily: fonts.medium, fontSize: fontSizes.titleSmall, letterSpacing: 0.5, padding: 0 },
+  errorRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: spacing.sm },
+  error: { fontFamily: fonts.regular, fontSize: 12.5, flex: 1 },
+  foot: { fontFamily: fonts.regular, fontSize: 12.5, lineHeight: 18, textAlign: 'center', marginTop: spacing.lg },
 });

@@ -1128,23 +1128,6 @@ export function DispatchOfferCard({
         </Animated.View>
         ) : null}
 
-        {/* The rider's asks: a pill at half (one tap opens them), in full at full. */}
-        {half && !full && asksCount > 0 ? (
-          <Animated.View entering={contentEnter} exiting={contentExit} layout={rowLayout}>
-            <Pressable
-              onPress={() => {}}
-              accessibilityRole="button"
-              accessibilityLabel="Show the rider's note and requests"
-              style={[styles.asksPill, { borderColor: colors.outline, backgroundColor: colors.surfaceContainerHigh }]}
-            >
-              <Ionicons name="chatbox-ellipses-outline" size={13} color={colors.onSurface} />
-              <Text variant="caption" color={colors.onSurface}>
-                {offer.pickupNote ? 'Rider left a note' : `${asksCount} rider request${asksCount === 1 ? '' : 's'}`}
-              </Text>
-              <Ionicons name="chevron-up" size={13} color={colors.onSurfaceVariant} />
-            </Pressable>
-          </Animated.View>
-        ) : null}
         {full ? (
           <Animated.View entering={contentEnter} exiting={contentExit} layout={rowLayout} style={styles.fullRows}>
             <RiderAsks note={offer.pickupNote} prefs={offer.ridePrefs} />
