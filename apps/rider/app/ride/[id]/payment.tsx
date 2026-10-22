@@ -56,7 +56,7 @@ export default function PaymentScreen() {
       ? { lat: Number(dropoffLat), lng: Number(dropoffLng), address: dropoffAddress ? decodeURIComponent(String(dropoffAddress)) : null }
       : null;
   const router = useRouter();
-  const { selectedTrip, selectedSeat, activeBooking, computedFare, setActiveBooking, setComputedFare, pendingPromoCode, setPendingPromoCode, guestInfo, setGuestInfo } = useRideStore(useShallow((s) => ({ selectedTrip: s.selectedTrip, selectedSeat: s.selectedSeat, activeBooking: s.activeBooking, computedFare: s.computedFare, setActiveBooking: s.setActiveBooking, setComputedFare: s.setComputedFare, pendingPromoCode: s.pendingPromoCode, setPendingPromoCode: s.setPendingPromoCode, guestInfo: s.guestInfo, setGuestInfo: s.setGuestInfo })));
+  const { selectedTrip, selectedSeat, activeBooking, setActiveBooking, setComputedFare, pendingPromoCode, setPendingPromoCode, guestInfo, setGuestInfo } = useRideStore(useShallow((s) => ({ selectedTrip: s.selectedTrip, selectedSeat: s.selectedSeat, activeBooking: s.activeBooking, setActiveBooking: s.setActiveBooking, setComputedFare: s.setComputedFare, pendingPromoCode: s.pendingPromoCode, setPendingPromoCode: s.setPendingPromoCode, guestInfo: s.guestInfo, setGuestInfo: s.setGuestInfo })));
   const queryClient = useQueryClient();
   const { user } = useAuthStore();
 
@@ -170,7 +170,9 @@ export default function PaymentScreen() {
   const serverPerSeat =
     (bookingIsForThisCheckout ? activeBooking?.fareAmountPesewas : null) ??
     farePreview?.farePerSeatPesewas ??
-    computedFare ??
+    // No `computedFare` here: it is PERSISTED, so while the preview loaded it
+    // painted whatever an earlier flow last wrote — the price "going up" when
+    // the rider came back to this page.
     selectedTrip?.farePerSeatPesewas ??
     0;
   // Same reasoning as the fare above: an en-route discount belongs to one

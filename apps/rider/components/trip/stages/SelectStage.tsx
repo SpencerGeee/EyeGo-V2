@@ -16,10 +16,10 @@ import Animated, {
   withTiming,
   LinearTransition,
 } from 'react-native-reanimated';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { tripsApi } from '@eyego/api';
+import { tripsApi, bookingsApi } from '@eyego/api';
 import { useShallow } from 'zustand/react/shallow';
 import { useRideStore } from '../../../stores/ride.store';
 import { useTripFlow } from '../../../stores/tripFlow.store';
@@ -60,25 +60,53 @@ type TripWithRoute = Trip & {
   };
 };
 
-/** Haversine distance in km — mirrors server-side fare.calculator.js */
-function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const R = 6371;
-  const dLat = (lat2 - lat1) * (Math.PI / 180);
-  const dLng = (lng2 - lng1) * (Math.PI / 180);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-function calcEnRouteFare(fullFare: number, stopLat: number, stopLng: number, destLat: number, destLng: number, totalKm: number): number {
-  if (totalKm <= 0) return fullFare;
-  const remaining = haversineKm(stopLat, stopLng, destLat, destLng);
-  const ratio = Math.min(remaining / totalKm, 1.0);
-  // Whole pesewas. The old `* 100 / 100` rounded to two decimal places, which
-  // was right for cedis and is meaningless now — a pesewa is already the
-  // smallest unit there is.
-  return Math.round(fullFare * ratio);
+/**
+ * One boarding stop, priced by the SERVER.
+ *
+ * BUGFIX ("I saw 8.4, then 15.61, then it moved up again"). This row used to
+ * price the stop on the client — a straight line to the destination with no
+ * per-seat floor — while the booking is written by `priceSeat`, which measures
+ * along the road and floors short segments. The rider was quoted one number
+ * here and charged another. Now it asks `previewFare`, keyed exactly as the
+ * trip and seat pages key it, so the next screen opens on this number.
+ */
+function StopRow({
+  tripId,
+  stop,
+  selected,
+  colors,
+  rowStyle,
+  onPick,
+}: {
+  tripId: string;
+  stop: { id: string; name: string };
+  selected: boolean;
+  colors: Colors;
+  rowStyle: object;
+  onPick: (fare: number) => void;
+}) {
+  const { data } = useQuery({
+    queryKey: ['seat-fare-preview', tripId, stop.id, null, null, null],
+    queryFn: () => bookingsApi.previewFare({ tripId, pickupStopId: stop.id, dropoffStopId: null }),
+    staleTime: 30_000,
+  });
+  const fare = data?.farePerSeatPesewas ?? null;
+  return (
+    <Pressable
+      style={[rowStyle, selected && { borderColor: colors.primary, backgroundColor: colors.primary + '12' }]}
+      disabled={fare == null}
+      onPress={() => fare != null && onPick(fare)}
+      accessibilityRole="button"
+    >
+      <Ionicons name="location-outline" size={16} color={selected ? colors.primary : colors.onSurfaceVariant} />
+      <Text variant="bodyMedium" style={{ flex: 1 }} color={selected ? colors.primary : colors.onSurface}>
+        {stop.name}
+      </Text>
+      <Text variant="labelLarge" color={selected ? colors.primary : colors.onSurface}>
+        {fare != null ? formatGhs(fare) : '…'}
+      </Text>
+    </Pressable>
+  );
 }
 
 // Tier marks use Ionicons (vector) names rather than emoji for crisp, themeable icons.
@@ -758,33 +786,20 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                             <Text variant="labelLarge">{formatGhs(fullFare)}</Text>
                           </Pressable>
                         )}
-                        {activeStops.map(stop => {
-                          const stopFare = calcEnRouteFare(
-                            fullFare,
-                            stop.lat, stop.lng,
-                            trip.route?.destLat ?? 0, trip.route?.destLng ?? 0,
-                            trip.route?.distanceKm ?? 0,
-                          );
-                          const isSelected = selectedStop?.id === stop.id;
-                          return (
-                            <Pressable
-                              key={stop.id}
-                              style={[styles.stopRow, isSelected && { borderColor: colors.primary, backgroundColor: colors.primary + '12' }]}
-                              onPress={() => {
-                                setSelectedStopByTrip(prev => ({ ...prev, [trip.id ?? '']: { id: stop.id, name: stop.name, fare: stopFare } }));
-                                setEnRoutePickerTripId(null);
-                              }}
-                             accessibilityRole="button">
-                              <Ionicons name="location-outline" size={16} color={isSelected ? colors.primary : colors.onSurfaceVariant} />
-                              <Text variant="bodyMedium" style={{ flex: 1 }} color={isSelected ? colors.primary : colors.onSurface}>
-                                {stop.name}
-                              </Text>
-                              <Text variant="labelLarge" color={isSelected ? colors.primary : colors.onSurface}>
-                                {formatGhs(stopFare)}
-                              </Text>
-                            </Pressable>
-                          );
-                        })}
+                        {activeStops.map(stop => (
+                          <StopRow
+                            key={stop.id}
+                            tripId={trip.id ?? ''}
+                            stop={stop}
+                            selected={selectedStop?.id === stop.id}
+                            colors={colors}
+                            rowStyle={styles.stopRow}
+                            onPick={(fare) => {
+                              setSelectedStopByTrip(prev => ({ ...prev, [trip.id ?? '']: { id: stop.id, name: stop.name, fare } }));
+                              setEnRoutePickerTripId(null);
+                            }}
+                          />
+                        ))}
                       </Entrance>
                     )}
                   </Entrance>

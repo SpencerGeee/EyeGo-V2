@@ -48,3 +48,17 @@ describe('a part-route seat is priced by the road ridden', () => {
     expect(stop.enRouteRatio).toBeLessThan(0.6);
   });
 });
+
+describe('the listing quotes the same seat the booking charges', () => {
+  const { estimateFare, pinnedRatesFor } = require('../../modules/trips/fare.calculator');
+  // A trip whose fees were pinned at creation and differ from the live settings.
+  const pinned = { ...trip, bookingFeeRate: 0.2, platformFeePesewas: 900, commissionRate: 0.3 };
+
+  it('estimateFare honours the pinned fees, not the live ones', () => {
+    const listed = estimateFare({
+      tier: pinned.tier, distanceKm: pinned.route.distanceKm, doorstepPickup: false, heavyLoad: false,
+      surgeMultiplier: 1, ...pinnedRatesFor(pinned), availableSeats: pinned.maxSeats,
+    }).farePerPersonPesewas;
+    expect(listed).toBe(priceSeat(pinned, {}).finalFareAmount);
+  });
+});

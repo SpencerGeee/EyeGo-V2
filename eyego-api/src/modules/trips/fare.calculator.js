@@ -519,6 +519,14 @@ function estimateFare({
   surgeMultiplier = 1.0,
   storedBaseFarePesewas,
   storedPerKmRatePesewas,
+  // BUGFIX (the listing and the trip page disagreeing on one seat): every
+  // caller spreads `pinnedRatesFor(trip)`, but this used to forward only the
+  // first two pins, so the listing, the driver's create-trip price and the
+  // group hub priced the FEES live while the trip page and the charge used
+  // the pinned ones. Forward the whole lock.
+  storedBookingFeeRate,
+  storedPlatformFeePesewas,
+  storedCommissionRate,
   availableSeats = 4,
 }) {
   return calculateFare({
@@ -530,6 +538,9 @@ function estimateFare({
     surgeMultiplier,
     storedBaseFarePesewas,
     storedPerKmRatePesewas,
+    storedBookingFeeRate,
+    storedPlatformFeePesewas,
+    storedCommissionRate,
   });
 }
 

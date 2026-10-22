@@ -5,7 +5,7 @@ import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { MotiView, goDeeper, goBack, Cascade } from '@eyego/ui';
 import { useQuery } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
-import { tripsApi, queryKeys } from '@eyego/api';
+import { tripsApi, bookingsApi, queryKeys } from '@eyego/api';
 import { useShallow } from 'zustand/react/shallow';
 import { useRideStore, isLiveBooking } from '../../stores/ride.store';
 import { useAuthStore } from '../../stores/auth.store';
@@ -58,7 +58,7 @@ export default function RideDetailScreen() {
   const colors = useColors();
   const isDark = useThemeStore((s) => s.isDark);
   const insets = useSafeAreaInsets();
-  const { id, tier: tierParam, group } = useLocalSearchParams<{ id: string; tier?: string; group?: string }>();
+  const { id, tier: tierParam, group, pickupStopId } = useLocalSearchParams<{ id: string; tier?: string; group?: string; pickupStopId?: string }>();
   const isGroupFlow = group === '1';
   const router = useRouter();
   const { morphBack } = useMorph();
@@ -316,6 +316,27 @@ export default function RideDetailScreen() {
     const serverFare = trip.farePerSeatPesewas ?? trip.fare ?? 0;
     setStoreTier(selectedTier, serverFare);
   }, [selectedTier, trip, lockedTier, setStoreTier]);
+
+  /**
+   * ONE PRICE FOR THE WHOLE BOOKING FLOW.
+   *
+   * BUGFIX ("per seat it's 15.61 but when I click the fare changes… it moved up
+   * twice since I saw 8.4"). Four numbers lived on four screens: the list priced
+   * a boarding stop on the client (straight line, no floor), this page dropped
+   * that stop and showed the full route (or a persisted `computedFare` from an
+   * earlier flow), and the seat and payment pages asked the server. Every screen
+   * now shows the server's preview for the SAME choices — same function the
+   * booking is written with, same query key, so the seat page opens on this
+   * page's number from cache.
+   */
+  const { data: farePreview } = useQuery({
+    queryKey: ['seat-fare-preview', id, pickupStopId ?? null, null, null, null],
+    queryFn: () => bookingsApi.previewFare({ tripId: id ?? '', pickupStopId: pickupStopId ?? null, dropoffStopId: null }),
+    enabled: !!id,
+    staleTime: 30_000,
+  });
+  const seatFare: number | null = farePreview?.farePerSeatPesewas ?? trip?.farePerSeatPesewas ?? null;
+  const seatPath = `/ride/${id}/seat${pickupStopId ? `?pickupStopId=${pickupStopId}` : ''}`;
 
   // `?? 10` was an invented capacity — a 14-seater rendered as 10 and a 4-seater
   // as 10, and the occupancy bar was wrong in both directions with nothing to
@@ -630,7 +651,7 @@ export default function RideDetailScreen() {
                 transition={{ type: 'spring', ...springs.snappy, delay: 80 }}
                 style={styles.fareSection}
               >
-                <AnimatedFareText pesewas={computedFare ?? trip?.farePerSeatPesewas ?? 0} variant="fareLarge" shiny />
+                <AnimatedFareText pesewas={seatFare ?? 0} variant="fareLarge" shiny />
                 <Text variant="caption" color={colors.onSurfaceVariant}>
                   per seat · drops as more join
                 </Text>
@@ -649,7 +670,7 @@ export default function RideDetailScreen() {
                   * buys, and let the sheet carry the itemisation.
                   */}
                 <View style={styles.fareBreakdown}>
-                  <FareRow label="Your seat" value={formatGhs(computedFare ?? trip?.farePerSeatPesewas ?? null)} bold />
+                  <FareRow label="Your seat" value={formatGhs(seatFare)} bold />
                   {(trip?.distanceKm || durationMinutes) ? (
                     <>
                       <View style={styles.fareDivider} />
@@ -719,18 +740,18 @@ export default function RideDetailScreen() {
                   label={
                     bookingWhileOnAnotherRide && !guestInfo
                       ? 'Who is this ride for?'
-                      : `Book This Seat · ${computedFare != null ? formatGhs(computedFare) : trip ? formatGhs(trip.farePerSeatPesewas ?? null) : '...'}`
+                      : `Book This Seat · ${seatFare != null ? formatGhs(seatFare) : '...'}`
                   }
                   onPress={() =>
                     bookingWhileOnAnotherRide && !guestInfo
-                      ? goDeeper({ pathname: '/ride/guest-selection', params: { next: `/ride/${id}/seat` } } as Href)
-                      : goDeeper(`/ride/${id}/seat` as Href)
+                      ? goDeeper({ pathname: '/ride/guest-selection', params: { next: seatPath } } as Href)
+                      : goDeeper(seatPath as Href)
                   }
                   accessibilityRole="button"
                   accessibilityLabel={
                     bookingWhileOnAnotherRide && !guestInfo
                       ? 'Choose who this ride is for'
-                      : `Book this seat for ${computedFare != null ? formatGhs(computedFare) : trip ? formatGhs(trip.farePerSeatPesewas ?? null) : 'loading'}`
+                      : `Book this seat for ${seatFare != null ? formatGhs(seatFare) : 'loading'}`
                   }
                 />
                 {isGroupFlow && (
@@ -806,7 +827,7 @@ export default function RideDetailScreen() {
                   onPress={() =>
                     goDeeper({
                       pathname: '/ride/guest-selection',
-                      params: { next: `/ride/${id}/seat` },
+                      params: { next: seatPath },
                     } as Href)
                   }
                   accessibilityRole="button"
@@ -849,9 +870,9 @@ export default function RideDetailScreen() {
       <FareBreakdownSheet
         visible={showFareBreakdown}
         onClose={() => setShowFareBreakdown(false)}
-        farePesewas={computedFare ?? trip?.farePerSeatPesewas ?? 0}
+        farePesewas={seatFare ?? 0}
         seats={1}
-        perSeatPesewas={computedFare ?? trip?.farePerSeatPesewas ?? null}
+        perSeatPesewas={seatFare}
         distanceKm={roadRoute?.distanceKm ?? trip?.distanceKm ?? null}
         durationMin={durationMinutes}
         deviationSurchargePesewas={(trip as any)?.deviationSurchargePesewas ?? null}
