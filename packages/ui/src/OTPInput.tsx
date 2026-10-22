@@ -1,11 +1,18 @@
 import React, { useRef, useState, useImperativeHandle, forwardRef } from 'react';
 import { View, TextInput, Pressable, StyleSheet, Platform } from 'react-native';
 import Animated, {
+  Keyframe,
   useSharedValue,
   useAnimatedStyle,
   withSequence,
   withTiming,
 } from 'react-native-reanimated';
+
+/** A digit lands with a small pop — 0.9 → 1 over 120 ms. */
+const digitPop = new Keyframe({
+  0: { opacity: 0.4, transform: [{ scale: 0.9 }] },
+  100: { opacity: 1, transform: [{ scale: 1 }] },
+}).duration(120);
 import { fonts, spacing, radii, type ColorTokens } from '@eyego/config';
 import { Text } from './Text';
 import { useThemedColors } from './ColorsContext';
@@ -79,7 +86,11 @@ export const OTPInput = forwardRef<OTPInputRef, OTPInputProps>(
                   hasError && styles.boxError,
                 ]}
               >
-                <Text style={styles.digit}>{char}</Text>
+                {char ? (
+                  <Animated.View key={`${i}-${char}`} entering={digitPop}>
+                    <Text style={styles.digit}>{char}</Text>
+                  </Animated.View>
+                ) : null}
               </View>
             );
           })}

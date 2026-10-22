@@ -1,594 +1,273 @@
-﻿import React, { useRef, useState, useCallback, useEffect, useMemo } from 'react';
-import {
-  View,
-  FlatList,
-  StyleSheet,
-  Dimensions,
-  Platform,
-  Pressable,
-  ViewToken,
-  Image,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { MotiView, MotiText } from '@eyego/ui';
+﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AccessibilityInfo, AppState, StyleSheet, View, useWindowDimensions, Pressable as RNPressable } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter, type Href } from 'expo-router';
 import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withSpring,
-  withRepeat,
-  withSequence,
-  withTiming,
+  Easing,
+  FadeIn,
   interpolate,
+  interpolateColor,
   Extrapolation,
-  type SharedValue,
-  cancelAnimation,
+  useAnimatedScrollHandler,
+  useAnimatedStyle,
   useReducedMotion,
+  useSharedValue,
+  withDelay,
+  withTiming,
+  type SharedValue,
 } from 'react-native-reanimated';
 import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
+import * as Haptics from 'expo-haptics';
 import * as SecureStore from 'expo-secure-store';
+import { Ionicons } from '@expo/vector-icons';
+import { fonts, spacing, withOpacity } from '@eyego/config';
+import { Text, Button, usePerformanceTier } from '@eyego/ui';
 import { useAuthStore } from '../../stores/auth.store';
-import Svg, { Circle, Path, Rect, Line, G } from 'react-native-svg';
-import { fonts, fontSizes, spacing, withOpacity, springs } from '@eyego/config';
-import {
-  Text,
-  GradientGlowBorder,
-  type GradientGlowBorderHandle,
-  PREMIUM_RING_COLORS,
-  PREMIUM_RING_LOCATIONS,
-} from '@eyego/ui';
-import { useColors, Colors } from '../../utils/useColors';
-import { useThemeStore } from '../../stores/theme.store';
+import { useColors, type Colors } from '../../utils/useColors';
 import { consumeReturnTo } from '../../utils/returnTo';
+import { SLIDES } from '../../components/intro/slides';
+import { ParticleHero } from '../../components/intro/ParticleHero';
+import { BlurWordText, EASE_IN_SOFT } from '../../components/intro/BlurWordText';
+import { Grain } from '../../components/intro/Grain';
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+/**
+ * ── ONBOARDING — SIX SLIDES, ONE PARTICLE FIELD ─────────────────────────────
+ *
+ * The chrome never moves; only the hero and the words change. One shared
+ * value, `progress` (the pager position, 0…5), drives everything — the
+ * particle morph, the dots, the glow — so a finger halfway between pages shows
+ * a half-dissolved hero and autoplay is nothing but a scroll.
+ *
+ *   hero        ParticleHero — dissolve into a swirling cloud, re-form
+ *   words       BlurWordText — word by word, reserved height (no reflow)
+ *   dots        width + colour interpolated straight off `progress`
+ *   autoplay    3.2 s a page until the first touch, then never again this
+ *               session; paused in the background; stops on the last page
+ *   first run   black → the cloud forms out of the centre while the card rises
+ *
+ * Reduce Motion: no particles, no autoplay, a calm fade per slide. Low-end
+ * (measured tier): 480 particles, no bloom.
+ */
 
-interface Slide {
-  id: string;
-  headline: string;
-  tagline: string;
-  subtext: string;
-  accentColor: string;
-  glowColor: string;
-}
-
-const SLIDES: Slide[] = [
-  {
-    id: '1',
-    headline: 'High-Fidelity\nProfessional Transit',
-    tagline: 'VERIFIED CARPOOLING',
-    subtext: 'Step into security. Ride with verified professionals in premium carpools designed to fit your calendar.',
-    accentColor: '#4BE277',
-    glowColor: 'rgba(75, 226, 119, 0.25)',
-  },
-  {
-    id: '2',
-    headline: 'Ultra-Crisp\nReal-time Radar',
-    tagline: 'PREMIUM MAPBOX TILES',
-    subtext: 'Track your ride on custom dark vector tilemaps with down-to-the-millisecond tracking and live arrival ETA.',
-    accentColor: '#4BE277',
-    glowColor: 'rgba(75, 226, 119, 0.25)',
-  },
-  {
-    id: '3',
-    headline: 'Frictionless\nCash & MoMo Checkout',
-    tagline: 'TRANSPARENT BILLING',
-    subtext: 'Confirm bookings seamlessly. Pay in cash directly or checkout with a single tap. Transit, refined.',
-    accentColor: '#4BE277',
-    glowColor: 'rgba(75, 226, 119, 0.25)',
-  },
-];
-
-function SlideIllustration({ slideId }: { slideId: string }) {
-  if (slideId === '1') {
-    return (
-      <Svg width={140} height={140} viewBox="0 0 140 140">
-        {/* Road */}
-        <Rect x="10" y="90" width="120" height="8" rx="4" fill="rgba(255,255,255,0.08)" />
-        {/* Car body */}
-        <Rect x="28" y="68" width="84" height="30" rx="10" fill="#1a1a2e" stroke="#4BE277" strokeWidth="1.5" />
-        {/* Car roof */}
-        <Path d="M44 68 Q50 50 90 50 Q100 50 106 68Z" fill="#111120" stroke="#4BE277" strokeWidth="1.5" />
-        {/* Windshield */}
-        <Path d="M50 68 Q55 55 88 55 Q96 55 100 68Z" fill="rgba(75,226,119,0.12)" />
-        {/* Wheels */}
-        <Circle cx="50" cy="100" r="12" fill="#0d0d1a" stroke="#4BE277" strokeWidth="1.5" />
-        <Circle cx="50" cy="100" r="5" fill="#4BE277" opacity="0.4" />
-        <Circle cx="90" cy="100" r="12" fill="#0d0d1a" stroke="#4BE277" strokeWidth="1.5" />
-        <Circle cx="90" cy="100" r="5" fill="#4BE277" opacity="0.4" />
-        {/* Passengers */}
-        <Circle cx="62" cy="62" r="6" fill="#4BE277" opacity="0.7" />
-        <Circle cx="82" cy="62" r="6" fill="#4BE277" opacity="0.5" />
-        {/* Origin pin */}
-        <Circle cx="20" cy="40" r="7" fill="#4BE277" />
-        <Path d="M20 47 L20 58" stroke="#4BE277" strokeWidth="1.5" strokeDasharray="3,2" />
-        {/* Destination pin */}
-        <Circle cx="120" cy="40" r="7" fill="rgba(75,226,119,0.4)" stroke="#4BE277" strokeWidth="1.5" />
-        <Path d="M120 47 L120 58" stroke="#4BE277" strokeWidth="1.5" strokeDasharray="3,2" />
-        {/* Route dots */}
-        <Circle cx="50" cy="44" r="2" fill="#4BE277" opacity="0.4" />
-        <Circle cx="70" cy="42" r="2" fill="#4BE277" opacity="0.5" />
-        <Circle cx="90" cy="44" r="2" fill="#4BE277" opacity="0.4" />
-      </Svg>
-    );
-  }
-  if (slideId === '2') {
-    return (
-      <Svg width={140} height={140} viewBox="0 0 140 140">
-        {/* Map grid lines */}
-        <Line x1="20" y1="10" x2="20" y2="130" stroke="rgba(75,226,119,0.07)" strokeWidth="1" />
-        <Line x1="45" y1="10" x2="45" y2="130" stroke="rgba(75,226,119,0.07)" strokeWidth="1" />
-        <Line x1="70" y1="10" x2="70" y2="130" stroke="rgba(75,226,119,0.07)" strokeWidth="1" />
-        <Line x1="95" y1="10" x2="95" y2="130" stroke="rgba(75,226,119,0.07)" strokeWidth="1" />
-        <Line x1="120" y1="10" x2="120" y2="130" stroke="rgba(75,226,119,0.07)" strokeWidth="1" />
-        <Line x1="10" y1="20" x2="130" y2="20" stroke="rgba(75,226,119,0.07)" strokeWidth="1" />
-        <Line x1="10" y1="45" x2="130" y2="45" stroke="rgba(75,226,119,0.07)" strokeWidth="1" />
-        <Line x1="10" y1="70" x2="130" y2="70" stroke="rgba(75,226,119,0.07)" strokeWidth="1" />
-        <Line x1="10" y1="95" x2="130" y2="95" stroke="rgba(75,226,119,0.07)" strokeWidth="1" />
-        <Line x1="10" y1="120" x2="130" y2="120" stroke="rgba(75,226,119,0.07)" strokeWidth="1" />
-        {/* Route path */}
-        <Path d="M25 110 Q40 80 60 70 Q80 60 95 45 Q110 30 115 25" stroke="#4BE277" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeDasharray="6,3" opacity="0.6" />
-        {/* Origin marker */}
-        <Circle cx="25" cy="110" r="5" fill="#4BE277" opacity="0.9" />
-        {/* Pulse rings around current position */}
-        <Circle cx="80" cy="58" r="18" fill="rgba(75,226,119,0.05)" stroke="#4BE277" strokeWidth="0.5" />
-        <Circle cx="80" cy="58" r="12" fill="rgba(75,226,119,0.08)" stroke="#4BE277" strokeWidth="0.8" />
-        <Circle cx="80" cy="58" r="7" fill="rgba(75,226,119,0.15)" stroke="#4BE277" strokeWidth="1" />
-        <Circle cx="80" cy="58" r="4" fill="#4BE277" />
-        {/* Destination pin */}
-        <Circle cx="115" cy="10" r="4" fill="#4BE277" />
-        {/* ETA chip */}
-        <Rect x="90" y="72" width="38" height="18" rx="9" fill="rgba(75,226,119,0.15)" stroke="#4BE277" strokeWidth="1" />
-        <Rect x="95" y="78" width="16" height="6" rx="3" fill="#4BE277" opacity="0.5" />
-        <Rect x="114" y="78" width="10" height="6" rx="3" fill="#4BE277" opacity="0.3" />
-      </Svg>
-    );
-  }
-  // slideId === '3': Mobile payment
-  return (
-    <Svg width={140} height={140} viewBox="0 0 140 140">
-      {/* Phone outline */}
-      <Rect x="40" y="15" width="60" height="110" rx="12" fill="#111120" stroke="#4BE277" strokeWidth="1.5" />
-      {/* Screen */}
-      <Rect x="46" y="28" width="48" height="72" rx="6" fill="rgba(75,226,119,0.05)" />
-      {/* Home bar */}
-      <Rect x="58" y="118" width="24" height="4" rx="2" fill="#4BE277" opacity="0.4" />
-      {/* Payment card on screen */}
-      <Rect x="51" y="35" width="38" height="22" rx="5" fill="rgba(75,226,119,0.15)" stroke="#4BE277" strokeWidth="1" />
-      <Circle cx="59" cy="44" r="5" fill="#4BE277" opacity="0.5" />
-      <Rect x="67" y="41" width="16" height="3" rx="1.5" fill="#4BE277" opacity="0.4" />
-      <Rect x="67" y="47" width="10" height="2" rx="1" fill="#4BE277" opacity="0.25" />
-      {/* Amount display */}
-      <Rect x="53" y="64" width="18" height="5" rx="2.5" fill="#4BE277" opacity="0.6" />
-      <Rect x="74" y="64" width="12" height="5" rx="2.5" fill="#4BE277" opacity="0.3" />
-      {/* Pay button */}
-      <Rect x="51" y="76" width="38" height="14" rx="7" fill="#4BE277" opacity="0.9" />
-      <Rect x="62" y="81" width="16" height="4" rx="2" fill="#050508" opacity="0.6" />
-      {/* Tap ripple */}
-      <Circle cx="110" cy="55" r="16" fill="none" stroke="#4BE277" strokeWidth="1" opacity="0.3" />
-      <Circle cx="110" cy="55" r="10" fill="none" stroke="#4BE277" strokeWidth="1" opacity="0.5" />
-      <Circle cx="110" cy="55" r="5" fill="#4BE277" opacity="0.6" />
-      {/* MoMo label */}
-      <Rect x="48" y="95" width="44" height="10" rx="5" fill="rgba(75,226,119,0.1)" stroke="#4BE277" strokeWidth="0.8" />
-      <Rect x="56" y="98" width="12" height="4" rx="2" fill="#4BE277" opacity="0.5" />
-      <Rect x="72" y="98" width="12" height="4" rx="2" fill="#4BE277" opacity="0.3" />
-    </Svg>
-  );
-}
+const AUTOPLAY_MS = 3200;
+const IN = Easing.bezier(...EASE_IN_SOFT);
 
 export default function OnboardingScreen() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
-  const flatListRef = useRef<FlatList>(null);
-  const ctaRingRef = useRef<GradientGlowBorderHandle>(null);
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const scrollX = useSharedValue(0);
+  const insets = useSafeAreaInsets();
+  const { width: W, height: H } = useWindowDimensions();
+  const reduced = useReducedMotion();
+  const tier = usePerformanceTier();
+  const low = tier === 'low';
 
-  const renderSlide = useCallback(({ item, index }: { item: Slide; index: number }) => (
-    <SlideItem slide={item} index={index} scrollX={scrollX} colors={colors} styles={styles} />
-  ), [scrollX, colors, styles]);
+  const accents = useMemo(() => SLIDES.map((s) => colors[s.accent] as string), [colors]);
+  const progress = useSharedValue(0);
+  const intro = useSharedValue(reduced ? 1 : 0);
+  const [index, setIndex] = useState(0);
+  const scrollRef = useRef<Animated.ScrollView>(null);
+  const touched = useRef(false);
 
-  const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
-  const handleDone = useCallback(async () => {
-    await SecureStore.setItemAsync('eyego_onboarded', 'true').catch(() => {});
-    // Straight to sign-in when signed out — it used to bounce off the tabs
-    // guard to get there. A new rider who came from an invite link goes back
-    // to it now that their account is set up (see utils/returnTo).
-    router.replace((isLoggedIn ? consumeReturnTo() ?? '/(tabs)/home' : '/(auth)/phone') as any);
-  }, [router, isLoggedIn]);
+  // First run: the cloud forms out of the centre while the card rises.
+  useEffect(() => {
+    if (reduced) return;
+    intro.value = withDelay(350, withTiming(1, { duration: 1250, easing: IN }));
+  }, [intro, reduced]);
 
-  const handleNext = useCallback(() => {
-    if (currentIndex < SLIDES.length - 1) {
-      flatListRef.current?.scrollToIndex({ index: currentIndex + 1, animated: true });
-    } else {
-      handleDone();
-    }
-  }, [currentIndex, handleDone]);
-
-  const onViewableItemsChanged = useCallback(
-    ({ viewableItems }: { viewableItems: ViewToken[] }) => {
-      if (viewableItems[0]) {
-        setCurrentIndex(viewableItems[0].index ?? 0);
-      }
+  const onScroll = useAnimatedScrollHandler({
+    onScroll: (e) => {
+      progress.value = e.contentOffset.x / Math.max(1, W);
     },
-    []
+  });
+
+  const settle = useCallback(
+    (x: number) => {
+      const i = Math.round(x / Math.max(1, W));
+      if (i !== index) {
+        void Haptics.selectionAsync().catch(() => {});
+        AccessibilityInfo.announceForAccessibility?.(`Page ${i + 1} of ${SLIDES.length}. ${SLIDES[i].title}`);
+      }
+      setIndex(i);
+    },
+    [index, W],
   );
 
-  return (
-    <SafeAreaView style={styles.safe}>
-      {/* Top Header Row */}
-      <MotiView
-        from={{ opacity: 0, translateY: -6 }}
-        animate={{ opacity: 1, translateY: 0 }}
-        transition={{ type: 'spring', ...springs.micro }}
-        style={styles.headerRow}
-      >
-        <Image
-          source={require('../../assets/logo.png')}
-          style={styles.brandLogo}
-          resizeMode="contain"
-          accessibilityRole="image"
-          accessibilityLabel="EyeGo"
-        />
-        <Pressable onPress={handleDone} hitSlop={16} accessibilityRole="button" accessibilityLabel="Skip onboarding">
-          <Text variant="label" style={styles.skipButton}>Skip</Text>
-        </Pressable>
-      </MotiView>
+  // Autoplay — until the rider touches the pager, then never again.
+  const [appActive, setAppActive] = useState(true);
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (s) => setAppActive(s === 'active'));
+    return () => sub.remove();
+  }, []);
+  useEffect(() => {
+    if (reduced || touched.current || !appActive || index >= SLIDES.length - 1) return;
+    const t = setTimeout(() => {
+      if (touched.current) return;
+      scrollRef.current?.scrollTo({ x: (index + 1) * W, animated: true });
+    }, index === 0 ? AUTOPLAY_MS + 900 : AUTOPLAY_MS);
+    return () => clearTimeout(t);
+  }, [index, reduced, appActive, W]);
 
-      {/* Main Slides List */}
-      <FlatList
-        ref={flatListRef}
-        data={SLIDES}
+  const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
+  const leave = useCallback(async () => {
+    await SecureStore.setItemAsync('eyego_onboarded', 'true').catch(() => {});
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    // Signed out → the sign-in scene (phone + code serves both new and
+    // returning riders). A rider who just set up an account goes on to where
+    // they were headed (see utils/returnTo).
+    router.replace((isLoggedIn ? consumeReturnTo() ?? '/(tabs)/home' : '/(auth)/phone') as Href);
+  }, [router, isLoggedIn]);
+
+  // ── Card entrance (first load only) ──
+  const cardStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(intro.value, [0.2, 0.8], [0, 1], Extrapolation.CLAMP),
+    transform: [{ translateY: interpolate(intro.value, [0, 1], [40, 0], Extrapolation.CLAMP) }],
+  }));
+  const logoStyle = useAnimatedStyle(() => ({ opacity: interpolate(intro.value, [0, 0.35], [0, 1], Extrapolation.CLAMP) }));
+  // The atmosphere behind the hero takes the slide's colour.
+  const auraStyle = useAnimatedStyle(() => ({
+    backgroundColor: interpolateColor(progress.value, accents.map((_, i) => i), accents),
+  }));
+
+  const heroH = Math.max(240, H * 0.5 - insets.top);
+  const slide = SLIDES[index];
+
+  return (
+    <View style={styles.root}>
+      {/* Atmosphere: a hue that follows the slide, a top vignette, the grain. */}
+      <Animated.View style={[styles.aura, { width: W * 1.4, height: W * 1.4, left: -W * 0.2, top: insets.top + heroH * 0.5 - W * 0.7 }, auraStyle]} />
+      <LinearGradient colors={['rgba(0,0,0,0.75)', 'transparent']} style={styles.vignette} pointerEvents="none" />
+      <Grain />
+
+      <Animated.View style={[styles.logoRow, { paddingTop: insets.top + spacing.sm }, logoStyle]}>
+        <Text style={styles.wordmark}>EYEGO</Text>
+      </Animated.View>
+
+      <View style={{ height: heroH }} pointerEvents="none">
+        {reduced ? (
+          <ReducedHero index={index} accent={accents[index]} />
+        ) : (
+          <ParticleHero progress={progress} intro={intro} width={W} height={heroH} accents={accents} low={low} />
+        )}
+      </View>
+
+      {/* The pager: transparent pages over the hero — only its position matters. */}
+      <Animated.ScrollView
+        ref={scrollRef}
         horizontal
         pagingEnabled
         showsHorizontalScrollIndicator={false}
-        bounces={false}
-        onViewableItemsChanged={onViewableItemsChanged}
-        viewabilityConfig={{ viewAreaCoveragePercentThreshold: 50 }}
-        onScroll={(e) => {
-          scrollX.value = e.nativeEvent.contentOffset.x;
-        }}
+        onScroll={onScroll}
         scrollEventThrottle={16}
-        keyExtractor={(item) => item.id}
-        renderItem={renderSlide}
-        style={{ flex: 1 }}
-      />
-
-      {/* Footer Nav Bar */}
-      <MotiView
-        from={{ opacity: 0, translateY: 10 }}
-        animate={{ opacity: 1, translateY: 0 }}
-        transition={{ type: 'spring', ...springs.micro, delay: 110 }}
-        style={styles.footer}
+        onTouchStart={() => { touched.current = true; }}
+        onMomentumScrollEnd={(e) => settle(e.nativeEvent.contentOffset.x)}
+        style={StyleSheet.absoluteFill}
+        accessibilityLabel="Introduction"
       >
-        {/* Pagination Dots */}
-        <View style={styles.dotsRow}>
-          {SLIDES.map((_, i) => (
-            <AnimatedDot key={i} index={i} currentIndex={currentIndex} colors={colors} styles={styles} />
-          ))}
-        </View>
+        {SLIDES.map((s, i) => (
+          <View key={i} style={{ width: W, height: H }} />
+        ))}
+      </Animated.ScrollView>
 
-        {/* Primary Premium CTA */}
-        <View style={styles.ctaWrapper}>
-          <Pressable
-            onPress={() => { ctaRingRef.current?.burst(); handleNext(); }}
-            accessibilityRole="button"
-            accessibilityLabel={currentIndex === SLIDES.length - 1 ? 'Start your journey' : 'Continue'}
+      <Animated.View style={[styles.cardWrap, { paddingBottom: insets.bottom + spacing.md }, cardStyle]} pointerEvents="box-none">
+        <View style={styles.card}>
+          <BlurView intensity={30} tint="dark" style={StyleSheet.absoluteFill} />
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(255,255,255,0.04)' }]} />
+          <LinearGradient colors={['rgba(255,255,255,0.12)', 'rgba(255,255,255,0.03)']} style={styles.cardEdge} pointerEvents="none" />
+          <View style={styles.topLight} pointerEvents="none" />
+
+          <Dots progress={progress} colors={colors} />
+
+          <View style={styles.titleBox}>
+            <BlurWordText text={slide.title} textKey={index} style={styles.title} reduced={reduced} />
+          </View>
+          <View style={styles.subBox}>
+            <BlurWordText text={slide.subtitle} textKey={index} style={styles.subtitle} reduced={reduced} baseDelay={120} />
+          </View>
+
+          <View style={styles.ctas}>
+            <Button label="Get started" onPress={leave} accessibilityLabel="Get started — create your account" />
+            <Button label="I already have an account" variant="secondary" onPress={leave} />
+          </View>
+          <RNPressable
+            onPress={() => router.push('/profile/terms' as Href)}
+            accessibilityRole="link"
+            accessibilityLabel="Read the Terms of Service"
+            hitSlop={8}
           >
-            <GradientGlowBorder
-              ref={ctaRingRef}
-              colors={PREMIUM_RING_COLORS}
-              locations={PREMIUM_RING_LOCATIONS}
-              fillColor={colors.surfaceContainerHigh}
-              borderRadius={28}
-              glow
-              glowColor={colors.premiumBlue}
-              glowColorSecondary={colors.premiumOrange}
-              style={styles.premiumCta}
-            >
-              <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={styles.premiumCtaText}>
-                {currentIndex === SLIDES.length - 1 ? 'Start Your Journey' : 'Continue'}
-              </Text>
-            </GradientGlowBorder>
-          </Pressable>
+            <Text style={styles.legal}>
+              By continuing, you agree to the <Text style={[styles.legal, { color: colors.onSurface }]}>Terms of Service</Text>
+            </Text>
+          </RNPressable>
         </View>
-      </MotiView>
-    </SafeAreaView>
-  );
-}
-
-function SlideItem({
-  slide,
-  index,
-  scrollX,
-  colors,
-  styles,
-}: {
-  slide: Slide;
-  index: number;
-  scrollX: SharedValue<number>;
-  colors: Colors;
-  styles: ReturnType<typeof makeStyles>;
-}) {
-  const animatedStyle = useAnimatedStyle(() => {
-    const inputRange = [
-      (index - 1) * SCREEN_WIDTH,
-      index * SCREEN_WIDTH,
-      (index + 1) * SCREEN_WIDTH,
-    ];
-    
-    const opacity = interpolate(
-      scrollX.value,
-      inputRange,
-      [0, 1, 0],
-      Extrapolation.CLAMP
-    );
-
-    const scale = interpolate(
-      scrollX.value,
-      inputRange,
-      [0.85, 1, 0.85],
-      Extrapolation.CLAMP
-    );
-
-    const translateY = interpolate(
-      scrollX.value,
-      inputRange,
-      [40, 0, 40],
-      Extrapolation.CLAMP
-    );
-
-    return {
-      opacity,
-      transform: [{ scale }, { translateY }],
-    };
-  });
-
-  // Glowing halo scaling animation (snappy, responsive liquid scale)
-  const glowScale = useSharedValue(1);
-  /**
-   * ── AN INFINITE LOOP NEEDS A CLEANUP, OR IT OUTLIVES THE SCREEN ────────────
-   *
-   * A `-1` repeat is a UI-thread frame callback that Reanimated keeps driving
-   * until something cancels it — unmounting the component does NOT. This effect
-   * had no cleanup at all, so the onboarding glow kept pulsing for the entire
-   * session after the user finished onboarding and never saw it again.
-   *
-   * Same defect the `Blob` in AppBackground documents and guards against; this
-   * is one of the two places that never got the same treatment.
-   *
-   * Gated on reduce-motion too: a pulsing glow is decoration by any definition,
-   * and it is the class of motion a user asking the OS to reduce it means.
-   */
-  const reducedMotion = useReducedMotion();
-  useEffect(() => {
-    if (reducedMotion) return undefined;
-    glowScale.value = withRepeat(
-      withSequence(
-        withTiming(1.2, { duration: 2000 }),
-        withTiming(1.0, { duration: 2000 })
-      ),
-      -1,
-      true
-    );
-    return () => cancelAnimation(glowScale);
-  }, [glowScale, reducedMotion]);
-
-  const glowStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: glowScale.value }],
-  }));
-
-  return (
-    <View style={[styles.slide, { width: SCREEN_WIDTH }]}>
-      <Animated.View style={[styles.slideContent, animatedStyle]}>
-        {/* Modern Illustration Halo with glassmorphism */}
-        <View style={styles.illustrationOuter}>
-          <Animated.View style={[styles.glowHalo, { borderColor: slide.accentColor + '40' }, glowStyle]} />
-          
-          {Platform.OS === 'ios' ? (
-            <BlurView intensity={30} tint={useThemeStore.getState().isDark ? 'dark' : 'light'} style={styles.illustrationGlass}>
-              <View style={[styles.illustrationCore, { backgroundColor: withOpacity(colors.primary, 0.05) }]}>
-                <SlideIllustration slideId={slide.id} />
-              </View>
-            </BlurView>
-          ) : (
-            // expo-blur on Android is just a tint (plus native-view overhead) — render the tint directly.
-            <View style={[styles.illustrationGlass, { backgroundColor: withOpacity(colors.onSurface, 0.05) }]}>
-              <View style={[styles.illustrationCore, { backgroundColor: withOpacity(colors.primary, 0.05) }]}>
-                <SlideIllustration slideId={slide.id} />
-              </View>
-            </View>
-          )}
-        </View>
-
-        {/* Feature tagline */}
-        <Text style={[styles.tagline, { color: slide.accentColor }]}>{slide.tagline}</Text>
-
-        {/* Main headline */}
-        <Text variant="headlineLarge" style={styles.slideHeadline}>
-          {slide.headline}
-        </Text>
-
-        {/* Subtext description */}
-        <Text variant="bodyLarge" style={styles.slideSubtext}>
-          {slide.subtext}
-        </Text>
       </Animated.View>
     </View>
   );
 }
 
-function AnimatedDot({
-  index,
-  currentIndex,
-  colors,
-  styles,
-}: {
-  index: number;
-  currentIndex: number;
-  colors: Colors;
-  styles: ReturnType<typeof makeStyles>;
-}) {
-  const isActive = index === currentIndex;
-  const scaleX = useSharedValue(isActive ? 1 : 0.25);
-
-  useEffect(() => {
-    scaleX.value = withSpring(isActive ? 1 : 0.25, springs.micro);
-  }, [isActive, scaleX]);
-
-  const dotStyle = useAnimatedStyle(() => ({
-    transform: [{ scaleX: scaleX.value }],
-    backgroundColor: isActive ? colors.primary : colors.rimLight,
-  }));
-
-  return <Animated.View style={[styles.dot, { width: 32 }, dotStyle]} />;
+/** Six dots; the active one stretches into a glowing pill, straight off `progress`. */
+function Dots({ progress, colors }: { progress: SharedValue<number>; colors: Colors }) {
+  return (
+    <View style={{ flexDirection: 'row', alignSelf: 'center', gap: 6, marginBottom: spacing.lg }} accessibilityElementsHidden>
+      {SLIDES.map((_, i) => (
+        <Dot key={i} i={i} progress={progress} on={colors.primary} off={withOpacity(colors.onSurface, 0.22)} />
+      ))}
+    </View>
+  );
 }
 
-const makeStyles = (colors: Colors) => StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: 'transparent',
-  },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing['2xl'],
-    paddingTop: spacing.lg,
-    paddingBottom: spacing.sm,
-    zIndex: 10,
-  },
-  brandText: {
-    fontSize: fontSizes.titleLarge,
-    lineHeight: fontSizes.titleLarge * 1.3,
-    fontFamily: fonts.bold,
-    color: colors.onSurface,
-    letterSpacing: -0.5,
-  },
-  brandLogo: {
-    width: 96,
-    height: 40,
-  },
-  skipButton: {
-    fontSize: fontSizes.bodySmall,
-    lineHeight: Math.round(fontSizes.bodySmall * 1.3),
-    fontFamily: fonts.medium,
-    color: colors.onSurfaceVariant,
-    letterSpacing: 0.2,
-  },
-  slide: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing['2xl'],
-    position: 'relative',
-  },
-  backgroundAura: {
-    position: 'absolute',
-    width: SCREEN_WIDTH * 0.95,
-    height: SCREEN_WIDTH * 0.95,
-    borderRadius: (SCREEN_WIDTH * 0.95) / 2,
-    top: SCREEN_HEIGHT * 0.1,
-    alignSelf: 'center',
-    filter: 'blur(80px)' as any,
-    opacity: 0.7,
-  },
-  slideContent: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '100%',
-  },
-  illustrationOuter: {
-    width: 200,
-    height: 200,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: spacing['3xl'],
-    position: 'relative',
-  },
-  glowHalo: {
-    position: 'absolute',
-    width: 210,
-    height: 210,
-    borderRadius: 105,
-    borderWidth: 1.5,
-    borderStyle: 'dashed',
-    opacity: 0.75,
-  },
-  illustrationGlass: {
-    width: 170,
-    height: 170,
-    borderRadius: 85,
-    overflow: 'hidden',
-    borderWidth: 1.5,
-    borderColor: colors.rimLight,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  illustrationCore: {
-    width: '100%',
-    height: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tagline: {
-    fontSize: fontSizes.caption,
-    lineHeight: Math.round(fontSizes.caption * 1.3),
-    fontFamily: fonts.bold,
-    letterSpacing: 2,
-    textTransform: 'uppercase',
-    marginBottom: spacing.md,
-  },
-  slideHeadline: {
-    color: colors.onSurface,
-    fontFamily: fonts.bold,
-    fontSize: 32,
-    lineHeight: 40,
-    textAlign: 'center',
-    letterSpacing: -1,
-    marginBottom: spacing.md,
-  },
-  slideSubtext: {
-    color: colors.onSurfaceVariant,
-    fontFamily: fonts.regular,
-    fontSize: 16,
-    lineHeight: 24,
-    textAlign: 'center',
-    paddingHorizontal: spacing.md,
-  },
-  footer: {
-    paddingHorizontal: spacing['2xl'],
-    paddingBottom: spacing['3xl'],
-    gap: spacing['2xl'],
-  },
-  dotsRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingBottom: spacing.sm,
-  },
-  dot: {
-    height: 8,
-    borderRadius: 4,
-  },
-  ctaWrapper: {
-    width: '100%',
-  },
-  premiumCta: {
-    // Background, ring, and glow are drawn by GradientGlowBorder — this
-    // only supplies layout.
-    width: '100%',
-    height: 56,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  premiumCtaText: {
-    color: colors.onSurface,
-    fontSize: 16,
-    lineHeight: 21,
-    fontFamily: fonts.bold,
-    letterSpacing: -0.2,
-  },
-});
+function Dot({ i, progress, on, off }: { i: number; progress: SharedValue<number>; on: string; off: string }) {
+  const style = useAnimatedStyle(() => {
+    const k = interpolate(progress.value, [i - 1, i, i + 1], [0, 1, 0], Extrapolation.CLAMP);
+    return {
+      width: 6 + k * 16,
+      backgroundColor: interpolateColor(k, [0, 1], [off, on]),
+      shadowOpacity: k * 0.8,
+    };
+  });
+  return <Animated.View style={[{ height: 6, borderRadius: 3, shadowColor: on, shadowRadius: 6, shadowOffset: { width: 0, height: 0 } }, style]} />;
+}
+
+/** Reduce Motion: one calm icon per slide, cross-faded. */
+function ReducedHero({ index, accent }: { index: number; accent: string }) {
+  const icons = ['bus-outline', 'layers-outline', 'cut-outline', 'wallet-outline', 'location-outline', 'eye-outline'] as const;
+  return (
+    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+      <Animated.View key={index} entering={FadeIn.duration(150)}>
+        <Ionicons name={icons[index]} size={120} color={accent} />
+      </Animated.View>
+      <View style={{ width: 180, height: 18, borderRadius: 9, backgroundColor: withOpacity(accent, 0.18), marginTop: 18 }} />
+    </View>
+  );
+}
+
+const makeStyles = (colors: Colors) =>
+  StyleSheet.create({
+    root: { flex: 1, backgroundColor: '#050506' },
+    aura: { position: 'absolute', borderRadius: 9999, opacity: 0.09 },
+    vignette: { position: 'absolute', left: 0, right: 0, top: 0, height: 160 },
+    logoRow: { alignItems: 'center' },
+    wordmark: { fontFamily: fonts.displaySemiBold, fontSize: 15, letterSpacing: 6, color: colors.onSurface },
+    cardWrap: { position: 'absolute', left: spacing.md, right: spacing.md, bottom: 0 },
+    card: {
+      borderRadius: 32,
+      overflow: 'hidden',
+      padding: spacing.xl,
+      paddingTop: spacing.lg,
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.08)',
+      shadowColor: colors.primary,
+      shadowOpacity: 0.1,
+      shadowRadius: 40,
+      shadowOffset: { width: 0, height: -10 },
+    },
+    cardEdge: { ...StyleSheet.absoluteFillObject, opacity: 0.35 },
+    topLight: { position: 'absolute', top: 0, left: 24, right: 24, height: 1, backgroundColor: 'rgba(255,255,255,0.22)' },
+    titleBox: { minHeight: 76, justifyContent: 'center' },
+    title: { fontFamily: fonts.displayBold, fontSize: 29, lineHeight: 32, letterSpacing: -0.5, color: colors.onSurface, textAlign: 'center' },
+    subBox: { minHeight: 46, marginTop: spacing.sm, justifyContent: 'flex-start' },
+    subtitle: { fontFamily: fonts.regular, fontSize: 15, lineHeight: 21, color: withOpacity(colors.onSurface, 0.62), textAlign: 'center' },
+    ctas: { gap: spacing.md, marginTop: spacing.xl },
+    legal: { fontFamily: fonts.regular, fontSize: 11.5, color: withOpacity(colors.onSurface, 0.45), textAlign: 'center', marginTop: spacing.md },
+  });
