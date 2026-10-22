@@ -109,16 +109,20 @@ export function SwipeToConfirm({
     onConfirm();
   }, [onConfirm]);
 
-  // Reset when the caller stops loading without unmounting us — but ONLY when
-  // the action did not succeed. A confirmed action holds at the end of the
-  // track; springing back there is what made a successful swipe indistinguishable
-  // from a rejected one (see `confirmed` above).
+  // At rest whenever the caller is neither working nor showing success. A
+  // confirmed action holds at the end of the track (see `confirmed` above).
+  //
+  // BUGFIX ("i swiped to start the ride and the swipe button is stuck at the
+  // right"). This used to reset only `if (committed.value)`. The boarding run
+  // clears `boardingRun` one render BEFORE `advanceStatus` reports pending, so
+  // `loading` blipped false, this reset fired early and cleared `committed`;
+  // success then parked the thumb at the end, and when `confirmed` dropped
+  // there was no `committed` left to trigger the return. The resting state is
+  // a function of the props, not of how the thumb got where it is.
   React.useEffect(() => {
-    if (confirmed) return;
-    if (!loading && committed.value) {
-      committed.value = false;
-      x.value = withSpring(0, springs.standard);
-    }
+    if (confirmed || loading) return;
+    committed.value = false;
+    x.value = withSpring(0, springs.standard);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, confirmed]);
 
