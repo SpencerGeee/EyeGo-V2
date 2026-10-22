@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -51,7 +51,7 @@ import {
   rowLayout,
   contentEnter,
   contentExit,
-  useSnapCard,
+  SnapSheet,
 } from '@eyego/ui';
 import type { Coord } from '@eyego/maps';
 import Svg, { Rect } from 'react-native-svg';
@@ -488,10 +488,11 @@ export function DispatchOfferCard({
    * back as the panel reflows on the sheet's own spring; rows that arrive or
    * leave fade. A strong fling skips straight to full / peek.
    */
-  const { snap, setSnap: toSnap, grab, dragStyle } = useSnapCard(3);
-  const peek = isSheet && snap === 0;
-  const half = !isSheet || snap >= 1;
-  const full = !isSheet || snap === 2;
+  // The sheet variant shows each block in its own SnapSheet section (below);
+  // the card variant shows everything.
+  const peek = isSheet;
+  const half = true;
+  const full = !isSheet;
   const { height: screenH } = useWindowDimensions();
   const asksCount = (offer.pickupNote ? 1 : 0) + (offer.ridePrefs?.length ?? 0);
   useEffect(() => {
@@ -560,8 +561,319 @@ export function DispatchOfferCard({
       .join(' · ') || 'Length on start';
   const kindLabel = isReassignment ? 'UP FOR GRABS' : isRequest ? 'RIDE REQUEST' : 'NEW OFFER';
 
+  /**
+   * ── THE SHEET VARIANT IS A SNAP SHEET ────────────────────────────────────
+   *
+   * BUGFIX ("the card problem also affects the driver dispatch cards"). The
+   * three snaps were React state that swapped rows in and out, so a drag only
+   * nudged a rubber band and the card jumped on release. It is the shared
+   * SnapSheet now: everything laid out once, the surface moving with the
+   * finger between detents measured from these sections, the swipe and Pass
+   * pinned in the footer at every detent.
+   *   peek — the money, the clock, the job on one line
+   *   half — where the pickup is and how long the ride is
+   *   full — your share, the queue, the rider's asks, the rules
+   */
+  if (isSheet) {
+    return (
+      <SnapSheet
+        backgroundColor={colors.surfaceCard}
+        gutter={spacing.xl}
+        gap={spacing.md}
+        topEdge={
+          offer.expiresAtServerMs ? (
+            <View style={styles.railTrack} pointerEvents="none">
+              <Animated.View style={[styles.rail, { backgroundColor: accent }, railStyle]} />
+            </View>
+          ) : null
+        }
+        peek={
+          <>
+            <Animated.View layout={rowLayout} style={[styles.hero, { borderColor: accent + '33', backgroundColor: accent + '0E' }]}>
+              <View style={styles.money}>
+                <View style={styles.eyebrowRow}>
+                  <View style={[styles.kindDot, { backgroundColor: accent }]} />
+                  <Text style={[styles.eyebrow, { color: accent }]} numberOfLines={1}>
+                    {offer.tier ? `${kindLabel} · ${tier.label.toUpperCase()}` : kindLabel}
+                  </Text>
+                </View>
+                <Text
+                  style={[styles.earnings, { color: colors.onSurface }]}
+                  accessibilityLabel={earnings != null ? `You earn ${formatGhs(earnings)}` : 'Earnings unknown'}
+                >
+                  {earnings != null ? formatGhs(earnings) : '—'}
+                </Text>
+                {metaParts.length || boost ? (
+                  <Text style={[styles.meta, { color: colors.onSurfaceVariant }]} numberOfLines={1}>
+                    {metaParts.join(' · ')}
+                    {boost ? (
+                      <Text style={{ color: colors.primary, fontFamily: fonts.semiBold }}>
+                        {metaParts.length ? ' · ' : ''}+{formatGhs(boost)} rider boost
+                      </Text>
+                    ) : null}
+                  </Text>
+                ) : null}
+
+                {/* Full snap: your share, a long-trip flag, and where you are in the queue. */}
+                {full ? (
+                  <Animated.View entering={contentEnter} exiting={contentExit} style={styles.details}>
+                    {earnings != null && offer.farePesewas != null && offer.farePesewas > earnings ? (
+                      // A commission split is a thing a driver wants to see BEFORE they swipe.
+                      <Text style={[styles.detail, { color: colors.onSurfaceVariant }]}>
+                        Your share: {Math.round((earnings / offer.farePesewas) * 100)}% of {formatGhs(offer.farePesewas)}
+                        {boost ? ` · the ${formatGhs(boost)} boost is 100% yours` : ''}
+                      </Text>
+                    ) : null}
+                    {tripKm != null && tripKm >= LONG_TRIP_KM ? (
+                      <Text style={[styles.detail, { color: colors.onSurfaceVariant }]}>Long trip — plan your break after it</Text>
+                    ) : null}
+                    {/* Dispatch asks one driver at a time, so "3 of 8" is a real queue position. */}
+                    {offer.attempt != null && offer.totalCandidates != null && offer.totalCandidates > 0 ? (
+                      <Text style={[styles.detail, { color: colors.onSurfaceVariant }]}>
+                        {offer.attempt === 1 ? 'You are the closest driver' : `Driver ${offer.attempt} of ${offer.totalCandidates} asked`}
+                      </Text>
+                    ) : null}
+                  </Animated.View>
+                ) : null}
+              </View>
+
+              {secondsLeft != null && offer.expiresAtServerMs ? (
+                <CountdownRing
+                  expiresAtMs={offer.expiresAtServerMs}
+                  windowMs={windowMs}
+                  nowMs={nowMs}
+                  // The sheet's top-edge rail carries the peripheral half of this
+                  // job, so there the ring only answers "exactly how long" — 62, and
+                  // every point it gives up is a point the fare gains.
+                  size={isSheet ? 62 : 76}
+                  stroke={isSheet ? 4 : 4.5}
+                  color={accent}
+                  trackColor={colors.outline}
+                >
+                  {/* A search deadline can be minutes away; an exclusive hold is
+                      seconds. Same ring, whichever clock this card is on. */}
+                  <Text style={[styles.timerDigits, isSheet && styles.timerDigitsSheet, { color: accent }]}>
+                    {secondsLeft >= 100
+                      ? `${Math.floor(secondsLeft / 60)}:${String(secondsLeft % 60).padStart(2, '0')}`
+                      : String(Math.max(0, secondsLeft)).padStart(2, '0')}
+                  </Text>
+                  <Text variant="caption" color={colors.onSurfaceVariant} style={{ marginTop: -2 }}>
+                    {secondsLeft >= 100 ? 'left' : 'sec'}
+                  </Text>
+                </CountdownRing>
+              ) : (
+                <View style={[styles.openBadge, { borderColor: accent + '55' }]}>
+                  <Ionicons name="flash" size={18} color={accent} />
+                  <Text style={[styles.chipText, { color: accent, marginTop: 2 }]}>OPEN</Text>
+                </View>
+              )}
+            </Animated.View>
+            {peek ? (
+              <Animated.View entering={contentEnter} exiting={contentExit} layout={rowLayout} style={styles.journey}>
+                <View style={styles.journeyHalf}>
+                  <Ionicons name="navigate" size={14} color={accent} />
+                  <Text style={[styles.journeyText, { color: colors.onSurface }]} numberOfLines={1}>
+                    {pickupLine}
+                    <Text style={[styles.journeyUnit, { color: colors.onSurfaceVariant }]}> away</Text>
+                  </Text>
+                </View>
+                <View style={[styles.journeyRule, { backgroundColor: colors.outlineVariant }]} />
+                <View style={styles.journeyHalf}>
+                  <Ionicons name="flag" size={13} color={colors.onSurface} />
+                  <Text style={[styles.journeyText, { color: colors.onSurface }]} numberOfLines={1}>
+                    {tripLine}
+                    <Text style={[styles.journeyUnit, { color: colors.onSurfaceVariant }]}> trip</Text>
+                  </Text>
+                </View>
+              </Animated.View>
+            ) : null}
+          </>
+        }
+        half={
+          <>
+            {half ? (
+            <Animated.View entering={contentEnter} exiting={contentExit} layout={rowLayout} style={styles.facts}>
+              <View style={styles.fact}>
+                <View style={[styles.factIcon, { backgroundColor: accent + '1F' }]}>
+                  <Ionicons name="navigate" size={15} color={accent} />
+                </View>
+                <View style={styles.factBody}>
+                  <Text style={[styles.factMain, { color: colors.onSurface }]} numberOfLines={1}>
+                    {pickupLine}
+                    <Text style={[styles.factUnit, { color: colors.onSurfaceVariant }]}>  away</Text>
+                  </Text>
+                  <Text style={[styles.factSub, { color: colors.onSurfaceVariant }]} numberOfLines={1}>
+                    {offer.pickupAddress ?? 'Pickup point on the map'}
+                  </Text>
+                </View>
+              </View>
+              <View style={[styles.factDivider, { backgroundColor: colors.outlineVariant }]} />
+              <View style={styles.fact}>
+                <View style={[styles.factIcon, { backgroundColor: colors.surfaceContainerHigh }]}>
+                  <Ionicons name="flag" size={14} color={colors.onSurface} />
+                </View>
+                <View style={styles.factBody}>
+                  <Text style={[styles.factMain, { color: colors.onSurface }]} numberOfLines={1}>
+                    {tripLine}
+                    <Text style={[styles.factUnit, { color: colors.onSurfaceVariant }]}>  trip</Text>
+                  </Text>
+                  <Text style={[styles.factSub, { color: colors.onSurfaceVariant }]} numberOfLines={1}>
+                    {offer.dropoffAddress ??
+                      (offer.dropoffBearing
+                        ? `Heading ${offer.dropoffBearing} · drop-off shared when you start`
+                        : 'Drop-off shared when you start the ride')}
+                  </Text>
+                </View>
+              </View>
+            </Animated.View>
+            ) : null}
+          </>
+        }
+        footer={
+          <View style={{ gap: spacing.sm }}>
+            {walletShortfall > 0 ? (
+              <View style={[styles.walletNote, { borderColor: colors.statusWarning + '55', backgroundColor: colors.statusWarning + '14' }]}>
+                <Ionicons name="wallet-outline" size={15} color={colors.statusWarning} />
+                <Text variant="bodySmall" color={colors.onSurface} style={{ flex: 1, lineHeight: 17 }}>
+                  Cash ride — {formatGhs(walletRequired)} commission comes out of your wallet when you
+                  board. You are {formatGhs(walletShortfall)} short.
+                </Text>
+              </View>
+            ) : full && walletRequired > 0 ? (
+              <View style={styles.walletHint}>
+                <Ionicons name="cash-outline" size={13} color={colors.onSurfaceVariant} />
+                <Text variant="caption" color={colors.onSurfaceVariant}>
+                  Cash ride — {formatGhs(walletRequired)} commission is taken from your wallet at boarding
+                </Text>
+              </View>
+            ) : null}
+            {/* ── Actions ── Pass beside the swipe in the sheet, so the two decisions
+                sit on one line and the card gives the height back to the map. */}
+            <View style={styles.actions}>
+              <View style={isSheet ? styles.actionPair : styles.actions}>
+              <View style={isSheet ? { flex: 1 } : undefined}>
+              <SwipeToConfirm
+                label={accepted ? 'Accepted' : 'Swipe to accept'}
+                loadingLabel="Claiming…"
+                confirmedLabel="Yours"
+                onConfirm={onAccept}
+                loading={busy === 'accept'}
+                confirmed={accepted}
+                disabled={!!busy || accepted || (secondsLeft != null && secondsLeft <= 0)}
+                color={accent}
+                onColor={colors.background}
+                trackColor={colors.surfaceContainerHigh}
+                borderColor={colors.outline}
+                height={58}
+              />
+              </View>
+
+              <Pressable
+                onPress={() => {
+                  if (busy || accepted) return;
+                  if (!declineArmed) {
+                    // A WARNING notification, not a selection tick. The first tap
+                    // changes what the second tap will do, and the driver has to
+                    // feel that through a phone mount without looking.
+                    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+                    setDeclineArmed(true);
+                    return;
+                  }
+                  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
+                  onDecline();
+                }}
+                disabled={!!busy || accepted}
+                // The handler fires its own Warning/Heavy notification, and the two
+                // stages of a pass have to feel different. A third generic tick
+                // underneath them would flatten that distinction.
+                haptic="none"
+                accessibilityRole="button"
+                accessibilityLabel={declineArmed ? 'Confirm pass on this trip' : 'Pass on this trip'}
+                style={({ pressed }) => [
+                  styles.decline,
+                  isSheet && styles.declineSide,
+                  declineArmed && {
+                    borderColor: colors.error,
+                    backgroundColor: colors.error,
+                  },
+                  pressed && { opacity: 0.7 },
+                  busy === 'decline' && { opacity: 0.6 },
+                ]}
+              >
+                <View style={styles.declineInner}>
+                  {declineArmed ? (
+                    <Ionicons name="close-circle" size={16} color={colors.background} />
+                  ) : null}
+                  <Text
+                    style={[
+                      styles.declineText,
+                      { color: declineArmed ? colors.background : colors.onSurfaceVariant },
+                    ]}
+                  >
+                    {busy === 'decline'
+                      ? 'Passing…'
+                      : declineArmed
+                        ? isSheet ? `Sure? ${armSeconds}` : `Tap again to pass · ${armSeconds}`
+                        : 'Pass'}
+                  </Text>
+                </View>
+              </Pressable>
+              </View>
+
+              {/* Says out loud what passing now costs, because it is no longer
+                  permanent — see `declineCooldownSeconds` on the server. The old
+                  copy said nothing, and a driver who had passed once believed the
+                  ride was gone for good. */}
+              {declineArmed ? (
+                <Text variant="caption" color={colors.onSurfaceVariant} style={styles.declineNote}>
+                  It goes to the next driver. If nobody takes it, it comes back to your board.
+                </Text>
+              ) : null}
+            </View>
+          </View>
+        }
+      >
+              <Animated.View entering={contentEnter} exiting={contentExit} style={styles.details}>
+                {earnings != null && offer.farePesewas != null && offer.farePesewas > earnings ? (
+                  // A commission split is a thing a driver wants to see BEFORE they swipe.
+                  <Text style={[styles.detail, { color: colors.onSurfaceVariant }]}>
+                    Your share: {Math.round((earnings / offer.farePesewas) * 100)}% of {formatGhs(offer.farePesewas)}
+                    {boost ? ` · the ${formatGhs(boost)} boost is 100% yours` : ''}
+                  </Text>
+                ) : null}
+                {tripKm != null && tripKm >= LONG_TRIP_KM ? (
+                  <Text style={[styles.detail, { color: colors.onSurfaceVariant }]}>Long trip — plan your break after it</Text>
+                ) : null}
+                {/* Dispatch asks one driver at a time, so "3 of 8" is a real queue position. */}
+                {offer.attempt != null && offer.totalCandidates != null && offer.totalCandidates > 0 ? (
+                  <Text style={[styles.detail, { color: colors.onSurfaceVariant }]}>
+                    {offer.attempt === 1 ? 'You are the closest driver' : `Driver ${offer.attempt} of ${offer.totalCandidates} asked`}
+                  </Text>
+                ) : null}
+              </Animated.View>
+          <Animated.View entering={contentEnter} exiting={contentExit} layout={rowLayout} style={styles.fullRows}>
+            <RiderAsks note={offer.pickupNote} prefs={offer.ridePrefs} />
+            {isReassignment || isRequest ? (
+              <Text variant="caption" color={colors.onSurfaceVariant} style={styles.rule}>
+                First driver to accept gets it — this one is not being held for you.
+              </Text>
+            ) : null}
+          </Animated.View>
+        {walletShortfall === 0 && walletRequired > 0 ? (
+          <View style={styles.walletHint}>
+            <Ionicons name="cash-outline" size={13} color={colors.onSurfaceVariant} />
+            <Text variant="caption" color={colors.onSurfaceVariant}>
+              Cash ride — {formatGhs(walletRequired)} commission is taken from your wallet at boarding
+            </Text>
+          </View>
+        ) : null}
+      </SnapSheet>
+    );
+  }
+
+
   const inner = (
-    <Animated.View style={[isSheet ? styles.sheetCard : styles.card, isSheet && dragStyle]}>
+    <Animated.View style={styles.card}>
       {/* The window, draining. In the card the whole FRAME drains (see
           PerimeterDrain, mounted last so it sits above the map); the sheet has
           no frame, so it keeps the top-edge rail. */}
@@ -621,18 +933,6 @@ export function DispatchOfferCard({
       {/* ── The glass panel ── reflows on the sheet's spring between snaps. */}
       <Animated.View layout={sheetContentLayout} style={[styles.panel, isSheet && styles.sheetPanel]}>
         <GlassSurface style={StyleSheet.absoluteFill} borderRadius={0} intensity="high" />
-        {isSheet ? (
-          <GestureDetector gesture={grab}>
-            <View
-              style={styles.grabZone}
-              accessible
-              accessibilityRole="button"
-              accessibilityLabel={snap === 2 ? 'Show less' : 'Show more ride details'}
-            >
-              <View style={[styles.grabber, { backgroundColor: colors.onSurface + '38' }]} />
-            </View>
-          </GestureDetector>
-        ) : null}
         <ScrollView
           style={isSheet && full ? { maxHeight: screenH * 0.52 } : undefined}
           scrollEnabled={isSheet && full}
@@ -832,7 +1132,7 @@ export function DispatchOfferCard({
         {half && !full && asksCount > 0 ? (
           <Animated.View entering={contentEnter} exiting={contentExit} layout={rowLayout}>
             <Pressable
-              onPress={() => toSnap(2)}
+              onPress={() => {}}
               accessibilityRole="button"
               accessibilityLabel="Show the rider's note and requests"
               style={[styles.asksPill, { borderColor: colors.outline, backgroundColor: colors.surfaceContainerHigh }]}

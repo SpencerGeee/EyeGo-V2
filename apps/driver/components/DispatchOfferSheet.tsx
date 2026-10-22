@@ -238,11 +238,9 @@ export default function DispatchOfferSheet() {
    */
   const insets = useSafeAreaInsets();
   const { height: screenH } = useWindowDimensions();
-  const [cardH, setCardH] = useState(0);
-  const onCardLayout = (e: LayoutChangeEvent) => {
-    const h = Math.round(e.nativeEvent.layout.height);
-    if (Math.abs(h - cardH) > 8) setCardH(h);
-  };
+  // The offer sheet's peek (money, clock, one-line job, the swipe) — the map
+  // frames the approach above it. A constant, so a drag never moves the camera.
+  const cardH = 300;
 
   const dismiss = () => {
     if (held) clearOffer();
@@ -413,44 +411,40 @@ export default function DispatchOfferSheet() {
         />
       </Animated.View>
 
-      <View
-        style={[styles.root, { paddingTop: insets.top + spacing.sm, paddingBottom: insets.bottom + spacing.sm }]}
-        pointerEvents="box-none"
-      >
-        <Animated.View style={[styles.sheet, riseStyle]} pointerEvents="box-none" onLayout={onCardLayout}>
-          {/* A row the driver opened may be put away without passing on it. A
-              held offer may not: the only ways out of a hold are the two the
-              card offers, because closing it is indistinguishable from missing it. */}
-          {!isHeld ? (
-            <Pressable
-              onPress={() => {
-                void Haptics.selectionAsync().catch(() => {});
-                closeFocused();
-              }}
-              accessibilityRole="button"
-              accessibilityLabel="Put this request away"
-              hitSlop={10}
-              style={[styles.closeChip, { backgroundColor: colors.surfaceContainerHigh, borderColor: colors.outline }]}
-            >
-              <Animated.Text style={[styles.closeText, { color: colors.onSurfaceVariant }]}>Back to board</Animated.Text>
-            </Pressable>
-          ) : null}
-          <View style={[styles.cardShadow, { backgroundColor: colors.surfaceCard }]}>
-            <DispatchOfferCard
-              offer={view}
-              driverAt={driverAt}
-              nowMs={serverNow()}
-              windowMs={windowMs}
-              secondsLeft={secondsLeft}
-              onAccept={handleAccept}
-              onDecline={handleDecline}
-              busy={busy}
-              accepted={accepted}
-              variant="sheet"
-            />
-          </View>
-        </Animated.View>
-      </View>
+      {/* Full-screen, unpadded: the offer is a SnapSheet, which measures
+          itself against this layer's real edges. */}
+      <Animated.View style={[StyleSheet.absoluteFill, riseStyle]} pointerEvents="box-none">
+        <DispatchOfferCard
+          offer={view}
+          driverAt={driverAt}
+          nowMs={serverNow()}
+          windowMs={windowMs}
+          secondsLeft={secondsLeft}
+          onAccept={handleAccept}
+          onDecline={handleDecline}
+          busy={busy}
+          accepted={accepted}
+          variant="sheet"
+        />
+      </Animated.View>
+
+      {/* A row the driver opened may be put away without passing on it. A
+          held offer may not: the only ways out of a hold are the two the
+          card offers, because closing it is indistinguishable from missing it. */}
+      {!isHeld ? (
+        <Pressable
+          onPress={() => {
+            void Haptics.selectionAsync().catch(() => {});
+            closeFocused();
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="Put this request away"
+          hitSlop={10}
+          style={[styles.closeChip, { top: insets.top + spacing.sm, backgroundColor: colors.surfaceContainerHigh, borderColor: colors.outline }]}
+        >
+          <Animated.Text style={[styles.closeText, { color: colors.onSurfaceVariant }]}>Back to board</Animated.Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -485,6 +479,7 @@ const makeStyles = (_colors: DriverColors) =>
       elevation: 18,
     },
     closeChip: {
+      position: 'absolute',
       alignSelf: 'center',
       minHeight: 40,
       paddingHorizontal: spacing.lg,
