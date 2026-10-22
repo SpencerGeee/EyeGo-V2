@@ -132,6 +132,18 @@ jobs:
         working-directory: apps/${{ inputs.app }}
         run: node ../../node_modules/expo/bin/cli prebuild --platform android --clean --no-install
 
+      # Expo's prebuild template pins `org.gradle.jvmargs=-Xmx2048m
+      # -XX:MaxMetaspaceSize=512m`. Android Lint (the per-module
+      # `lintVitalAnalyzeRelease` tasks) exhausts 512 MiB of metaspace on this
+      # dependency graph and kills the build with
+      # `java.lang.OutOfMemoryError: Metaspace`. The runner has 16 GB, so give
+      # the Gradle JVM room instead of letting lint take the build down.
+      - name: Raise Gradle memory limits
+        working-directory: apps/${{ inputs.app }}/android
+        run: |
+          sed -i 's/^org.gradle.jvmargs=.*/org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=2g/' gradle.properties
+          grep '^org.gradle.jvmargs=' gradle.properties
+
       # Release builds refuse plain http:// (Android 9+ blocks cleartext; Expo
       # only allows it in the DEBUG manifest). Testing against a PC on the LAN
       # is http, so allow it in this build when — and only when — the URL is.
