@@ -15,7 +15,7 @@ import { useColors, Colors } from '../../utils/useColors';
 import { eyegoDarkStyle, eyegoLightStyle } from '@eyego/map-styles';
 import { useThemeStore } from '../../stores/theme.store';
 import { Text, Button, Card, DriverInfoCard, SeatBar, AnimatedFareText, Skeleton, Loader, MorphTarget, MorphBackSwipeDetector, useMorph, InlayPanel, getTierTheme, normalizeTier, RIDER_TIERS, SmoothScreen, SmoothDefer, type TierId } from '@eyego/ui';
-import { HeroBusSlot, minibus } from '@eyego/maps';
+import { HeroBusSlot, minibus, useShowcaseCamera } from '@eyego/maps';
 import { LIVERY } from '../../components/trip/RidePicker';
 
 import { formatGhs, formatTripDate, formatDuration, formatDistance, bookedSeats, clockTime } from '@eyego/utils';
@@ -245,67 +245,21 @@ export default function RideDetailScreen() {
     }
     return CAMERA_FALLBACK_CENTER;
   }, [trip?.origin?.longitude, trip?.origin?.latitude]);
-  useEffect(() => {
-    // trip.origin/destination are always truthy objects (see the trip memo
-    // above) — check the actual coordinates, not object presence, or a route
-    // with no real coordinates would fitBounds to (undefined, undefined).
-    if (trip?.origin?.latitude == null || trip?.origin?.longitude == null) return;
-    if (trip?.destination?.latitude == null || trip?.destination?.longitude == null) return;
-
-    /**
-     * A DEGENERATE BBOX IS A SIGABRT, NOT A WARNING.
-     *
-     * `fitBounds` on two identical (or near-identical) corners aborts inside
-     * MLRNCamera — it is the crash the map-camera investigation traced, and it
-     * always blames `_setInitialCamera` in the stack, which is why it reads as
-     * an initialisation bug rather than an input one. Null coordinates were
-     * already guarded above; equal ones were not, and they are reachable: a
-     * pickup and destination pinned to the same place, a trip whose two
-     * addresses geocoded to the same point.
-     *
-     * Below the threshold there is nothing to frame anyway — one point — so
-     * centre on it at a sensible zoom instead.
-     */
-    const dLng = Math.abs(trip.destination.longitude - trip.origin.longitude);
-    const dLat = Math.abs(trip.destination.latitude - trip.origin.latitude);
-    const DEGENERATE = 1e-5; // ~1 m
-    if (dLng < DEGENERATE && dLat < DEGENERATE) {
-      cameraRef.current?.setCamera({
-        centerCoordinate: [trip.origin.longitude, trip.origin.latitude],
-        zoomLevel: 15,
-        animationDuration: 0,
-      });
-      return;
-    }
-
-    /**
-     * FRAME IT, AND KEEP FRAMING IT UNTIL IT TAKES.
-     *
-     * A `fitBounds` issued before MapLibre's first layout pass is discarded
-     * silently — no error, no retry, and the camera keeps whatever the
-     * `centerCoordinate` prop seeded. That is the other half of the
-     * wrong-place-on-open bug: on a warm screen this effect runs first and the
-     * frame is lost.
-     *
-     * Three attempts over the first ~700 ms. Cheap, idempotent (re-framing an
-     * already-framed camera is a no-op to the eye at `animated: false`), and
-     * it costs nothing on the common path where the first one lands.
-     */
-    const corners: [[number, number], [number, number]] = [
-      [trip.origin.longitude, trip.origin.latitude],
-      [trip.destination.longitude, trip.destination.latitude],
-    ];
-    const padding = { top: 80, bottom: 380, left: 40, right: 40 };
-    const fit = (animated: boolean) => cameraRef.current?.fitBounds(corners, padding, animated);
-
-    fit(false);
-    const t1 = setTimeout(() => fit(false), 260);
-    const t2 = setTimeout(() => fit(true), 700);
-    return () => {
-      clearTimeout(t1);
-      clearTimeout(t2);
-    };
-  }, [trip?.origin?.longitude, trip?.origin?.latitude, trip?.destination?.longitude, trip?.destination?.latitude]);
+  /**
+   * TILTED INTO THE CITY, LIKE THE SHARE PAGE ("the map when you select a ride
+   * and book a seat is 2D and flat"). The whole road framed at pitch 50, then
+   * a slow turn around it while the rider reads the card — see
+   * useShowcaseCamera. `boundsFor` widens a degenerate box (one point), which
+   * is the SIGABRT the old inline fit had to special-case.
+   */
+  const showcase = useShowcaseCamera(cameraRef, {
+    coords: [
+      ...(roadRoute?.coordinates ?? []),
+      ...(trip?.origin?.longitude != null && trip?.origin?.latitude != null ? [[trip.origin.longitude, trip.origin.latitude] as [number, number]] : []),
+      ...(trip?.destination?.longitude != null && trip?.destination?.latitude != null ? [[trip.destination.longitude, trip.destination.latitude] as [number, number]] : []),
+    ],
+    padding: { top: 90, bottom: 400, left: 40, right: 40 },
+  });
 
   useEffect(() => {
     if (!trip) return;
@@ -408,6 +362,7 @@ export default function RideDetailScreen() {
         compassEnabled={false}
         rotateEnabled={false}
         scaleBarEnabled={false}
+        onUserGesture={showcase.touched}
       >
         {/*
           SEEDED ON THE TRIP, NOT ON ACCRA.
@@ -480,6 +435,18 @@ export default function RideDetailScreen() {
                 lineColor: routeLine.casing,
                 lineWidth: roadRoute ? 11 : 5,
                 lineOpacity: roadRoute ? 0.9 : 0,
+                lineCap: 'round',
+                lineJoin: 'round',
+              }}
+            />
+            {/* The share page's glow: a wide, blurred band under the line. */}
+            <MapboxGL.LineLayer
+              id="routeLineGlow"
+              style={{
+                lineColor: routeLine.stroke,
+                lineWidth: roadRoute ? 18 : 0,
+                lineBlur: 8,
+                lineOpacity: 0.32,
                 lineCap: 'round',
                 lineJoin: 'round',
               }}

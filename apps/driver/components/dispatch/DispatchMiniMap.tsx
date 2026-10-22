@@ -210,7 +210,11 @@ export function DispatchMiniMap({
     return () => timers.forEach(clearTimeout);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [frameKey]);
-  const seed = points.length ? points[0] : undefined;
+  // A seed, frozen at the first point: a moving driver must not re-centre a
+  // map the driver is panning (the framing above is imperative).
+  const seedRef = useRef<Coord | undefined>(undefined);
+  if (!seedRef.current && points.length) seedRef.current = points[0];
+  const seed = seedRef.current;
 
   return (
     <View style={[fill ? StyleSheet.absoluteFill : [styles.wrap, { height }], { backgroundColor: colors.surfaceInput }]}>

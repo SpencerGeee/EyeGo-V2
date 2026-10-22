@@ -25,6 +25,8 @@ import {
   RiderLocation3D,
   GHANA_BOUNDS,
   GHANA_MIN_ZOOM,
+  SHOWCASE_PITCH,
+  SHOWCASE_BEARING,
   type CameraRef,
 } from '@eyego/maps';
 import mapStyles from '@eyego/map-styles';
@@ -215,7 +217,6 @@ function BrowseMap({
       logoEnabled={false}
       attributionEnabled={false}
       compassEnabled={false}
-      pitchEnabled={false}
     >
       <Camera ref={cameraRef} centerCoordinate={ACCRA} zoomLevel={11} maxBounds={GHANA_BOUNDS} minZoom={GHANA_MIN_ZOOM} />
       {userLoc && <RiderLocation3D coordinate={[userLoc.lng, userLoc.lat]} color={colors.statusInfo} />}
@@ -631,7 +632,8 @@ export default function BrowseScreen() {
     const coords = visible.map(tripOrigin).filter((c): c is [number, number] => !!c);
     if (!coords.length) return;
     // Edge inset spelling (top/bottom/…) — see the fitBounds padding contract.
-    cameraRef.current?.fitBounds(coords, { top: insets.top + 72, bottom: visibleSheet + 32, left: 48, right: 48 }, true);
+    // Tilted like the share page — the city stands up behind the pins.
+    cameraRef.current?.fitBounds(coords, { top: insets.top + 72, bottom: visibleSheet + 32, left: 48, right: 48 }, true, { pitch: SHOWCASE_PITCH, bearing: SHOWCASE_BEARING });
   }, [visible, insets.top, visibleSheet]);
 
   const pinKey = useMemo(() => visible.map((t) => String(t.id)).join(','), [visible]);
@@ -652,6 +654,7 @@ export default function BrowseScreen() {
         cameraRef.current?.setCamera({
           centerCoordinate: coord,
           zoomLevel: 14.5,
+          pitch: SHOWCASE_PITCH,
           animationDuration: 420,
           padding: { paddingTop: insets.top + 56, paddingBottom: Math.max(visibleSheet, screenH - halfY) },
         });

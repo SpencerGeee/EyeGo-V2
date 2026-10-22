@@ -241,6 +241,18 @@ export function DriverTripMapImpl({
     location && Number.isFinite(location.longitude) && Number.isFinite(location.latitude)
       ? [location.longitude, location.latitude]
       : null;
+  /**
+   * THE CAMERA'S CENTRE IS A SEED, NOT A LEASH.
+   *
+   * BUGFIX ("dragging the map, it's super fast and reacting to as little
+   * movement as I make"). The live GPS fix was the Camera's declarative
+   * centre, so every fix (about one a second) re-commanded the native camera
+   * to the bus — instantly, mid-drag. The finger and the GPS took turns
+   * moving the map. Following is the engine's job (`trackUserLocation`);
+   * the prop only has to put the first frame on the right street.
+   */
+  const seedRef = useRef<Coord | null>(null);
+  if (!seedRef.current && firstStop) seedRef.current = firstStop;
 
   // Straight line only until the server's geometry lands — drawn dashed, so the
   // driver is never shown a fabricated road to follow.
@@ -278,7 +290,7 @@ export function DriverTripMapImpl({
             first fix; the engine takes the camera from here. In `course` the
             stop's zoom and pitch are what the tracking mode drives with. */}
         <MapboxGL.Camera
-          centerCoordinate={firstStop ?? ACCRA}
+          centerCoordinate={seedRef.current ?? ACCRA}
           zoomLevel={track === 'course' ? FOLLOW_ZOOM : firstStop ? IDLE_ZOOM : 12}
           pitch={track === 'course' ? NAV_PITCH : IDLE_PITCH}
           trackUserLocation={live ? track ?? undefined : undefined}

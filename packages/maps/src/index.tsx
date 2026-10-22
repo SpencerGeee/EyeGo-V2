@@ -1187,6 +1187,8 @@ export interface LineLayerStyle {
   lineCap?: 'butt' | 'round' | 'square';
   lineJoin?: 'bevel' | 'round' | 'miter';
   lineDasharray?: number[];
+  /** Soft edge, in px — the glow band under a route. */
+  lineBlur?: number;
 }
 
 export interface LineLayerProps {
@@ -1211,6 +1213,7 @@ export const LineLayer = ({ id, style, aboveLayerID, belowLayerID, source }: Lin
       'line-width': style?.lineWidth ?? 3,
       'line-opacity': style?.lineOpacity ?? 1,
       ...(style?.lineDasharray ? { 'line-dasharray': style.lineDasharray } : {}),
+      ...(style?.lineBlur != null ? { 'line-blur': style.lineBlur } : {}),
     }}
     layout={{
       'line-cap': style?.lineCap ?? 'round',
@@ -1490,3 +1493,4 @@ export { minibus, pickupPin, dropoffPin, busStop, riderPuck, type Livery } from 
 export { cabin, cabinPlan, seatTop, type CabinPlan, type CabinSeatState, type CabinSeatSpot, type CabinLayoutInput, type CabinLook, type CabinView } from './three/cabin';
 export { projectPoint, frameXY, quantYaw, quantPitch } from './three/engine';
 export { modelDataUri, modelPicture, projectModel, type Model } from './three/engine';
+export { useShowcaseCamera, SHOWCASE_PITCH, SHOWCASE_BEARING, type ShowcaseOptions } from './useShowcaseCamera';

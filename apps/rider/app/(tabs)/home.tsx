@@ -1236,9 +1236,12 @@ export default function HomeScreen() {
                 compassEnabled={false}
                 scaleBarEnabled={false}
               >
+                {/* A window onto the city, tilted like the share page. */}
                 <MapboxGL.Camera
                   centerCoordinate={activeBookingMapCenter}
-                  zoomLevel={14}
+                  zoomLevel={15}
+                  pitch={50}
+                  heading={-16}
                   animationMode="none"
                 />
               </MapboxGL.MapView>
