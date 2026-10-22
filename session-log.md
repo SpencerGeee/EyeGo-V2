@@ -594,3 +594,14 @@ Decisions:
 - Two strengths: FULL for booking/create, LIVE (faster, turn not spin) for live-trip stages.
 Rejected: whole-page rotateX card tip (reads as a fade); yaw-to-travel turns on every flight.
 Open: execute P1–P7; device-verify all RN visuals.
+
+## 2026-10-22 [saved]
+Goal: 12-item client-demo pass: cards, morph reset, fares, maps, seat page, onboarding/auth.
+Decisions:
+- One card system: SnapSheet + SheetSections; content-swapping snap state (useSnapCard) deleted.
+- Morph = no cross-screen flights; stage changes fade through; HeroBus is static content.
+- Every booking screen prices a seat via previewFare with one shared query key.
+- Camera centre props are frozen seeds; live following belongs to native tracking.
+- Splash/onboarding/auth keep Geist + #4be277 (user chose consistency over prompt fonts).
+Rejected: Reanimated 4.2 shared-element transitions (flagged not-for-production); @gorhom/bottom-sheet (second sheet system).
+Open: device test everything; push needs approval.

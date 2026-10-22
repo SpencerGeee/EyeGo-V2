@@ -1,6 +1,20 @@
-# State — 2026-10-13 (immersive 3D pass: P1–P7 DONE + seat fare fairness; local commits, NOT pushed)
+# State — 2026-10-22 (12-item pass: onboarding/auth, cards, morph reset, 3D maps, seat page)
 
-Plan docs/superpowers/plans/2026-10-13-immersive-3d-pass.md ALL DONE: P1 e36d5ec · P2 66d8b15 · P3 f2127b9 · P4 9fdb4b8 · P5 8a72dea · P6 8e9eeca · P7 ebf9389 · fare fix (next commit). Cabin render harness: scratchpad/cab (project.mjs + paint.py). NOT device-verified. Push only on approval.
+Grilled decisions: D1 morph = strip to 2 rules (delete HeroBus flights, depth turns, Cascade, StageSweep;
+ keep ONE card->screen container transform + ONE sheet stage transition: height spring + content fade-through;
+ 3D bus/cabin = static content only). D2 card system = own engine on usePanelMotion (measured section detents,
+ finger-tracked), both apps. D3 brand = Geist + #4be277 for splash/onboarding/auth. D4 order = rider booking
+ path first (seat page -> morph -> live card + 3D maps), driver, onboarding/auth last. No subagents. No DB probes.
+Done (local commits, NOT pushed): ec9fb74 swipe stuck · e751ecc one seat price list->payment · c9921c1 picker race + OSM/Photon reverse.
+Research: Reanimated 4.2 SET = not production; Material container transform = persistent container + fade-through.
+Then: d9e96c6 seat page + SnapSheet + Cabin3D UI-thread orbit · 9eb44eb morph reset (HeroBus static, depth=fade-through, Cascade inert)
+ · b5120f9 rider request/assigned/tracking on one SnapSheet via SheetSections · 741b055 driver dispatch on SnapSheet
+ · 412cfd6 useShowcaseCamera + driver camera seed frozen · 39673e7 onboarding particles · b589cb9 splash + auth scene.
+ ALL 12 ITEMS DONE. tsc rider/driver 0, static e2e checks green, test:maps 37/37. NOT device-tested, NOT pushed (ask).
+
+# State — 2026-10-13 (immersive 3D pass: P1–P7 DONE + seat fare fairness; PUSHED 27984e1)
+
+Plan docs/superpowers/plans/2026-10-13-immersive-3d-pass.md ALL DONE: P1 e36d5ec · P2 66d8b15 · P3 f2127b9 · P4 9fdb4b8 · P5 8a72dea · P6 8e9eeca · P7 ebf9389 · fare fix (next commit). Cabin render harness: scratchpad/cab (project.mjs + paint.py). NOT device-verified. PUSHED 2026-10-13.
 All decisions D1–D8 approved by user. Diagnoses for items 1–3 verified (see plan). Push only on approval.
 
 # State — 2026-10-12 (4-item request: sched expiry, driver uri crash, request card, share page + premium UI pass)
