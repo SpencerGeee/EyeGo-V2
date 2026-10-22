@@ -1,0 +1,178 @@
+# Android APK — installable build on a free GitHub runner
+#
+# The Android twin of ios-sideload.yml: no EAS credits, no Play Store. The
+# runner generates the native project, compiles a RELEASE apk (JS bundled in,
+# no Metro needed) and hands it back as a download. Android installs it
+# directly — no re-signing step like Sideloadly.
+#
+# Usage:
+#   1. GitHub → Actions → Android APK → Run workflow
+#   2. Pick the app (driver for the client's phone) and the API URL
+#   3. When it finishes, open the run → Artifacts → download the .zip
+#   4. Unzip, copy the .apk to the phone (WhatsApp, Drive, USB, email…),
+#      tap it, allow "Install unknown apps" for the app you opened it from
+#
+# The apk is signed with Expo's bundled debug key, so it updates over itself
+# from run to run. It is NOT a Play Store upload — that is build.yml (EAS,
+# production profile, .aab).
+
+name: Android APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: Which app to build
+        type: choice
+        options: [driver, rider]
+        default: driver
+      api-url:
+        description: >-
+          API the app talks to, ending in /v1. Use your deployed server
+          (https://…/v1) for a phone that is not on your Wi-Fi. Leave blank to
+          use the DRIVER_API_URL / RIDER_API_URL repository secret.
+        type: string
+        default: ''
+      architecture:
+        description: >-
+          CPU architectures. arm64-v8a covers every Android phone from the last
+          ~7 years and builds in half the time; "all" adds old 32-bit phones
+          and emulators.
+        type: choice
+        options: [arm64-v8a, all]
+        default: arm64-v8a
+
+concurrency:
+  group: android-apk-${{ inputs.app }}
+  cancel-in-progress: true
+
+jobs:
+  build-apk:
+    name: Build ${{ inputs.app }}.apk
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+
+    env:
+      EXPO_PUBLIC_APP_ENV: preview
+      # Bundle-time AND prebuild-time: the JS bundle is produced by Gradle's
+      # createBundleReleaseJsAndAssets task, so the URL must be in the
+      # environment of the Gradle step too, not only of prebuild.
+      EXPO_PUBLIC_API_URL: ${{ inputs.api-url != '' && inputs.api-url || (inputs.app == 'driver' && secrets.DRIVER_API_URL || secrets.RIDER_API_URL) }}
+      # No Sentry auth token on the runner — never try to upload source maps.
+      SENTRY_DISABLE_AUTO_UPLOAD: 'true'
+      NODE_OPTIONS: --max-old-space-size=6144
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check the API URL
+        run: |
+          if [ -z "$EXPO_PUBLIC_API_URL" ]; then
+            echo "::error::No API URL. Fill in the api-url input, or add a DRIVER_API_URL / RIDER_API_URL repository secret."
+            exit 1
+          fi
+          case "$EXPO_PUBLIC_API_URL" in
+            *localhost*|*127.0.0.1*)
+              echo "::error::'$EXPO_PUBLIC_API_URL' points at the phone itself. Use your PC's LAN IP (http://192.168.x.x:5020/v1) or the deployed server."
+              exit 1 ;;
+          esac
+          echo "Building against: $EXPO_PUBLIC_API_URL"
+
+      # Gradle + the NDK builds of the native modules need room; the runner's
+      # preinstalled .NET / GHC / CodeQL toolchains are never used here.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          df -h /
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Gradle (with build cache)
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      # google-services.json is gitignored (public repo), so without it the app
+      # builds without Firebase and push notifications simply no-op. To have
+      # FCM in this build, add it as a base64 repository secret:
+      #   certutil -encode google-services.json tmp.b64     (Windows; paste the
+      #                                                      lines between the
+      #                                                      BEGIN/END markers)
+      #   base64 -w0 google-services.json                   (Linux/macOS)
+      # → Settings → Secrets and variables → Actions → New repository secret
+      #   GOOGLE_SERVICES_JSON_DRIVER / GOOGLE_SERVICES_JSON_RIDER
+      - name: Restore google-services.json (optional)
+        working-directory: apps/${{ inputs.app }}
+        env:
+          JSON_B64: ${{ inputs.app == 'driver' && secrets.GOOGLE_SERVICES_JSON_DRIVER || secrets.GOOGLE_SERVICES_JSON_RIDER }}
+        run: |
+          if [ -z "$JSON_B64" ]; then
+            echo "No google-services secret set — building without Firebase. Push notifications will not work in this build."
+            exit 0
+          fi
+          printf '%s' "$JSON_B64" | tr -d '\r\n ' | base64 --decode > google-services.json
+          # A mis-pasted secret decodes to garbage; fail here, not at runtime.
+          node -e "JSON.parse(require('fs').readFileSync('google-services.json','utf8'))"
+          echo "Restored google-services.json ($(wc -c < google-services.json) bytes)"
+
+      - name: Generate native Android project (prebuild)
+        working-directory: apps/${{ inputs.app }}
+        run: node ../../node_modules/expo/bin/cli prebuild --platform android --clean --no-install
+
+      # Release builds refuse plain http:// (Android 9+ blocks cleartext; Expo
+      # only allows it in the DEBUG manifest). Testing against a PC on the LAN
+      # is http, so allow it in this build when — and only when — the URL is.
+      - name: Allow http API (only for an http:// URL)
+        if: ${{ startsWith(env.EXPO_PUBLIC_API_URL, 'http://') }}
+        working-directory: apps/${{ inputs.app }}/android/app/src/main
+        run: |
+          sed -i 's/<application /<application android:usesCleartextTraffic="true" /' AndroidManifest.xml
+          grep -c 'usesCleartextTraffic="true"' AndroidManifest.xml
+
+      - name: Build release APK
+        working-directory: apps/${{ inputs.app }}/android
+        run: |
+          ARCHS="arm64-v8a"
+          if [ "${{ inputs.architecture }}" = "all" ]; then ARCHS="armeabi-v7a,arm64-v8a,x86,x86_64"; fi
+          ./gradlew :app:assembleRelease \
+            -PreactNativeArchitectures="$ARCHS" \
+            --no-daemon --stacktrace \
+            2>&1 | tee /tmp/gradle.log; EXIT=${PIPESTATUS[0]}
+          if [ $EXIT -ne 0 ]; then
+            echo "=== FIRST ERRORS ==="
+            grep -nE "error:|FAILURE|What went wrong|Unable to resolve|Error: " /tmp/gradle.log | head -40
+            exit $EXIT
+          fi
+
+      - name: Name the APK
+        working-directory: apps/${{ inputs.app }}
+        run: |
+          APK=$(find android/app/build/outputs/apk/release -name "*.apk" | head -1)
+          if [ -z "$APK" ]; then echo "::error::No APK produced"; exit 1; fi
+          VERSION=$(node -p "require('./app.json').expo.version")
+          OUT="eyego-${{ inputs.app }}-${VERSION}-${GITHUB_SHA::7}.apk"
+          cp "$APK" "$OUT"
+          echo "OUT=$OUT" >> "$GITHUB_ENV"
+          ls -lh "$OUT"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: eyego-${{ inputs.app }}-apk
+          path: apps/${{ inputs.app }}/${{ env.OUT }}
+          retention-days: 14
+          # An APK is already a zip; re-compressing it gains nothing.
+          compression-level: 0
