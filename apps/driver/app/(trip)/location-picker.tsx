@@ -65,6 +65,8 @@ export default function DriverLocationPickerScreen() {
   const [resolved, setResolved] = useState<GeocodeResult | null>(seeded?.place ?? null);
   const [isResolving, setIsResolving] = useState(false);
   const geocodeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Latest lookup wins — see handleRegionChange. */
+  const geocodeSeq = useRef(0);
   const [initialCoords, setInitialCoords] = useState<[number, number] | null>(seeded?.coords ?? null);
   const cameraRef = useRef<CameraRef>(null);
   /** Where the driver is, for the "you" puck and the recentre button. */
@@ -109,8 +111,14 @@ export default function DriverLocationPickerScreen() {
     setResolved(null);
     if (geocodeTimer.current) clearTimeout(geocodeTimer.current);
     geocodeTimer.current = setTimeout(async () => {
+      // BUGFIX ("I drag the pin to my destination, confirm, and reopening it
+      // shows my current location"). Lookups overlap: the first one, for the
+      // opening GPS centre, often lands AFTER the one for the dragged pin, and it
+      // used to win — so Confirm saved the driver's own kerb, coordinates and all.
+      const seq = ++geocodeSeq.current;
       setIsResolving(true);
       const place = await reverseGeocode(lat, lng);
+      if (seq !== geocodeSeq.current) return;
       setResolved(place ?? {
         placeId: 0,
         name: 'Dropped pin',

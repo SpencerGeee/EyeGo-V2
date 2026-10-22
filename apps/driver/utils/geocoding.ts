@@ -132,10 +132,13 @@ export async function reverseGeocode(latitude: number, longitude: number): Promi
     });
     const hit = data?.data;
     if (hit?.name) {
+      // The server only knew the city ("Accra, Greater Accra, Ghana"). That is
+      // not an address a rider can walk to — say it is a pin near it instead.
+      const approximate = hit.approximate === true;
       return {
         placeId: keyFor(latitude, longitude),
-        name: String(hit.name),
-        fullAddress: String(hit.fullAddress ?? hit.name),
+        name: approximate ? 'Pinned location' : String(hit.name),
+        fullAddress: approximate ? `Near ${String(hit.name)}` : String(hit.fullAddress ?? hit.name),
         latitude,
         longitude,
       };

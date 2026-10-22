@@ -586,17 +586,8 @@ async function mapboxReverse(lat, lng, types) {
   }
 }
 
-/** Reverse geocode for the map-pin picker. Coordinates stay the caller's. */
-async function reverseGeocode({ lat, lng }) {
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-
-  if (hasMapbox()) {
-    for (const types of MAPBOX_PRECISE_TIERS) {
-      const hit = await mapboxReverse(lat, lng, types);
-      if (hit) return hit;
-    }
-  }
-
+/** Nominatim reverse, OSM names tidied. Null when it has nothing or fails. */
+async function nominatimReverse(lat, lng) {
   try {
     const { data } = await axios.get('https://nominatim.openstreetmap.org/reverse', {
       params: { lat, lon: lng, format: 'json', addressdetails: 1, zoom: 18 },
@@ -622,11 +613,11 @@ async function reverseGeocode({ lat, lng }) {
         a.shop ||
         a.neighbourhood ||
         a.suburb ||
-        data.name ||
         a.village ||
-        a.town ||
-        a.city ||
-        String(data.display_name).split(',')[0];
+        null;
+      // Only the town or city is known: not an address. Let the wide tier say
+      // so honestly (`approximate`), rather than store "Accra" as a kerb.
+      if (!name) return null;
       return {
         placeId: String(data.place_id),
         name,
@@ -639,6 +630,68 @@ async function reverseGeocode({ lat, lng }) {
   } catch (err) {
     logger.warn(`Nominatim reverse failed at ${lat},${lng}: ${err.message}`);
   }
+  return null;
+}
+
+/** Photon (OSM) reverse — same data as Nominatim, different servers. */
+async function photonReverse(lat, lng) {
+  try {
+    const { data } = await axios.get('https://photon.komoot.io/reverse', {
+      params: { lat, lon: lng, limit: 1, lang: 'en' },
+      headers: { 'User-Agent': 'EyeGo/2.0 (eyego.app)' },
+      timeout: SEARCH_TIMEOUT_MS,
+    });
+    const p = data?.features?.[0]?.properties;
+    if (!p) return null;
+    const street = [p.housenumber, p.street].filter(Boolean).join(' ');
+    // A named place (a shop, a school) is what a rider says; the street is the
+    // next best thing. A bare city is not an answer — the wide tier owns that.
+    const isArea = ['city', 'state', 'country', 'county', 'region'].includes(p.type);
+    const name = (!isArea && p.name) || street || p.locality || p.district;
+    if (!name) return null;
+    const fullAddress = [name, street !== name ? street : null, p.locality, p.district, p.city]
+      .filter(Boolean)
+      .filter((v, i, arr) => arr.indexOf(v) === i)
+      .slice(0, 4)
+      .join(', ');
+    return {
+      placeId: String(p.osm_id ?? `${lat.toFixed(5)},${lng.toFixed(5)}`),
+      name,
+      fullAddress,
+      latitude: lat,
+      longitude: lng,
+      kind: street ? 'address' : 'place',
+    };
+  } catch (err) {
+    logger.warn(`Photon reverse failed at ${lat},${lng}: ${err.message}`);
+    return null;
+  }
+}
+
+/** Reverse geocode for the map-pin picker. Coordinates stay the caller's. */
+async function reverseGeocode({ lat, lng }) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+
+  if (hasMapbox()) {
+    for (const types of MAPBOX_PRECISE_TIERS) {
+      const hit = await mapboxReverse(lat, lng, types);
+      if (hit) return hit;
+    }
+  }
+
+  /**
+   * OSM, TWICE, IN PARALLEL.
+   *
+   * BUGFIX ("I drag the map to a place and the address says Accra, Accra
+   * Ghana"). Nominatim was the only street-level source, and it rate-limits and
+   * blocks shared cloud IPs — so from the deployed API it routinely failed and
+   * every pin fell through to Mapbox's city tier below. Photon serves the same
+   * OSM data from different infrastructure. Both are asked at once (no extra
+   * latency); a street from either beats a neighbourhood from either.
+   */
+  const [nom, pho] = await Promise.all([nominatimReverse(lat, lng), photonReverse(lat, lng)]);
+  const osm = [nom, pho].find((r) => r?.kind === 'address') ?? nom ?? pho;
+  if (osm) return osm;
 
   // Nobody knows a street, a landmark or a neighbourhood here. The city is now
   // the honest answer rather than the lazy one — see MAPBOX_WIDE_TIER.
