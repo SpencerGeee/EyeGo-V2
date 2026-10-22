@@ -1,8 +1,6 @@
 ﻿import React, { useCallback, useMemo, useEffect, useRef, useState } from 'react';
 import { View, StyleSheet, Pressable, ScrollView, useWindowDimensions, type LayoutChangeEvent } from 'react-native';
 import Animated, { FadeInDown, LinearTransition, ReduceMotion } from 'react-native-reanimated';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { HeroBusSlot } from '@eyego/maps';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { expectTripSurfaceReturn } from '../../../utils/tripSurfaceReturn';
@@ -11,12 +9,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii, springs, withOpacity } from '@eyego/config';
 import {
   Text, Button, GlassSurface, MorphTarget, AppBackground, GradientGlowBorder,
-  goDeeper, goBack, notify, goOut, goFresh, Pressable as HapticPressable, getTierTheme, useSheetMetrics, useSnapCard,
+  goDeeper, goBack, notify, goOut, goFresh, Pressable as HapticPressable, getTierTheme, SheetSections,
 } from '@eyego/ui';
 import * as Haptics from 'expo-haptics';
 import { formatGhs, shortDateTime } from '@eyego/utils';
 import { useThemeStore } from '../../../stores/theme.store';
 import { SearchingPanel } from '../SearchingPanel';
+import { SheetContent } from '../sheetSlot';
 import { BoostPill, BoostTray, type BoostStep } from '../FareBoostRow';
 import { tripsApi, ridesApi, queryKeys, secondsRemaining } from '@eyego/api';
 import { useColors, Colors } from '../../../utils/useColors';
@@ -167,8 +166,8 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
    * leave-in-the-background link are one drag (or tap) up, and scroll.
    */
   // Three snaps — peek / half / full — on the same physics as the driver's offer card.
-  const { snap, grab: grabGesture, dragStyle: cardDrag } = useSnapCard(3);
-  const expanded = snap >= 1;
+  // The route variant shows everything; the stage variant is a SnapSheet.
+  const snap = 2 as 0 | 1 | 2;
   const [boostOpen, setBoostOpen] = useState(false);
   /**
    * The money on the table: what the ride was requested at, and how much the
@@ -245,42 +244,6 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
   useEffect(() => {
     if (askedDriverId) Haptics.selectionAsync().catch(() => {});
   }, [askedDriverId]);
-
-  /**
-   * THE CARD TELLS THE CAMERA WHERE IT IS.
-   *
-   * The card floats over a full-screen map, and how tall it is depends on what
-   * it holds (the boost row, the cancel confirmation). It publishes its top
-   * edge into the surface's sheet channel — the same one the assigned and
-   * tracking sheets use — so the map frames the pickup in the strip above it
-   * rather than against a guessed fraction. Handed back on the way out only
-   * if nobody has taken the channel over since (the next stage's sheet).
-   */
-  const sheetMetrics = useSheetMetrics();
-  const { height: screenH, width: screenW } = useWindowDimensions();
-  const cardTopRef = useRef<number | null>(null);
-  /** Where the pickup sits on screen: the middle of the map above the card. */
-  const [pickupY, setPickupY] = useState<number | null>(null);
-  const onCardLayout = useCallback(
-    (e: LayoutChangeEvent) => {
-      if (mode !== 'stage') return;
-      const top = screenH - (insets.bottom + spacing.sm) - e.nativeEvent.layout.height;
-      cardTopRef.current = top;
-      setPickupY((prev) => prev ?? Math.round((insets.top + top) / 2));
-      sheetMetrics.retired.value = false;
-      sheetMetrics.top.value = top;
-    },
-    [mode, screenH, insets.bottom, sheetMetrics],
-  );
-  useEffect(
-    () => () => {
-      if (cardTopRef.current != null && sheetMetrics.top.value === cardTopRef.current) {
-        sheetMetrics.top.value = sheetMetrics.screenHeight.value;
-        sheetMetrics.retired.value = true;
-      }
-    },
-    [sheetMetrics],
-  );
 
   /**
    * THE JOURNEY, KEPT BY THE SCREEN THAT IS SHOWING IT.
@@ -1480,19 +1443,162 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
    *                          survive being laid on them; the scrim above the
    *                          panel carries the transition instead.
    */
+  /**
+   * ── STAGE MODE: THE MAP IS THE PAGE, THE SEARCH IS ONE SHEET ─────────────
+   *
+   * REBUILT ("the card isn't as nice and optimized and clean as Uber and
+   * Bolt"; "moving between snap points there's no animation"). The search
+   * card was its own floating panel whose three snaps swapped content in and
+   * out. It now publishes peek / half / full into the trip surface's ONE
+   * sheet (SnapSheet) — the same sheet the assigned and tracking stages use,
+   * so a found driver re-fits the sheet instead of replacing a card.
+   *   peek — the search (or the question / the outcome), and the money
+   *   half — the journey, the boost, edit pickup / share / cancel
+   *   full — the numbers, the grouping note, leave it running
+   */
+  const searchSection = (section: 0 | 1 | 2) => (
+    <SearchingPanel
+      section={section}
+      fareAccessory={
+        boostAvailable ? (
+          <BoostPill boostPesewas={fare?.boostPesewas ?? 0} open={boostOpen} onPress={() => setBoostOpen((v) => !v)} />
+        ) : undefined
+      }
+      status={status as any}
+      originText={originLabel}
+      destinationText={destinationLabel}
+      attempt={dispatchAttempt}
+      farePesewas={status === 'searching' ? currentFarePesewas : null}
+      boostedPesewas={fare?.boostPesewas ?? 0}
+      waiting={dispatch?.waiting === true}
+      etaSeconds={dispatch?.etaSeconds ?? null}
+      radiusKm={dispatch?.radiusKm ?? null}
+      offerPending={!!dispatchOffer}
+      tierLabel={getTierTheme(colors, snapshot?.tier ?? useRideStore.getState().rideTier).label}
+      paymentLabel="Cash"
+      seats={requestSeatCount}
+      scheduledFor={formattedTime}
+      errorReason={errorReason}
+    />
+  );
+
+  const outcome =
+    status === 'searching' ? (
+      confirmCancel ? (
+        <View style={styles.confirmBox}>
+          <Text style={styles.confirmTitle}>Cancel this request?</Text>
+          <Text style={styles.confirmBody}>It’s free — no driver has accepted it yet.</Text>
+          <View style={styles.confirmRow}>
+            <Button label="Cancel request" variant="ghost" onPress={handleCancel} loading={cancelling} disabled={cancelling} style={{ flex: 1 }} />
+            <Button label="Keep searching" onPress={() => setConfirmCancel(false)} disabled={cancelling} style={{ flex: 1.3 }} />
+          </View>
+        </View>
+      ) : null
+    ) : (status === 'timeout' || (status === 'error' && !conflict)) && journeyRef.current ? (
+      <View style={styles.endActions}>
+        <Button label="Try again" onPress={tryAgain} style={{ width: '100%' }} />
+        {status === 'timeout' && (
+          <>
+            <Button label="Schedule this ride" variant="secondary" onPress={scheduleInstead} style={{ width: '100%' }} />
+            {nextBus && (
+              <>
+                <Button label="Book a seat on a group bus" variant="secondary" onPress={takeGroupBus} style={{ width: '100%' }} />
+                <Text style={styles.hint}>
+                  {[
+                    `Next bus ${departureLabel(nextBus).replace(/^./, (c) => c.toLowerCase())}`,
+                    seatsLeft(nextBus) != null ? `${seatsLeft(nextBus)} seat${seatsLeft(nextBus) === 1 ? '' : 's'} left` : null,
+                    busTrips.length > 1 ? `${busTrips.length} going your way` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </Text>
+              </>
+            )}
+          </>
+        )}
+        <Pressable style={styles.activityBtn} onPress={handleBack} accessibilityRole="button" accessibilityLabel="Back to home">
+          <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ textDecorationLine: 'underline' }}>Back to home</Text>
+        </Pressable>
+      </View>
+    ) : conflict ? null : (
+      <Button
+        label="Back to home"
+        onPress={() => {
+          if (status === 'timeout') releaseEndedTrip();
+          goOut('/(tabs)/home');
+        }}
+        style={{ width: '100%' }}
+      />
+    );
+
+  const peek = conflict ? (
+    <>
+      <Text style={styles.title}>You already have a ride</Text>
+      <Text style={styles.subtitle}>One of your trips is still running. Do you want to book a separate trip as well?</Text>
+      <View style={styles.conflictActions}>
+        {conflictTripId ? (
+          <Button label="Open my ride" onPress={() => goFresh(`/trip?stage=assigned&tripId=${conflictTripId}`)} style={{ width: '100%' }} />
+        ) : null}
+        <Button label="Book a trip for myself" variant={conflictTripId ? 'secondary' : 'primary'} onPress={bookConcurrentForSelf} style={{ width: '100%' }} />
+        <Button label="Book for someone else" variant={conflictTripId ? 'ghost' : 'secondary'} onPress={bookConcurrentForGuest} style={{ width: '100%' }} />
+        <Text style={styles.hint}>You pay for both rides. The driver sees whoever you name as the passenger.</Text>
+      </View>
+    </>
+  ) : (
+    <>
+      {searchSection(0)}
+      {outcome}
+    </>
+  );
+
+  const half = conflict ? undefined : (
+    <>
+      {searchSection(1)}
+      {boostAvailable && boostOpen && fare != null && currentFarePesewas != null ? (
+        <Animated.View entering={FadeInDown.duration(260).reduceMotion(ReduceMotion.System)}>
+          <BoostTray
+            farePesewas={currentFarePesewas}
+            requestedPesewas={fare.requestedPesewas}
+            boostPesewas={fare.boostPesewas}
+            busy={boosting}
+            onBoost={boostFare}
+            onClose={() => setBoostOpen(false)}
+          />
+        </Animated.View>
+      ) : null}
+      {status === 'searching' && !confirmCancel ? (
+        <View style={styles.actionRow}>
+          {!pickupMoved && (
+            <ActionTile icon="location-outline" label={movingPickup ? 'Moving…' : 'Edit pickup'} onPress={editPickup} disabled={movingPickup} tone={colors.onSurface} styles={styles} />
+          )}
+          <ActionTile icon="share-outline" label="Share" onPress={() => void shareSearchingTrip(snapshot?.shortId, destinationLabel)} tone={colors.onSurface} styles={styles} />
+          <ActionTile icon="close" label="Cancel" onPress={() => setConfirmCancel(true)} tone={colors.error} styles={styles} />
+        </View>
+      ) : null}
+    </>
+  );
+
+  const full = conflict ? undefined : (
+    <>
+      {searchSection(2)}
+      <View style={styles.infoCard}>
+        <Ionicons name="information-circle-outline" size={16} color={colors.onSurfaceVariant} />
+        <Text style={styles.infoText}>Trip requests are grouped — other riders heading the same way will be added automatically.</Text>
+      </View>
+      {status === 'searching' ? (
+        <Pressable style={styles.activityBtn} onPress={() => goOut('/(tabs)/home')} accessibilityRole="button" accessibilityLabel="Leave without cancelling">
+          <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ textDecorationLine: 'underline' }} numberOfLines={1}>
+            Keep searching in the background
+          </Text>
+        </Pressable>
+      ) : null}
+    </>
+  );
+
   return (
-    // Landing target for the home screen's pending-request card, so tapping it
-    // grows into this surface instead of hard-pushing. Inert when the rider
-    // arrived any other way.
+    // Landing target for the home screen's pending-request card.
     <MorphTarget id="home-pending-request" borderRadius={0} style={styles.safe}>
     <View style={styles.safe} pointerEvents="box-none">
-      {/* The hero bus's destination: it flies down from the review, touches the
-          pickup and dissolves into the search pulse there — the map camera
-          orbits the pickup in the middle of the strip above the card. It never
-          poses as a car: the only vehicles on the map are real ones. */}
-      {pickupY != null ? (
-        <HeroBusSlot id="request-pickup" size={60} land style={{ position: 'absolute', left: screenW / 2 - 30, top: pickupY - 30 }} />
-      ) : null}
       <Pressable
         onPress={handleBack}
         style={[styles.floatingBack, { top: insets.top + spacing.sm }]}
@@ -1502,44 +1608,9 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
       >
         <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
       </Pressable>
-
-      {/* THE CARD FLOATS. Full-bleed map behind it, edge to edge — no scrims
-          and no docked half-screen — with the search in one card the camera
-          frames around. It rises in once; every change after that happens
-          inside it. */}
-      <Animated.View
-        entering={FadeInDown.duration(380).reduceMotion(ReduceMotion.System)}
-        style={[styles.panelDock, { bottom: insets.bottom + spacing.sm }]}
-        pointerEvents="box-none"
-        onLayout={onCardLayout}
-      >
-        <Animated.View
-          style={[styles.panel, cardDrag]}
-          layout={LinearTransition.springify()
-            .stiffness(springs.emphasized.stiffness)
-            .damping(springs.emphasized.damping)
-            .mass(springs.emphasized.mass)}
-        >
-          <GestureDetector gesture={grabGesture}>
-            <View
-              style={styles.grabZone}
-              accessible
-              accessibilityRole="button"
-              accessibilityLabel={expanded ? 'Show less' : 'Show trip details'}
-            >
-              <View style={styles.grabber} />
-            </View>
-          </GestureDetector>
-          <ScrollView
-            style={{ maxHeight: snap === 2 ? screenH * 0.62 - insets.top : screenH * 0.42 }}
-            bounces={false}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.panelScroll}
-          >
-            {body('stage')}
-          </ScrollView>
-        </Animated.View>
-      </Animated.View>
+      <SheetContent stage="request">
+        <SheetSections peek={peek} half={half}>{full}</SheetSections>
+      </SheetContent>
     </View>
     </MorphTarget>
   );

@@ -121,6 +121,11 @@ export interface SearchingPanelProps {
    * search is going, in numbers. Defaults to full (the route screen).
    */
   level?: 0 | 1 | 2;
+  /**
+   * Render ONLY this level's section — for a snap sheet, which lays all three
+   * out at once and slides between them (0 head, 1 journey, 2 numbers).
+   */
+  section?: 0 | 1 | 2;
   /** Sits under the fare — the boost pill. */
   fareAccessory?: React.ReactNode;
 }
@@ -200,9 +205,11 @@ export function SearchingPanel({
   waiting = false,
   compact = false,
   level,
+  section,
   fareAccessory,
 }: SearchingPanelProps) {
-  const lv = level ?? (compact ? 0 : 2);
+  const lv = section ?? level ?? (compact ? 0 : 2);
+  const show = (n: 0 | 1 | 2) => (section != null ? section === n : lv >= n);
   const colors = useColors();
   const styles2 = useMemo(() => makeStyles(colors), [colors]);
   const live = status === 'searching' || status === 'sending';
@@ -299,11 +306,12 @@ export function SearchingPanel({
   }
 
   return (
-    <View style={[styles2.root, lv === 0 && styles2.rootCompact]}>
+    <View style={[styles2.root, (lv === 0 || section != null) && styles2.rootCompact]}>
       {/* THE SEARCH, ON THE EDGE — the only progress indicator on the card. */}
-      <ProgressSweep colors={colors} active={live} compact={lv === 0} />
+      {show(0) ? <ProgressSweep colors={colors} active={live} compact={lv === 0} /> : null}
 
       {/* PEEK: what you are waiting on, and what you are offering. Nothing else. */}
+      {show(0) ? (
       <View style={styles2.headRow}>
         <View style={styles2.headText}>
           <Animated.View key={headline} entering={FadeIn.duration(240).reduceMotion(ReduceMotion.System)}>
@@ -337,9 +345,10 @@ export function SearchingPanel({
           </View>
         ) : null}
       </View>
+      ) : null}
 
       {/* HALF: the journey, and the booking in one quiet line. */}
-      {lv >= 1 && (originText || destinationText) ? (
+      {show(1) && (originText || destinationText) ? (
         <View style={styles2.itinerary}>
           <View style={styles2.rail}>
             <View style={[styles2.railDot, { borderColor: colors.onSurface }]} />
@@ -362,14 +371,14 @@ export function SearchingPanel({
           </View>
         </View>
       ) : null}
-      {lv >= 1 && facts ? (
+      {show(1) && facts ? (
         <Text style={styles2.factsLine} numberOfLines={1}>
           {facts}
         </Text>
       ) : null}
 
       {/* FULL: how the search is actually going, in numbers. */}
-      {lv === 2 && detail.length ? (
+      {(section != null ? section === 2 : lv === 2) && detail.length ? (
         <View style={[styles2.detail, { borderColor: colors.outline }]}>
           {detail.map(([k, v]) => (
             <View key={k} style={styles2.detailRow}>

@@ -94,3 +94,23 @@ export function SheetContent({ stage, children }: SheetContentProps) {
 
   return null;
 }
+
+export interface SheetSectionsProps {
+  /** The two-second read — the sheet rests here. */
+  peek: React.ReactNode;
+  /** One drag up. */
+  half?: React.ReactNode;
+  /** Everything else, at full. */
+  children?: React.ReactNode;
+  /** Pinned under the content at every detent. */
+  footer?: React.ReactNode;
+}
+
+/**
+ * Publish THIS as a stage's `SheetContent` to get a snapping sheet — peek /
+ * half / full detents measured from these sections (see SnapSheet). It is a
+ * description the host reads; it renders nothing itself.
+ */
+export function SheetSections(_props: SheetSectionsProps): null {
+  return null;
+}

@@ -72,6 +72,8 @@ export interface SnapSheetProps {
   /** Detent requested by the screen (a "show more" link). Changes are honoured. */
   detent?: number;
   onDetentChange?: (detent: number) => void;
+  /** Changing it returns the sheet to `initial` (a new stage on a shared sheet). */
+  resetKey?: string;
   radius?: number;
   /** The sheet's fill — under `background`, and the footer's and tail's fill. */
   backgroundColor?: string;
@@ -106,6 +108,7 @@ export function SnapSheet({
   initial = 0,
   detent,
   onDetentChange,
+  resetKey,
   radius = 28,
   backgroundColor,
   grabberColor = 'rgba(255,255,255,0.22)',
@@ -177,6 +180,20 @@ export function SnapSheet({
     y.value = !placed.value && !animateOnMount ? stops[i] : withSpring(stops[i], springs.emphasized);
     placed.value = true;
   }, [stops, peekH, stopsSV, idx, y, placed, animateOnMount]);
+
+  // A new stage starts at its peek.
+  const firstReset = React.useRef(true);
+  useEffect(() => {
+    if (firstReset.current) {
+      firstReset.current = false;
+      return;
+    }
+    const i = Math.min(initial, stopsSV.value.length - 1);
+    idx.value = i;
+    y.value = withSpring(stopsSV.value[i], springs.emphasized);
+    report(i);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resetKey]);
 
   // A screen asking for a detent (a "more" link, a state that needs room).
   useEffect(() => {

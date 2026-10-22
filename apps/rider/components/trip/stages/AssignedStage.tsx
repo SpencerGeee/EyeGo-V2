@@ -3,7 +3,8 @@ import { View, StyleSheet, Pressable, Linking } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, GlassSurface, DriverInfoCard, RollingDigits, GradientGlowBorder, WaitingMeter, goDeeper, notify } from '@eyego/ui';
+import { Text, GlassSurface, RollingDigits, WaitingMeter, SheetSections, goDeeper } from '@eyego/ui';
+import { DriverStrip } from './DriverStrip';
 import { usePlatformConfig } from '../../../hooks/usePlatformConfig';
 import { useRouteChange } from '../../../hooks/useRouteChange';
 import { useTripCall } from '../../../hooks/useTripCall';
@@ -159,193 +160,131 @@ function AssignedStageImpl() {
           the reasoning. The 0.44 resting detent moved to TripSheetHost, which
           is also where the transition to tracking's 0.34 now happens as a
           single spring on one surface rather than as two panels swapping. */}
+      {/*
+        UBER'S THREE DETENTS ("the card on the tracking page isn't nice ... no
+        animation between snap points ... redesign it like Uber and Bolt").
+          peek - what is happening, how long, which car, how to reach them
+          half - where from and to, what it costs, share / safety
+          full - change the ride, cancel it
+        Published as SheetSections, so the trip surface's ONE sheet snaps
+        between them under the finger and carries straight on into the
+        tracking stage's own sections without a new card appearing.
+      */}
       <SheetContent stage="assigned">
-        <View style={styles.sheetBody}>
-          {/*
-            "VERIFY MY RIDE" — the code, on the stage where it matters.
-
-            This sits above everything else deliberately. It is only useful in
-            the seconds before the rider opens a car door, which is exactly this
-            stage, and it has to be readable at a glance in the dark at the
-            kerb — hence the size and the letter spacing.
-
-            The instruction is phrased as "read it to your driver", not "show
-            your driver", because the check only proves anything if the DRIVER
-            demonstrates they were told: a rider who hands over their phone has
-            verified nothing.
-
-            Disappears the moment the driver enters it (the server nulls the pin
-            once `pinVerifiedAt` is set), so a used code never lingers on screen.
-          */}
-          {boardingPin && (
-            <GradientGlowBorder
-              palette="brandGreen"
-              fillColor={colors.surfaceContainerHigh}
-              borderRadius={radii.xl}
-              thickness="thin"
-              glow
-              glowIntensity={0.8}
-              maxGlowRadius={16}
-              style={styles.pinCard}
-            >
-              <View style={{ flex: 1 }}>
-                <Text variant="caption" color={colors.onSurfaceVariant}>
-                  VERIFY YOUR RIDE
-                </Text>
-                <Text variant="bodySmall" color={colors.onSurfaceVariant}>
-                  Read this code to your driver before you get in
-                </Text>
+        <SheetSections
+          peek={
+            <>
+              <View style={styles.headline}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.title}>{boarded ? 'On board' : copy.title}</Text>
+                  <Text variant="bodySmall" color={colors.onSurfaceVariant} numberOfLines={2}>
+                    {boarded
+                      ? seatNumber != null ? `Seat ${seatNumber} · the trip starts when the driver sets off.` : 'The trip starts when the driver sets off.'
+                      : copy.sub}
+                  </Text>
+                  {arrived && !boarded && (snapshot as any)?.isOnDemand && (
+                    <WaitingMeter
+                      who="rider"
+                      arrivedAt={(snapshot as any)?.timestamps?.arrivedAt ?? null}
+                      freeMinutes={platform.waitFreeMinutes}
+                      perMinPesewas={platform.tiers[(snapshot?.tier ?? 'ECO') as 'ECO']?.waitPerMinPesewas ?? 0}
+                      capPesewas={platform.waitFeeCapPesewas}
+                    />
+                  )}
+                </View>
+                {etaMinutes != null && !arrived ? (
+                  <View style={styles.etaBadge}>
+                    <RollingDigits
+                      text={String(etaMinutes)}
+                      value={etaMinutes}
+                      fontSize={fontSizes.titleLarge}
+                      color={colors.onPrimary}
+                      fontFamily={fonts.displayBold}
+                    />
+                    <Text variant="caption" color={colors.onPrimary}>min</Text>
+                  </View>
+                ) : boarded ? (
+                  <Ionicons name="checkmark-circle" size={30} color={colors.statusSuccess} />
+                ) : null}
               </View>
-              <Text style={styles.pinDigits} accessibilityLabel={`Your ride code is ${boardingPin.split('').join(' ')}`}>
-                {boardingPin}
-              </Text>
-            </GradientGlowBorder>
-          )}
 
-          {/*
-            YOU ARE ABOARD.
+              {/* "Verify My Ride": read at the kerb, so it lives in the peek. */}
+              {boardingPin ? (
+                <View style={[styles.pinCard, { borderColor: colors.primary + '55', backgroundColor: colors.primary + '12' }]}>
+                  <View style={{ flex: 1 }}>
+                    <Text variant="caption" color={colors.onSurfaceVariant}>VERIFY YOUR RIDE</Text>
+                    <Text variant="bodySmall" color={colors.onSurfaceVariant}>Read this code to your driver</Text>
+                  </View>
+                  <Text style={styles.pinDigits} accessibilityLabel={`Your ride code is ${boardingPin.split('').join(' ')}`}>
+                    {boardingPin}
+                  </Text>
+                </View>
+              ) : null}
 
-            BUGFIX (item 14: "I marked as boarded on the driver side but nothing
-            is showing on the rider tracking page that I boarded").
-
-            Boarding is not a Trip transition — the trip stays at
-            ARRIVED_AT_PICKUP or FILLING until everyone is in — so the stage copy
-            above cannot express it, and until now nothing else did either. The
-            rider sat under "Your driver has arrived" for the whole boarding
-            process, with no acknowledgement that the thing they had just done
-            had registered anywhere.
-
-            It reads off `booking.status`, which the server now pushes on a
-            sequenced frame (see `announceBoarding` in drivers.service.js), so
-            it survives a backgrounded phone and arrives on replay.
-          */}
-          {boarded && (
-            <View style={[styles.boardedRow, { borderColor: colors.statusSuccess + '55', backgroundColor: colors.statusSuccess + '14' }]}>
-              <Ionicons name="checkmark-circle" size={16} color={colors.statusSuccess} />
-              <Text variant="bodySmall" color={colors.statusSuccess} style={{ flex: 1 }}>
-                {seatNumber != null
-                  ? `You're on board · seat ${seatNumber}`
-                  : "You're on board"}
-              </Text>
-            </View>
-          )}
-
-          <View style={styles.headline}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.title}>{boarded ? 'On board' : copy.title}</Text>
-              <Text variant="bodySmall" color={colors.onSurfaceVariant}>
-                {boarded ? 'Sit tight — the trip starts when the driver sets off.' : copy.sub}
-              </Text>
-              {/* The clock is visible before it costs anything (hailed rides only). */}
-              {arrived && !boarded && (snapshot as any)?.isOnDemand && (
-                <WaitingMeter
-                  who="rider"
-                  arrivedAt={(snapshot as any)?.timestamps?.arrivedAt ?? null}
-                  freeMinutes={platform.waitFreeMinutes}
-                  perMinPesewas={platform.tiers[(snapshot?.tier ?? 'ECO') as 'ECO']?.waitPerMinPesewas ?? 0}
-                  capPesewas={platform.waitFeeCapPesewas}
+              {driver ? (
+                <DriverStrip
+                  colors={colors}
+                  name={driver.name}
+                  photo={driver.photo}
+                  plate={vehicle?.plate ?? null}
+                  car={vehicle ? `${vehicle.make} ${vehicle.model}`.trim() : null}
+                  unread={unreadChats}
+                  onCall={driver.phone || driver.callable ? handleCall : undefined}
+                  onChat={() => tripId && goDeeper(`/ride/${tripId}/chat` as Href)}
                 />
-              )}
-            </View>
-            {/* Digits roll rather than swap so a countdown ticking down reads as
-                one number changing, not as the panel re-rendering. */}
-            {etaMinutes != null && !arrived && (
-              <View style={styles.etaBadge}>
-                <RollingDigits
-                  text={String(etaMinutes)}
-                  value={etaMinutes}
-                  fontSize={fontSizes.titleLarge}
-                  color={colors.onPrimary}
-                  fontFamily={fonts.displayBold}
-                />
-                <Text variant="caption" color={colors.onPrimary}>min</Text>
+              ) : null}
+            </>
+          }
+          half={
+            <>
+              <View style={styles.divider} />
+              <View style={styles.stops}>
+                <View style={styles.stopRow}>
+                  <View style={[styles.stopDot, { backgroundColor: colors.onSurface }]} />
+                  <Text variant="bodySmall" numberOfLines={1} style={{ flex: 1 }}>
+                    {snapshot?.pickup?.address ?? 'Pickup'}
+                  </Text>
+                </View>
+                <View style={styles.stopLine} />
+                <View style={styles.stopRow}>
+                  <View style={[styles.stopDot, { backgroundColor: colors.primary, borderRadius: 3 }]} />
+                  <Text variant="bodySmall" numberOfLines={1} style={{ flex: 1 }}>
+                    {snapshot?.dropoff?.address ?? 'Destination'}
+                  </Text>
+                </View>
               </View>
-            )}
-          </View>
-
-          {driver && (
-            <DriverInfoCard
-              driver={{
-                id: driver.id,
-                name: driver.name,
-                avatarUrl: driver.photo,
-                // Null once the ride is terminal: the server stops sending the
-                // driver's real number the moment there is no reason to call
-                // them. See `onCall` below — the button goes with it.
-                phone: driver.phone ?? undefined,
-              }}
-              vehicle={
-                vehicle
-                  ? { plate: vehicle.plate, make: vehicle.make, model: vehicle.model }
-                  : undefined
-              }
-              showActions
-              premium={arrived}
-              // DriverInfoCard renders its call button only when given a
-              // handler, so no number means no button — rather than a button
-              // that opens the dialler on nothing.
-              onCall={driver.phone || driver.callable ? handleCall : undefined}
-              onChat={() => tripId && goDeeper(`/ride/${tripId}/chat` as Href)}
-              unreadChats={unreadChats}
-            />
-          )}
-
-          <View style={styles.stops}>
-            <View style={styles.stopRow}>
-              <View style={[styles.stopDot, { backgroundColor: colors.onSurface }]} />
-              <Text variant="bodySmall" numberOfLines={1} style={{ flex: 1 }}>
-                {snapshot?.pickup?.address ?? 'Pickup'}
-              </Text>
-            </View>
-            <View style={styles.stopLine} />
-            <View style={styles.stopRow}>
-              <View style={[styles.stopDot, { backgroundColor: colors.primary, borderRadius: 3 }]} />
-              <Text variant="bodySmall" numberOfLines={1} style={{ flex: 1 }}>
-                {snapshot?.dropoff?.address ?? 'Destination'}
-              </Text>
-            </View>
-          </View>
-
-          {/* Fare comes from the server as integer pesewas. Never recomputed
-              here — a client-side total that disagrees with the receipt by a
-              pesewa is a support ticket. */}
-          {snapshot?.fare.amountPesewas != null && (
-            <View style={styles.fareRow}>
-              <Text variant="bodySmall" color={colors.onSurfaceVariant}>Fare</Text>
-              <Text style={styles.fareValue}>{formatGhs(snapshot.fare.amountPesewas)}</Text>
-              {snapshot.fare.paymentMethod && (
-                <Text variant="caption" color={colors.onSurfaceVariant}>
-                  · {snapshot.fare.paymentMethod === 'CASH' ? 'Cash' : 'Card'}
-                </Text>
-              )}
-            </View>
-          )}
-
-          {/* Hailed rides: the destination can change before pickup too. */}
-          {(snapshot as any)?.isOnDemand && (
+              {snapshot?.fare.amountPesewas != null ? (
+                <View style={styles.fareRow}>
+                  <Ionicons name={snapshot.fare.paymentMethod === 'CASH' ? 'cash-outline' : 'card-outline'} size={16} color={colors.onSurfaceVariant} />
+                  <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ flex: 1 }}>
+                    {snapshot.fare.paymentMethod === 'CASH' ? 'Cash' : 'Card'}
+                  </Text>
+                  <Text style={styles.fareValue}>{formatGhs(snapshot.fare.amountPesewas)}</Text>
+                </View>
+              ) : null}
+              <View style={styles.actions}>
+                <Action icon="share-outline" label="Share trip" onPress={handleShare} colors={colors} />
+                <Action
+                  icon="shield-checkmark-outline"
+                  label="Safety"
+                  onPress={() => tripId && goDeeper(`/ride/${tripId}/sos` as Href)}
+                  colors={colors}
+                />
+              </View>
+            </>
+          }
+        >
+          {(snapshot as any)?.isOnDemand ? (
             <View style={styles.actions}>
               <Action icon="navigate-outline" label="Change destination" onPress={routeChange.changeDestination} colors={colors} />
               <Action icon="add-circle-outline" label="Add a stop" onPress={routeChange.addStop} colors={colors} />
             </View>
-          )}
-
-          <View style={styles.actions}>
-            <Action icon="share-outline" label="Share trip" onPress={handleShare} colors={colors} />
-            <Action
-              icon="shield-checkmark-outline"
-              label="Safety"
-              onPress={() => tripId && goDeeper(`/ride/${tripId}/sos` as Href)}
-              colors={colors}
-            />
-            <Action
-              icon="close-circle-outline"
-              label="Cancel"
-              onPress={handleCancel}
-              colors={colors}
-              tint={colors.error}
-            />
-          </View>
-        </View>
+          ) : null}
+          <Pressable onPress={handleCancel} style={styles.cancelRow} accessibilityRole="button" accessibilityLabel="Cancel ride">
+            <Ionicons name="close-circle-outline" size={18} color={colors.error} />
+            <Text style={[styles.cancelText, { color: colors.error }]}>Cancel ride</Text>
+          </Pressable>
+        </SheetSections>
       </SheetContent>
     </View>
   );
@@ -394,14 +333,23 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   // Gutter and bottom safe area belong to the shared sheet now — see the same
   // note in TrackingStage.
-  sheetBody: { gap: spacing.lg },
   pinCard: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.md,
+    borderRadius: radii.xl,
+    borderWidth: 1,
   },
+  divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.outlineVariant },
+  cancelRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm,
+    paddingVertical: spacing.md,
+    borderRadius: radii.lg,
+    borderWidth: 1, borderColor: colors.outlineVariant,
+  },
+  cancelText: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodyMedium },
   /** Sized to be read out loud at a kerb, at night, at arm's length. Tabular
    *  so the four digits do not shuffle width as they render. */
   pinDigits: {

@@ -3,8 +3,9 @@ import { View, StyleSheet, Pressable, Linking } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, GlassSurface, RollingDigits, Avatar, GradientGlowBorder, goDeeper, notify } from '@eyego/ui';
-import { formatGhs } from '@eyego/utils';
+import { Text, GlassSurface, RollingDigits, SheetSections, goDeeper } from '@eyego/ui';
+import { DriverStrip } from './DriverStrip';
+import { formatGhs, clockTime } from '@eyego/utils';
 import { SheetContent } from '../sheetSlot';
 import { useColors, Colors } from '../../../utils/useColors';
 import { useTripStore } from '../../../stores/trip.store';
@@ -105,185 +106,113 @@ function TrackingStageImpl() {
         camera padding is now read from the sheet's live edge rather than from
         a matching table of guesses.
       */}
+      {/*
+        IN THE CAR, THE WAY UBER SAYS IT: the arrival time first, the place
+        under it, the driver settled into one quiet row. A drag up gives the
+        journey and the fare; full gives the things you rarely need mid-ride.
+        Same sheet as the assigned stage - it re-fits, it is not replaced.
+      */}
       <SheetContent stage="tracking">
-        {/*
-          The green wash has moved to TripSheetHost's `background`. It was here,
-          inside the panel body, where `absoluteFill` resolves against the body's
-          PADDING box — so the gradient's rectangle stopped ~32 pt short of each
-          edge and left two hard vertical seams up the card ("this visible cut on
-          the left and right"). See the note at its new home; the light belongs
-          to the sheet, not to whichever panel is inside it.
-        */}
-        <View style={styles.sheetBody}>
-          <View style={styles.headline}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.title}>
-                {minutes != null ? 'Arriving in' : 'On your way'}
-              </Text>
-              <Text variant="bodySmall" color={colors.onSurfaceVariant} numberOfLines={1}>
-                {snapshot?.dropoff?.address ?? 'Your destination'}
-              </Text>
-            </View>
-            {minutes != null && (
-              <View style={styles.etaBadge}>
-                <RollingDigits
-                  text={String(minutes)}
-                  value={minutes}
-                  fontSize={fontSizes.headlineSmall}
-                  color={colors.onPrimary}
-                  fontFamily={fonts.displayBold}
-                />
-                <Text variant="caption" color={colors.onPrimary}>min</Text>
-              </View>
-            )}
-          </View>
-
-          {/*
-            THE JOURNEY, BOTH ENDS OF IT.
-
-            BUGFIX ("on the rider tracking page it doesn't show the pickup point
-            — placeholder only — it just shows the destination").
-
-            This panel rendered `snapshot.dropoff.address` under the headline and
-            nothing else, so the one thing a rider in a moving car cannot verify
-            from the window — that the driver is taking them from the right place
-            to the right place — was half missing. The pickup was not wrong here,
-            it was absent; the "placeholder" was the generic destination subtitle
-            standing in for a route.
-
-            `trip-view.js` already resolves `snapshot.pickup` to THIS rider's own
-            collection point (their booking's, not the group trip's — see the
-            note there), so the correct address is on the wire and was simply
-            never read. Rendered as the same dot → connector → pin vocabulary the
-            rider set the trip up with on the Where-To card, so the two screens
-            describe one journey the same way.
-          */}
-          <View style={styles.journey}>
-            <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii.xl} intensity="low" />
-            <View style={styles.journeyTimeline}>
-              <View style={[styles.journeyDot, { backgroundColor: colors.onSurfaceVariant }]} />
-              <View style={[styles.journeyConnector, { backgroundColor: colors.outline }]} />
-              <Ionicons name="location" size={12} color={colors.primary} />
-            </View>
-            <View style={styles.journeyText}>
-              <View>
-                <Text style={styles.journeyLabel}>PICKUP</Text>
-                <Text variant="bodySmall" numberOfLines={1}>
-                  {snapshot?.pickup?.address ?? 'Your pickup point'}
-                </Text>
-              </View>
-              <View>
-                <Text style={styles.journeyLabel}>DROP-OFF</Text>
-                <Text variant="bodySmall" numberOfLines={1}>
-                  {snapshot?.dropoff?.address ?? 'Your destination'}
-                </Text>
-              </View>
-            </View>
-          </View>
-
-          {/* One compact row instead of the full driver card: who is driving is
-              already established by this point. */}
-          {/*
-            THE LIGHT. "There isn't a glow border on any of the cards so it
-            seems dead." These two rows are the live facts of the ride — who is
-            driving, and what it costs — and they were flat panels on a flat
-            sheet. `brandGreen` is the ring the Where-To field wears, which is
-            what the rider last saw before this screen, so the same light
-            carries through the whole booking rather than stopping at the door.
-          */}
-          {driver && (
-            <GradientGlowBorder
-              palette="brandGreen"
-              fillColor={colors.surfaceContainerHigh}
-              borderRadius={radii.xl}
-              thickness="thin"
-              glow
-              glowIntensity={0.7}
-              style={styles.driverRow}
-            >
-              <Avatar uri={driver.photo} name={driver.name} size={36} />
-              <View style={{ flex: 1 }}>
-                <Text variant="bodySmall" numberOfLines={1}>{driver.name}</Text>
-                {vehicle?.plate && (
-                  <Text variant="caption" color={colors.onSurfaceVariant}>{vehicle.plate}</Text>
-                )}
-              </View>
-              <Pressable
-                onPress={handleCall}
-                hitSlop={8}
-                accessibilityRole="button"
-                accessibilityLabel="Call driver"
-                style={styles.iconBtn}
-              >
-                <Ionicons name="call-outline" size={17} color={colors.onSurface} />
-              </Pressable>
-              <Pressable
-                onPress={() => tripId && goDeeper(`/ride/${tripId}/chat` as Href)}
-                hitSlop={8}
-                accessibilityRole="button"
-                accessibilityLabel={
-                  unreadChats > 0
-                    ? `Message driver, ${unreadChats} unread`
-                    : 'Message driver'
-                }
-                style={styles.iconBtn}
-              >
-                <Ionicons name="chatbubble-outline" size={17} color={colors.onSurface} />
-                {/* The whole point of the counter: on this screen the app-wide
-                    chat banner is deliberately suppressed, so without a badge
-                    a driver's message left no trace at all. */}
-                {unreadChats > 0 && (
-                  <View style={[styles.chatBadge, { backgroundColor: colors.primary }]}>
-                    <Text style={[styles.chatBadgeText, { color: colors.onPrimary }]}>
-                      {unreadChats > 9 ? '9+' : unreadChats}
-                    </Text>
+        <SheetSections
+          peek={
+            <>
+              <View style={styles.headline}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.title}>
+                    {minutes != null ? `Arriving ${clockTime(new Date(Date.now() + minutes * 60_000))}` : 'On your way'}
+                  </Text>
+                  <Text variant="bodySmall" color={colors.onSurfaceVariant} numberOfLines={1}>
+                    {snapshot?.dropoff?.address ?? 'Your destination'}
+                  </Text>
+                </View>
+                {minutes != null && (
+                  <View style={styles.etaBadge}>
+                    <RollingDigits
+                      text={String(minutes)}
+                      value={minutes}
+                      fontSize={fontSizes.headlineSmall}
+                      color={colors.onPrimary}
+                      fontFamily={fonts.displayBold}
+                    />
+                    <Text variant="caption" color={colors.onPrimary}>min</Text>
                   </View>
                 )}
-              </Pressable>
-            </GradientGlowBorder>
-          )}
-
-          {/* Server-computed integer pesewas, rendered as-is. */}
-          {snapshot?.fare.amountPesewas != null && (
-            <GradientGlowBorder
-              palette="brandGreen"
-              fillColor={colors.surfaceContainerHigh}
-              borderRadius={radii.xl}
-              thickness="thin"
-              glow
-              glowIntensity={0.55}
-              style={styles.fareRow}
-            >
-              <Text variant="bodySmall" color={colors.onSurfaceVariant}>
-                {snapshot.fare.paymentStatus === 'PAID' ? 'Paid' : 'Fare'}
-              </Text>
-              <Text style={styles.fareValue}>{formatGhs(snapshot.fare.amountPesewas)}</Text>
-              {/* One seat unless the rider is covering the group — see
-                  trip-view's `seatsPaidFor`. Saying "for 4 seats" is the
-                  difference between a fare that looks wrong and one that
-                  explains itself. */}
-              {(snapshot.fare as { seatsPaidFor?: number | null }).seatsPaidFor != null &&
-                ((snapshot.fare as { seatsPaidFor?: number | null }).seatsPaidFor ?? 1) > 1 && (
-                  <Text variant="caption" color={colors.onSurfaceVariant}>
-                    · {(snapshot.fare as { seatsPaidFor?: number | null }).seatsPaidFor} seats
+              </View>
+              {driver ? (
+                <DriverStrip
+                  colors={colors}
+                  name={driver.name}
+                  photo={driver.photo}
+                  plate={vehicle?.plate ?? null}
+                  car={vehicle ? `${vehicle.make} ${vehicle.model}`.trim() : null}
+                  emphasisePlate={false}
+                  unread={unreadChats}
+                  onCall={handleCall}
+                  onChat={() => tripId && goDeeper(`/ride/${tripId}/chat` as Href)}
+                />
+              ) : null}
+            </>
+          }
+          half={
+            <>
+              <View style={styles.journey}>
+                <View style={styles.journeyTimeline}>
+                  <View style={[styles.journeyDot, { backgroundColor: colors.onSurfaceVariant }]} />
+                  <View style={[styles.journeyConnector, { backgroundColor: colors.outline }]} />
+                  <Ionicons name="location" size={12} color={colors.primary} />
+                </View>
+                <View style={styles.journeyText}>
+                  <View>
+                    <Text style={styles.journeyLabel}>PICKUP</Text>
+                    <Text variant="bodySmall" numberOfLines={1}>{snapshot?.pickup?.address ?? 'Your pickup point'}</Text>
+                  </View>
+                  <View>
+                    <Text style={styles.journeyLabel}>DROP-OFF</Text>
+                    <Text variant="bodySmall" numberOfLines={1}>{snapshot?.dropoff?.address ?? 'Your destination'}</Text>
+                  </View>
+                </View>
+              </View>
+              {stops.length > 0 && (
+                <View style={styles.stopsRow}>
+                  <Ionicons name="flag-outline" size={15} color={colors.onSurfaceVariant} />
+                  <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ flex: 1 }} numberOfLines={2}>
+                    {stops.length === 1 ? 'Stop' : 'Stops'}: {stops.map((st) => st.address ?? 'Pinned place').join(' → ')}, then your destination
                   </Text>
-                )}
-              {snapshot.fare.paymentMethod === 'CASH' && snapshot.fare.paymentStatus !== 'PAID' && (
-                <Text variant="caption" color={colors.onSurfaceVariant}>· pay cash on arrival</Text>
+                </View>
               )}
-            </GradientGlowBorder>
-          )}
-
-          {stops.length > 0 && (
-            <View style={styles.stopsRow}>
-              <Ionicons name="flag-outline" size={15} color={colors.onSurfaceVariant} />
-              <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ flex: 1 }} numberOfLines={2}>
-                {stops.length === 1 ? 'Stop' : 'Stops'}: {stops.map((s) => s.address ?? 'Pinned place').join(' → ')}, then your destination
-              </Text>
-            </View>
-          )}
-
-          {isHailed && (
+              {snapshot?.fare.amountPesewas != null && (
+                <View style={styles.fareRow}>
+                  <Ionicons name={snapshot.fare.paymentMethod === 'CASH' ? 'cash-outline' : 'card-outline'} size={16} color={colors.onSurfaceVariant} />
+                  <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ flex: 1 }}>
+                    {snapshot.fare.paymentStatus === 'PAID'
+                      ? 'Paid'
+                      : snapshot.fare.paymentMethod === 'CASH' ? 'Pay cash on arrival' : 'Fare'}
+                    {((snapshot.fare as { seatsPaidFor?: number | null }).seatsPaidFor ?? 1) > 1
+                      ? ` · ${(snapshot.fare as { seatsPaidFor?: number | null }).seatsPaidFor} seats`
+                      : ''}
+                  </Text>
+                  <Text style={styles.fareValue}>{formatGhs(snapshot.fare.amountPesewas)}</Text>
+                </View>
+              )}
+              <View style={styles.actions}>
+                <Pressable onPress={handleShare} style={styles.action} accessibilityRole="button" accessibilityLabel="Share trip">
+                  <Ionicons name="share-outline" size={18} color={colors.onSurface} />
+                  <Text style={[styles.actionLabel, { color: colors.onSurface }]}>Share trip</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => tripId && goDeeper(`/ride/${tripId}/sos` as Href)}
+                  style={[styles.action, { borderColor: colors.error }]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Emergency and safety"
+                >
+                  <Ionicons name="shield-checkmark-outline" size={18} color={colors.error} />
+                  <Text style={[styles.actionLabel, { color: colors.error }]}>Safety</Text>
+                </Pressable>
+              </View>
+            </>
+          }
+        >
+          {isHailed ? (
             <View style={styles.actions}>
               <Pressable onPress={routeChange.changeDestination} style={styles.action} accessibilityRole="button" accessibilityLabel="Change destination">
                 <Ionicons name="navigate-outline" size={18} color={colors.onSurface} />
@@ -294,24 +223,8 @@ function TrackingStageImpl() {
                 <Text style={[styles.actionLabel, { color: colors.onSurface }]}>Add a stop</Text>
               </Pressable>
             </View>
-          )}
-
-          <View style={styles.actions}>
-            <Pressable onPress={handleShare} style={styles.action} accessibilityRole="button" accessibilityLabel="Share trip">
-              <Ionicons name="share-outline" size={18} color={colors.onSurface} />
-              <Text style={[styles.actionLabel, { color: colors.onSurface }]}>Share trip</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => tripId && goDeeper(`/ride/${tripId}/sos` as Href)}
-              style={[styles.action, { borderColor: colors.error }]}
-              accessibilityRole="button"
-              accessibilityLabel="Emergency and safety"
-            >
-              <Ionicons name="shield-checkmark-outline" size={18} color={colors.error} />
-              <Text style={[styles.actionLabel, { color: colors.error }]}>Safety</Text>
-            </Pressable>
-          </View>
-        </View>
+          ) : null}
+        </SheetSections>
       </SheetContent>
     </View>
   );

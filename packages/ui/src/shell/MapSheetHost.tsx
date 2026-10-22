@@ -5,7 +5,8 @@ import { spacing } from '@eyego/config';
 import { CardAuroraGlow } from '../effects/CardAuroraGlow';
 import { GlassSurface } from '../effects/GlassSurface';
 import { MorphSheet } from '../panel/MorphSheet';
-import { useSheetSlots } from './sheetSlot';
+import { useSheetSlots, SheetSections, type SheetSectionsProps } from './sheetSlot';
+import { SnapSheet } from '../panel/SnapSheet';
 import { depthIncoming, depthOutgoing, useDepthMotion, type DepthDirection } from '../motion/depth';
 
 
@@ -153,6 +154,31 @@ export function MapSheetHost<TStage extends string = string>({
   );
 
   if (retired || currentNode == null) return null;
+
+  /**
+   * A stage that publishes `SheetSections` gets the SNAP SHEET — peek / half /
+   * full measured from its own sections, finger-tracked (see SnapSheet). It is
+   * one instance across every such stage, so "driver arriving" → "on the trip"
+   * is the same sheet re-fitting to new detents while the rows fade through.
+   */
+  if (React.isValidElement(currentNode) && currentNode.type === SheetSections) {
+    const sec = currentNode.props as SheetSectionsProps;
+    return (
+      <SnapSheet
+        resetKey={String(current)}
+        peek={<Animated.View style={incomingStyle}>{sec.peek}</Animated.View>}
+        half={sec.half ? <Animated.View style={incomingStyle}>{sec.half}</Animated.View> : undefined}
+        footer={sec.footer}
+        background={background}
+        backgroundColor={chrome.glass ? undefined : solidBackground}
+        radius={chrome.radius}
+        grabberColor={grabberColor}
+        gutter={spacing['2xl']}
+      >
+        {sec.children ? <Animated.View style={incomingStyle}>{sec.children}</Animated.View> : undefined}
+      </SnapSheet>
+    );
+  }
 
   return (
     <MorphSheet

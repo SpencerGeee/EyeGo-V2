@@ -191,8 +191,8 @@ export type { ConsentGateProps } from './gate/ConsentGate';
  */
 export { MapSheetHost } from './shell/MapSheetHost';
 export type { MapSheetHostProps, SheetChrome } from './shell/MapSheetHost';
-export { SheetContent, useSheetSlots } from './shell/sheetSlot';
-export type { SheetContentProps } from './shell/sheetSlot';
+export { SheetContent, SheetSections, useSheetSlots } from './shell/sheetSlot';
+export type { SheetContentProps, SheetSectionsProps } from './shell/sheetSlot';
 export { useBiometricGate, BiometricLock } from './security/BiometricGate';
 export { WaitingMeter } from './WaitingMeter';
 export type { WaitingMeterProps } from './WaitingMeter';
