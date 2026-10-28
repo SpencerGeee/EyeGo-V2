@@ -13,6 +13,7 @@ const path = require('path');
 // node during prebuild.
 const withFirebaseAppDelegate = require('../../packages/config/plugins/withFirebaseAppDelegate');
 const withFirebasePods = require('../../packages/config/plugins/withFirebasePods');
+const withNotificationColorReplace = require('../../packages/config/plugins/withNotificationColorReplace');
 
 module.exports = () => {
   const expo = baseConfig.expo;
@@ -21,7 +22,8 @@ module.exports = () => {
   const hasNotifications = (expo.plugins ?? []).some(
     (p) => p === 'expo-notifications' || (Array.isArray(p) && p[0] === 'expo-notifications'),
   );
-  const plugins = [...(expo.plugins ?? [])];
+  // First on purpose: its mod must run after expo-notifications' (see plugin).
+  const plugins = [withNotificationColorReplace, ...(expo.plugins ?? [])];
   if (!hasNotifications) {
     plugins.push([
       'expo-notifications',

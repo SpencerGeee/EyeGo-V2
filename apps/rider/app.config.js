@@ -10,6 +10,7 @@ const path = require('path');
 // node during prebuild.
 const withFirebaseAppDelegate = require('../../packages/config/plugins/withFirebaseAppDelegate');
 const withFirebasePods = require('../../packages/config/plugins/withFirebasePods');
+const withNotificationColorReplace = require('../../packages/config/plugins/withNotificationColorReplace');
 
 module.exports = ({ config }) => {
   // ── Firebase / FCM (push notifications) ──────────────────────────────────
@@ -73,6 +74,8 @@ module.exports = ({ config }) => {
       },
     },
     plugins: [
+      // First on purpose: its mod must run after expo-notifications' (see plugin).
+      withNotificationColorReplace,
       ...baseConfig.expo.plugins,
       // THE FIREBASE PLUGINS ARE CONDITIONAL, and must stay out of app.json.
       // @react-native-firebase/app does not skip a build that has no Firebase
