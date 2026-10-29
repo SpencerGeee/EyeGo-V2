@@ -45,7 +45,7 @@ Verify gate per phase: `node node_modules/typescript/lib/tsc.js -p apps/rider|dr
 - [ ] Flat card system per spec §7 (tokens, rows 76 dp, outlines 2/1 dp, no glass on sheets)
 - [ ] Transition matrix (named per rider-phase pair) + height+opacity reveal
 - [ ] Tier pick: in-place bus turn (G2)
-- [ ] Splash: Reanimated brand intro (G5), both apps
+- [x] Splash: one shared BrandIntro (packages/ui, Reanimated + SVG, NO Skia — rider dropped its Skia Grain), driver gets the wordmark+streak in blue with DRIVER label; native splash hidden on first layout; backgrounds match each native splash colour
 - [ ] Driver offer countdown as rounded bar
 
 ## Phase C — shared vs private (item 2)
