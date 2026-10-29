@@ -1652,6 +1652,7 @@ async function startCascade(tripId, opts = {}) {
  * candidate who is currently mid-decision.
  */
 async function declineOffer(tripId, driverId) {
+  clearMissedOffers(driverId);
   const state = await readState(tripId);
   if (!state || state.done) return false;
   // THE deliberate act. The driver read the offer and refused it, so this trip
@@ -1707,6 +1708,7 @@ async function stopOfferTimer(tripId) {
  * the cascade. Splitting the call is the fix.
  */
 async function announceWinner(tripId, driverId) {
+  clearMissedOffers(driverId);
   const state = await readState(tripId);
   // Everyone who was offered this trip and did not win learns it explicitly,
   // so no driver is left holding a dead offer card.
@@ -1873,9 +1875,49 @@ scheduledTasks.registerHandler(TASK_OFFER_TIMEOUT, async (task) => {
   if (driverId) {
     await forgetOffer(driverId);
     publisher.publishOfferRevoked(driverId, tripId, 'TIMEOUT');
+    await noteMissedOffer(driverId);
   }
   await offerNext(tripId);
 });
+
+/**
+ * ── UNRESPONSIVE → PAUSED, WITH THE REASON (Q9) ─────────────────────────────
+ *
+ * Uber's NonDispatchableReason.UNRESPONSIVE_SESSION, our way: a driver whose
+ * phone lets AUTO_PAUSE_MISSED_OFFERS offers in a row lapse is almost certainly
+ * not looking at it (pocket, other app, asleep at the wheel). Keeping them in
+ * the pool costs every rider a 45-second wait per lapse. So their requests are
+ * paused — the existing `requestsPaused` switch, one tap to resume — and they
+ * are told why. Any response (accept or pass) resets the run.
+ */
+const AUTO_PAUSE_MISSED_OFFERS = 3;
+async function noteMissedOffer(driverId) {
+  try {
+    const key = `dispatch:missed:${driverId}`;
+    const n = await redis.incr(key);
+    await redis.expire(key, 2 * 60 * 60);
+    if (n < AUTO_PAUSE_MISSED_OFFERS) return;
+    await redis.del(key);
+    const d = await prisma.driver.update({
+      where: { id: driverId },
+      data: { requestsPaused: true },
+      select: { fcmToken: true },
+    });
+    logger.info('Driver auto-paused after missed offers', { driverId, missed: n });
+    if (d?.fcmToken) {
+      await sendMulticastPush([d.fcmToken], 'Requests paused',
+        `You missed ${n} requests in a row, so we paused new ones. Tap to resume when you're ready.`,
+        { type: 'REQUESTS_AUTO_PAUSED' }).catch(() => {});
+    }
+  } catch (err) {
+    logger.warn(`[cascade] missed-offer bookkeeping failed: ${err?.message ?? err}`);
+  }
+}
+
+/** The driver answered (accept or pass): the unresponsive run is over. */
+function clearMissedOffers(driverId) {
+  if (driverId) redis.del(`dispatch:missed:${driverId}`).catch(() => {});
+}
 
 /**
  * Safety net for a search that was never actually started.

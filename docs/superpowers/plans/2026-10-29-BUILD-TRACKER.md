@@ -34,7 +34,7 @@ Verify gate per phase: `node node_modules/typescript/lib/tsc.js -p apps/rider|dr
 
 ## Phase O — offer protocol v2 (Q7) + driver eligibility (Q9)
 - [ ] DispatchOffer identity (offerId), ACK, discardAfter, minimumViewMs, expiringSoonMs, accept carries offerId + GPS, stale → 409 OFFER_INVALID
-- [ ] Auto-pause after 3 consecutive missed offers (NON_DISPATCHABLE: UNRESPONSIVE), reason shown on driver home, one-tap resume
+- [x] Auto-pause after 3 consecutive missed offers → requestsPaused + push with the reason; reset on accept/pass; resume = existing Pause Requests switch
 - [ ] Offer card text/sections from server (Q8)
 
 ## Phase P — rider live sync floor (Q6)
