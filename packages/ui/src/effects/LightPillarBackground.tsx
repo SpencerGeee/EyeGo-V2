@@ -294,7 +294,20 @@ export function LightPillarBackground({
   style,
 }: LightPillarBackgroundProps) {
   const tier = usePerformanceTier();
-  const { width, height } = useWindowDimensions();
+  /**
+   * SIZED FROM THE BOX IT FILLS, NOT FROM THE WINDOW.
+   *
+   * BUGFIX ("on the android phone the blue background skia wasn't properly
+   * scaled to the screen"). `useWindowDimensions()` on Android excludes the
+   * system bars, while this view fills an edge-to-edge container that includes
+   * them — so the low-res canvas was centred on a box shorter than the one it
+   * sat in, and its upscale left the beam off-centre with a strip uncovered.
+   * The window size is only the first-frame guess; the measured layout wins.
+   */
+  const win = useWindowDimensions();
+  const [box, setBox] = useState<{ width: number; height: number } | null>(null);
+  const width = box?.width || win.width;
+  const height = box?.height || win.height;
 
   // Pause the shader entirely while any registered scrollable is actively
   // scrolling — the raymarch must never compete with list frames.
@@ -430,7 +443,14 @@ export function LightPillarBackground({
   }
 
   return (
-    <View pointerEvents="none" style={[StyleSheet.absoluteFill, pillarStyles.clip, style]}>
+    <View
+      pointerEvents="none"
+      style={[StyleSheet.absoluteFill, pillarStyles.clip, style]}
+      onLayout={(e) => {
+        const { width: w, height: h } = e.nativeEvent.layout;
+        if (w > 0 && h > 0 && (w !== box?.width || h !== box?.height)) setBox({ width: w, height: h });
+      }}
+    >
       <Canvas
         style={{
           position: 'absolute',

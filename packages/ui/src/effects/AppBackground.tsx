@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, Dimensions, type ViewStyle } from 'react-native';
 import Animated, {
   useSharedValue,
@@ -128,7 +128,11 @@ export function AppBackground({ style, variant = 'static', isDark: isDarkProp, p
    */
   const lightCrest = Math.min(1, Math.max(0.55, 0.35 + 0.8 * hueLuminance(colors.primary)));
   const tier = usePerformanceTier();
-  const { width, height } = Dimensions.get('window');
+  // Measured, not the window: on Android the window excludes the system bars
+  // while this fills the edge-to-edge root (see LightPillarBackground).
+  const [box, setBox] = useState<{ width: number; height: number } | null>(null);
+  const width = box?.width || Dimensions.get('window').width;
+  const height = box?.height || Dimensions.get('window').height;
 
   /**
    * ── DECORATIVE LOOPS STOP WHEN NOBODY IS LOOKING ───────────────────────────
@@ -366,6 +370,10 @@ export function AppBackground({ style, variant = 'static', isDark: isDarkProp, p
         { backgroundColor: ground },
         style,
       ]}
+      onLayout={(e) => {
+        const { width: w, height: h } = e.nativeEvent.layout;
+        if (w > 0 && h > 0 && (w !== box?.width || h !== box?.height)) setBox({ width: w, height: h });
+      }}
     >
       {ambientFloor}
       {blobs.map((blob, i) => (

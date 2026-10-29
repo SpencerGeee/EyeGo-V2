@@ -64,7 +64,7 @@ export const VEHICLE_TIERS = ['ECO', 'COMFORT', 'PREMIUM'] as const;
 export type VehicleTier = (typeof VEHICLE_TIERS)[number];
 
 /** Smallest and largest vehicle a driver may register. Mirrors drivers.service.js. */
-export const MIN_SEATER_COUNT = 2;
+export const MIN_SEATER_COUNT = 6; // buses only — mirror of drivers.service.js
 export const MAX_SEATER_COUNT = 20;
 
 /** Body of `POST /v1/driver/verify` — see `driverApi.submitVerification`. */

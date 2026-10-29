@@ -252,28 +252,20 @@ const envSchema = z.object({
   PLATFORM_COMMISSION: z.coerce.number().default(0.15),
 
   /**
-   * ── WHAT A PARTY BIGGER THAN A CAR COSTS ─────────────────────────────────
+   * ── A PRIVATE RIDE IS THE WHOLE BUS ───────────────────────────────────────
    *
-   * An on-demand fare prices the VEHICLE, not the head count, so a party of
-   * two and a party of four pay the same — correctly, since they ride in the
-   * same saloon. `RIDE_INCLUDED_SEATS` is where that stops being true: past it
-   * the ride has to come from the minibus pool, which is scarcer and dearer,
-   * and every further seat adds `RIDE_EXTRA_SEAT_RATE` of the metered ride.
-   *
-   * Three and 18% are the starting figures. A saloon seats four including the
-   * front passenger, but the fourth is the seat that makes the car full — no
-   * luggage room, no comfort margin, and on a busy evening it is the difference
-   * between the ride being worth taking and not. So the base fare carries three
-   * and the fourth begins paying. 18% means a full party of eight pays roughly
-   * 1.9× a solo hail for the same road, which is the shape of the gap between a
-   * taxi and a minibus on this market. Both are live settings — see
-   * config/settings.js — so the operator retunes them from the console without
-   * a deploy.
-   *
-   * See `partySize` in modules/trips/fare.calculator.js for where they apply.
+   * EyeGo runs buses only (client meeting 2026-10-29), so an on-demand ride
+   * always takes a whole vehicle: one rider or twelve, it is the same bus and
+   * the same price. The old saloon model (`RIDE_INCLUDED_SEATS` +
+   * `RIDE_EXTRA_SEAT_RATE`, a car that "upgraded" to a minibus past three
+   * seats) is gone. The premium over a shared seat is one multiplier on the
+   * metered ride; the party only has to FIT (matcher capacity filter).
    */
-  RIDE_INCLUDED_SEATS: z.coerce.number().int().min(1).max(14).default(3),
-  RIDE_EXTRA_SEAT_RATE: z.coerce.number().min(0).max(1).default(0.18),
+  PRIVATE_RIDE_MULTIPLIER: z.coerce.number().min(1).max(5).default(1.2),
+  // Phase A — joining a bus already on the road. Live settings; see settings.js.
+  NO_SHOW_GRACE_MINUTES: z.coerce.number().int().min(0).max(30).default(3),
+  JOIN_AHEAD_MARGIN_M: z.coerce.number().int().min(0).max(5000).default(150),
+  SEAT_PASSING_PUSH_MAX_MIN: z.coerce.number().int().min(1).max(60).default(15),
   // The ONLY floor under a per-seat fare. A seat costs
   // `(baseFarePesewas + perKmRatePesewas × km) × surge / maxSeats`, so on a 14-seater a short
   // urban hop divides down to a few pesewas — this stops that, and nothing else

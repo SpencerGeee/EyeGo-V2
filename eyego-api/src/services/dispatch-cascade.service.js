@@ -616,7 +616,7 @@ async function offerNext(tripId) {
     const [trip, boosts] = await Promise.all([prisma.trip.findUnique({
       where: { id: tripId },
       select: {
-        id: true, status: true, tier: true, version: true,
+        id: true, status: true, tier: true, version: true, confirmedSeats: true,
         pickupLat: true, pickupLng: true, pickupAddress: true,
         dropoffLat: true, dropoffLng: true, dropoffAddress: true,
         commissionRate: true,
@@ -946,7 +946,7 @@ async function resweep(tripId) {
 
     const trip = await prisma.trip.findUnique({
       where: { id: tripId },
-      select: { id: true, status: true, pickupLat: true, pickupLng: true, tier: true },
+      select: { id: true, status: true, pickupLat: true, pickupLng: true, tier: true, confirmedSeats: true },
     });
     if (!trip || ![TRIP_STATUS.MATCHING, TRIP_STATUS.REASSIGNING].includes(trip.status)) {
       await finish(tripId, 'resolved');
@@ -1550,7 +1550,7 @@ async function startCascade(tripId, opts = {}) {
     where: { id: tripId },
     // dropoff is selected for destination mode — see matcher.rankCandidates.
     select: {
-      id: true, status: true, tier: true,
+      id: true, status: true, tier: true, confirmedSeats: true,
       pickupLat: true, pickupLng: true,
       dropoffLat: true, dropoffLng: true,
     },

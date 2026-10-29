@@ -213,10 +213,14 @@ async function midRideAvailableDriverIds(prisma, driverIds) {
         const fromLng = t.driver?.currentLng;
         if (![destLat, destLng, fromLat, fromLng].every(Number.isFinite)) return null;
         try {
-          const minutes = await eta.etaMinutes(
+          // `etaSeconds` is the export. This called `eta.etaMinutes`, which never
+          // existed: the TypeError landed in the catch below and no mid-ride
+          // driver was ever offered a queued ride.
+          const { seconds } = await eta.etaSeconds(
             { lat: fromLat, lng: fromLng },
             { lat: destLat, lng: destLng },
           );
+          const minutes = seconds / 60;
           return Number.isFinite(minutes) && minutes <= windowMin ? t.driverId : null;
         } catch {
           return null;

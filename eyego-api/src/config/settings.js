@@ -186,20 +186,41 @@ const REGISTRY = [
     min: 0, max: 200_00,
   },
 
-  // ── Party size ────────────────────────────────────────────────
-  // See RIDE_INCLUDED_SEATS in config/env.js for the model. Together these are
-  // what makes a group ride cost more than the same journey for one person.
+  // ── Private bus / charter ─────────────────────────────────────
+  // Every vehicle is a bus, so an on-demand ride is the WHOLE bus whatever the
+  // party size. The premium is one multiplier on the metered ride (client
+  // meeting 2026-10-29, decision D2). A charter is a private ride with the
+  // party set to the bus's capacity (D4), so it uses the same knob.
   {
-    key: 'RIDE_INCLUDED_SEATS', group: 'pricing_rules', type: TYPES.INT,
-    label: 'Seats included in the base fare', envKey: 'RIDE_INCLUDED_SEATS',
-    help: 'A party up to this size is one ordinary car at the ordinary price. Above it, the ride needs a bigger vehicle and the extra-seat rate applies.',
-    min: 1, max: 14,
+    key: 'PRIVATE_RIDE_MULTIPLIER', group: 'pricing_rules', type: TYPES.DECIMAL,
+    label: 'Private bus multiplier', envKey: 'PRIVATE_RIDE_MULTIPLIER',
+    help: 'A private bus (or a whole-bus charter) costs the metered ride × this. 1.2 = 20% above the ride card.',
+    min: 1, max: 5,
+  },
+
+  // ── Joining a bus already on the road (Phase A) ───────────────
+  {
+    key: 'NO_SHOW_GRACE_MINUTES', group: 'booking', type: TYPES.INT,
+    label: 'No-show grace', envKey: 'NO_SHOW_GRACE_MINUTES', unit: 'minutes',
+    help: 'After the driver marks the bus at a stop, how long before a passenger who is not there can be marked a no-show and their seat resold.',
+    min: 0, max: 30,
   },
   {
-    key: 'RIDE_EXTRA_SEAT_RATE', group: 'pricing_rules', type: TYPES.RATIO,
-    label: 'Extra seat rate', envKey: 'RIDE_EXTRA_SEAT_RATE',
-    help: 'Added to the metered ride for EACH seat beyond the included count — the cost of moving to the minibus pool, not a per-head charge.',
-    min: 0, max: 1,
+    key: 'MIDROUTE_PREPAY_REQUIRED', group: 'booking', type: TYPES.BOOLEAN,
+    label: 'Prepay to join a moving bus', envDefault: true,
+    help: 'When on, a seat on a bus that has already left must be paid in-app (MoMo/card/wallet). Cash stays available at the origin.',
+  },
+  {
+    key: 'JOIN_AHEAD_MARGIN_M', group: 'booking', type: TYPES.INT,
+    label: 'Join-ahead margin', envKey: 'JOIN_AHEAD_MARGIN_M', unit: 'metres',
+    help: 'A rider can book a passing bus only if their stop is at least this far ahead of it — time to pay and walk out.',
+    min: 0, max: 5000,
+  },
+  {
+    key: 'SEAT_PASSING_PUSH_MAX_MIN', group: 'booking', type: TYPES.INT,
+    label: '"Bus passing your stop" push window', envKey: 'SEAT_PASSING_PUSH_MAX_MIN', unit: 'minutes',
+    help: 'Waiting riders are told about a bus with a free seat when it is at most this many minutes from their stop.',
+    min: 1, max: 60,
   },
 
   // ── Door pickup ───────────────────────────────────────────────

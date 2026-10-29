@@ -416,13 +416,17 @@ function calculateRideFare({
   const metered =
     startPesewas + distanceComponentPesewas + timeComponentPesewas + waitComponentPesewas;
 
-  // The party's share of the vehicle — see the `partySize` note above.
+  /**
+   * BUSES ONLY (2026-10-29). A private ride is the whole bus, so the party size
+   * no longer prices anything — it only has to fit the vehicle (matcher capacity
+   * filter). The premium over a shared seat is `PRIVATE_RIDE_MULTIPLIER` on the
+   * metered ride, applied before the floor and the fees like the old party rate.
+   * `partySizeSurchargePesewas` keeps its name for the fare sheet; it now carries
+   * the private premium.
+   */
   const seats = Number.isFinite(partySize) ? Math.max(1, Math.trunc(partySize)) : 1;
-  const includedSeats = Math.max(1, cfg('RIDE_INCLUDED_SEATS') ?? 4);
-  const extraSeatRate = Math.max(0, cfg('RIDE_EXTRA_SEAT_RATE') ?? 0);
-  const extraSeats = Math.max(0, seats - includedSeats);
-  const partySizeMultiplier = 1 + extraSeats * extraSeatRate;
-  const partySizeSurchargePesewas = Math.round(metered * (partySizeMultiplier - 1));
+  const privateMultiplier = Math.max(1, cfg('PRIVATE_RIDE_MULTIPLIER') ?? 1);
+  const partySizeSurchargePesewas = Math.round(metered * (privateMultiplier - 1));
 
   const surged = Math.round((metered + partySizeSurchargePesewas) * surgeMultiplier);
   const flooredRidePesewas = Math.max(surged, minFarePesewas);
@@ -486,8 +490,8 @@ function calculateRideFare({
     // WHY a group ride costs more than the same journey for one. A zero line is
     // never rendered, so an ordinary hail's breakdown is unchanged.
     partySizeSurchargePesewas,
+    privateRideMultiplier: privateMultiplier,
     partySize: seats,
-    includedSeats,
 
     distanceKm: Math.round(distanceKm * 100) / 100,
     durationMin: Math.round(minutes * 10) / 10,

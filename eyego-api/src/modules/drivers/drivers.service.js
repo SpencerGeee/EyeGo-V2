@@ -374,8 +374,8 @@ async function updateFcmToken(driverId, fcmToken) {
 
 /** The three tiers the fare card prices. Mirror of the pricing groups in config/settings.js. */
 const VEHICLE_TIERS = ['ECO', 'COMFORT', 'PREMIUM'];
-/** A vehicle a driver may register: a private car at the low end, a 14-seat minibus at the top. */
-const MIN_SEATER_COUNT = 2;
+/** EyeGo is buses only (client meeting 2026-10-29): a 6-seat van at the low end, a large minibus at the top. Mirror: packages/api drivers.api.ts. */
+const MIN_SEATER_COUNT = 6;
 const MAX_SEATER_COUNT = 20;
 
 /**

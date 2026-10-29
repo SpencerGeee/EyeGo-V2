@@ -365,6 +365,19 @@ async function rankCandidates({ tripId = null, pickupLat, pickupLng, radiusKm, e
   // let pricing sort it out rather than showing "no drivers available".
   let pool = tierMatched.length > 0 ? tierMatched : eligible;
 
+  // 2a. CAPACITY. `seaterCount` was selected and never compared, so a party of
+  //     twelve could be offered to a six-seater. Unlike tier there is no
+  //     fallback: an under-sized vehicle is not a worse match, it is no match.
+  //     `confirmedSeats` is the party on an on-demand trip (rides.service sets it
+  //     to partySize) and the seats already sold on a bus being reassigned —
+  //     `maxSeats` is only the capacity the first driver chose.
+  const party = Math.max(1, Number(trip?.confirmedSeats) || 1);
+  pool = pool.filter((d) => d.vehicles.some((v) => (v.seaterCount ?? 0) >= party));
+  if (pool.length === 0) {
+    logFunnel('none_with_capacity', { party, eligible: eligible.length });
+    return [];
+  }
+
   // 2b. DESTINATION MODE. A driver heading home only wants rides that get them
   //     closer to it. Drivers with no destination set are unaffected — the
   //     predicate returns true for them — so this narrows nothing in the

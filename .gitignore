@@ -113,3 +113,7 @@ nul
 design system v2/
 design system v3/
 screenshots/
+
+# Third-party app bundles used for research — never commit
+*.xapk
+*.apkm

@@ -117,9 +117,9 @@ async function ensureReviewerDriver() {
         create: {
           plateNumber: REVIEWER_VEHICLE_PLATE,
           make: 'Toyota',
-          model: 'Corolla',
+          model: 'Hiace',
           year: 2022,
-          seaterCount: 4,
+          seaterCount: 14,
           tier: 'ECO',
           colour: 'White',
           isVerified: true,

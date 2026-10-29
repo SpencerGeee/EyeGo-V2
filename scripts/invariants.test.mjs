@@ -126,6 +126,36 @@ test('React Native Pressable is never used with a function style', () => {
 });
 
 /**
+ * Every `eta.<fn>(` call names a function `eta.service.js` actually exports.
+ *
+ * `driver-availability.js` called `eta.etaMinutes`, which never existed. The
+ * TypeError was swallowed by a defensive catch, so mid-ride ("queued") offers
+ * silently never fired. A swallowed catch makes a missing export invisible at
+ * runtime; a text check makes it loud at test time.
+ */
+test('eta.* calls name real eta.service exports', () => {
+  const svc = readFileSync(join(ROOT, 'eyego-api/src/services/eta.service.js'), 'utf8');
+  const exported = new Set(
+    (svc.match(/module\.exports\s*=\s*\{([^}]*)\}/)?.[1] ?? '')
+      .split(',').map((s) => s.trim().split(':')[0].trim()).filter(Boolean),
+  );
+  const hits = [];
+  for (const file of files(['.js'])) {
+    const rel = relative(ROOT, file).replace(/\\/g, '/');
+    if (!rel.startsWith('eyego-api/src/')) continue;
+    const src = readFileSync(file, 'utf8');
+    if (!/require\(['"][./]*(services\/)?eta\.service['"]\)/.test(src)) continue;
+    src.split('\n').forEach((text, i) => {
+      for (const m of text.matchAll(/\beta\.([A-Za-z_]\w*)\s*\(/g)) {
+        if (!exported.has(m[1])) hits.push({ file, line: i + 1, text });
+      }
+    });
+  }
+  assert.ok(exported.size > 0, 'could not read eta.service exports');
+  assert.equal(hits.length, 0, `eta.* call to a function eta.service does not export:\n${report(hits)}`);
+});
+
+/**
  * `Driver.status` approved is 'ACTIVE'. Never 'APPROVED'.
  *
  * The column is a free-form String and eligibility compares it exactly, so
