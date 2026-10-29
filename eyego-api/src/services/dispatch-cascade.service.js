@@ -682,6 +682,10 @@ async function offerNext(tripId) {
       const expiresAtMs = Date.now() + offerTtlSeconds() * 1000;
       state.currentDriverId = candidate.id;
       state.expiresAtMs = expiresAtMs;
+      // Offer protocol v2 (Q7, Uber's offerUUID ≠ jobUUID): every offer has its
+      // own id, so an accept for a lapsed or re-offered card is told apart from
+      // an accept for the live one, even on the same trip.
+      state.offerId = require('crypto').randomUUID();
       await writeState(state);
 
       // The timer is a ROW, not a setTimeout. It survives this process dying.
@@ -723,6 +727,27 @@ async function offerNext(tripId) {
         etaSeconds: candidate.etaSeconds,
         attempt: state.index,
         totalCandidates: state.candidates.length,
+        /**
+         * OFFER PROTOCOL v2 (Q7 — fields read off Uber's JobOfferModel).
+         *   offerId               accept/ack must name it; a stale id is refused
+         *   discardAfterServerMs  a push that lands after this is never shown
+         *   minimumViewMs         the card may not vanish sooner (no flash offers)
+         *   expiringSoonMs        the card enters its "expiring soon" state
+         */
+        offerId: state.offerId,
+        discardAfterServerMs: expiresAtMs,
+        minimumViewMs: 3000,
+        expiringSoonMs: 10_000,
+        /**
+         * Server-written card copy (Q8): the layout stays native, the words come
+         * from here so they change without an app release.
+         */
+        card: {
+          title: state.kind === 'SHARED_SEAT' ? 'Add a passenger on your road' : 'New ride request',
+          subtitle: trip.pickupAddress ?? trip.route?.originName ?? null,
+          acceptLabel: 'Swipe to accept',
+          passLabel: 'Pass',
+        },
       };
 
       /**
@@ -1806,6 +1831,14 @@ async function currentHolder(tripId) {
   return state.currentDriverId;
 }
 
+/** The id of the live offer on this trip, or null (Q7). */
+async function currentOfferId(tripId) {
+  const state = await readState(tripId);
+  if (!state || state.done || !state.currentDriverId) return null;
+  if (state.expiresAtMs != null && state.expiresAtMs <= Date.now()) return null;
+  return state.offerId ?? null;
+}
+
 async function getCascadeState(tripId) {
   const state = await readState(tripId);
   if (!state) return null;
@@ -1961,6 +1994,7 @@ module.exports = {
   cancelCascade,
   getCascadeState,
   currentHolder,
+  currentOfferId,
   getOfferForDriver,
   forgetOffer,
   // Exported as functions, not values: a caller that captured a number would be

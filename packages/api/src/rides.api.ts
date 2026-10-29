@@ -375,7 +375,12 @@ export const ridesApi = {
       .post('/rides/driver/resync')
       .then(unwrap<DriverResyncResponse>)
       .then(checkDriverStateMoney),
-  accept: (tripId: string) => apiClient.post(`/rides/${tripId}/accept`).then(unwrap),
+  /**
+   * Offer protocol v2 (Q7): name the offer being accepted, and say where the
+   * driver is now. Both optional — the server keeps the old behaviour without.
+   */
+  accept: (tripId: string, body?: { offerId?: string; lat?: number; lng?: number }) =>
+    apiClient.post(`/rides/${tripId}/accept`, body ?? {}).then(unwrap),
   decline: (tripId: string) => apiClient.post(`/rides/${tripId}/decline`).then(unwrap),
   enRoute: (tripId: string) => apiClient.post(`/rides/${tripId}/en-route`).then(unwrap),
   arrived: (tripId: string) => apiClient.post(`/rides/${tripId}/arrived`).then(unwrap),

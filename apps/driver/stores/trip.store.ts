@@ -54,6 +54,8 @@ export interface DispatchOffer {
   tier: string | null;
   /** Server deadline. Never compare this to Date.now() directly. */
   expiresAtServerMs: number;
+  /** Offer protocol v2 (Q7): this offer's own id, sent back on accept. */
+  offerId?: string | null;
   etaSeconds: number | null;
   attempt: number;
   totalCandidates: number;
@@ -100,6 +102,7 @@ function offerFromPayload(p: any): DispatchOffer {
     partySize: p.partySize ?? null,
     tier: p.tier ?? null,
     expiresAtServerMs: p.expiresAtServerMs,
+    offerId: p.offerId ?? null,
     etaSeconds: p.etaSeconds ?? null,
     attempt: p.attempt ?? 0,
     totalCandidates: p.totalCandidates ?? 0,

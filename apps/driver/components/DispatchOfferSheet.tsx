@@ -253,7 +253,13 @@ export default function DispatchOfferSheet() {
     try {
       // The server routes the verb by the trip's own status (claimTrip), so a
       // held offer and a first-claim row are one call here.
-      await ridesApi.accept(tripId);
+      // v2: the live offer's id (a late tap on a re-offered card is refused) and
+      // the position at the moment of accepting.
+      const fix = lastKnownReportedFix();
+      await ridesApi.accept(tripId, {
+        offerId: (held as { offerId?: string } | null)?.offerId,
+        ...(fix ? { lat: fix.lat, lng: fix.lng } : {}),
+      });
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       setAccepted(true);
       setActiveTripId(tripId);

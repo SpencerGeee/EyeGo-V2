@@ -287,7 +287,7 @@ router.post(
   '/:id/accept',
   authenticateDriver,
   h(async (req, res) => {
-    res.json({ success: true, data: await rides.acceptRide(actorId(req), req.params.id) });
+    res.json({ success: true, data: await rides.acceptRide(actorId(req), req.params.id, { offerId: req.body?.offerId ?? null, lat: Number(req.body?.lat), lng: Number(req.body?.lng) }) });
   }),
 );
 

@@ -1230,7 +1230,7 @@ async function cancelRide(userId, tripId, reason = null) {
  * transaction, which meant a driver about to lose a 409 still told the rider
  * "matched with driver X" and killed the cascade.
  */
-async function acceptRide(driverId, tripId) {
+async function acceptRide(driverId, tripId, { offerId = null, lat = null, lng = null } = {}) {
   if (!(await isDriverAvailable(prisma, driverId))) {
     throw new AppError('Finish your current trip before accepting another.', 409, 'DRIVER_BUSY');
   }
@@ -1288,6 +1288,25 @@ async function acceptRide(driverId, tripId) {
    * by a deadline that has already passed — all claimable, which is what makes
    * the row on the board mean something.
    */
+  /**
+   * OFFER PROTOCOL v2 (Q7). An accept that names an offer must name the LIVE
+   * one: a card that lapsed and was re-offered (to this driver or another) has
+   * a different id, so a late tap on the old card is refused instead of
+   * winning a ride the cascade has already moved on from. Older apps that send
+   * no offerId keep the previous behaviour.
+   */
+  if (offerId) {
+    const live = await cascade.currentOfferId(tripId).catch(() => null);
+    if (live && live !== offerId) {
+      throw new AppError('That request has already moved on.', 409, 'OFFER_INVALID');
+    }
+  }
+  // The position at the moment of accepting (Uber sends it too): the rider's
+  // first ETA should come from where the driver actually is, not a stale ping.
+  if (Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180) {
+    prisma.driver.update({ where: { id: driverId }, data: { currentLat: lat, currentLng: lng } }).catch(() => {});
+  }
+
   const holder = await cascade.currentHolder(tripId).catch(() => null);
   if (holder && holder !== driverId) {
     throw new AppError(

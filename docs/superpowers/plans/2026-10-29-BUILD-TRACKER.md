@@ -33,9 +33,9 @@ Verify gate per phase: `node node_modules/typescript/lib/tsc.js -p apps/rider|dr
 - [x] Per-trip 4-char boarding code; POST /bookings/walk-up + GET lookup; rider "Board" quick action + code screen; driver manage card shows the code {code, dropoff}; prepaid; same span pool; driver timeline shows walk-ups; rider "Board with code" entry
 
 ## Phase O — offer protocol v2 (Q7) + driver eligibility (Q9)
-- [ ] DispatchOffer identity (offerId), ACK, discardAfter, minimumViewMs, expiringSoonMs, accept carries offerId + GPS, stale → 409 OFFER_INVALID
+- [x] offerId per offer (cascade state), discardAfter/minimumViewMs/expiringSoonMs in payload, accept carries offerId + GPS, stale → 409 OFFER_INVALID (driver app sends both). ACK endpoint not built (delivery already tracked by socket count + FCM)
 - [x] Auto-pause after 3 consecutive missed offers → requestsPaused + push with the reason; reset on accept/pass; resume = existing Pause Requests switch
-- [ ] Offer card text/sections from server (Q8)
+- [x] Offer card text from server (Q8): payload.card {title, subtitle, acceptLabel, passLabel}; app rendering of it = Phase B card pass
 
 ## Phase P — rider live sync floor (Q6)
 - [ ] Versioned snapshot polling 2 s searching / 5 s riding / 4 s otherwise, served from Redis snapshot
