@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
+import Animated, { FadeIn, FadeOut, ReduceMotion } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { tripsApi } from '@eyego/api';
@@ -46,12 +47,13 @@ export function SharedBusSuggestion({ origin, destination, colors, onTakeSeat }:
   const when = mins != null ? `passing you in ${mins} min` : best.isRunning ? 'on the road now' : 'leaving soon';
 
   return (
+    <Animated.View entering={FadeIn.duration(300).reduceMotion(ReduceMotion.System)} exiting={FadeOut.duration(200)}>
     <Pressable
       testID="shared-bus-suggestion"
       accessibilityRole="button"
       accessibilityLabel={`Shared bus ${when}. Take a seat${fare != null ? ` for ${formatGhs(fare)}` : ''}`}
       onPress={onTakeSeat}
-      style={({ pressed }) => [styles.card, { backgroundColor: colors.surfaceCard, borderColor: colors.primary, opacity: pressed ? 0.88 : 1 }]}
+      style={({ pressed }) => [styles.card, { backgroundColor: colors.surfaceCard, borderColor: colors.outlineVariant, opacity: pressed ? 0.88 : 1 }]}
     >
       <Ionicons name="people" size={22} color={colors.primary} />
       <View style={styles.text}>
@@ -62,11 +64,12 @@ export function SharedBusSuggestion({ origin, destination, colors, onTakeSeat }:
       </View>
       {fare != null && <Text style={[styles.price, { color: colors.onSurface }]}>{formatGhs(fare)}</Text>}
     </Pressable>
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
-  card: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderRadius: 16, borderWidth: 2, padding: spacing.md, marginBottom: spacing.sm },
+  card: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderRadius: 16, borderWidth: 1, padding: spacing.md, marginBottom: spacing.sm },
   text: { flex: 1, gap: 2 },
   title: { fontFamily: fonts.semiBold, fontSize: 14 },
   sub: { fontFamily: fonts.regular, fontSize: 12 },

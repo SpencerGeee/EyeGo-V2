@@ -67,6 +67,21 @@ import { BoardedCelebration } from '../components/BoardedCelebration';
 const STAGE_TRANSITION_CFG = springs.morph;
 
 /**
+ * THE TRANSITION MATRIX (spec v2 §7, read off Yango's named state-pair
+ * transitions). One named spring per rider-phase pair; anything unnamed keeps
+ * the fade-through on STAGE_TRANSITION_CFG. "Bus found" is the ONE swap allowed
+ * to overshoot — it is good news and should land like it; everything else is
+ * critically damped.
+ */
+type StageSpring = { stiffness: number; damping: number; mass: number };
+const STAGE_TRANSITIONS: Partial<Record<string, StageSpring>> = {
+  'request>assigned': springs.accent, // bus found: the one overshoot
+  'select>request': springs.standard, // seat booked → finding: quick
+  'assigned>tracking': springs.standard, // on board: no fuss
+};
+const transitionFor = (from: TripStage, to: TripStage): StageSpring => STAGE_TRANSITIONS[`${from}>${to}`] ?? STAGE_TRANSITION_CFG;
+
+/**
  * WHICH STAGE SWAPS ARE THE SAME PANEL, AND WHICH ARE DIFFERENT PAGES.
  *
  * Every swap used to be one uniform cross-dissolve: both stages at ~50 %
@@ -726,9 +741,10 @@ export default function TripScreen() {
 
   useEffect(() => {
     if (stage === renderedRef.current.current) return;
-    setRendered({ current: stage, previous: renderedRef.current.current });
+    const from = renderedRef.current.current;
+    setRendered({ current: stage, previous: from });
     progress.value = 0;
-    progress.value = withSpring(1, STAGE_TRANSITION_CFG, (finished?: boolean) => {
+    progress.value = withSpring(1, transitionFor(from, stage), (finished?: boolean) => {
       'worklet';
       if (finished) runOnJS(setRendered)({ current: stage, previous: null });
     });
@@ -820,11 +836,12 @@ export default function TripScreen() {
     rendered.previous != null && TRIP_STAGE_ORDER.indexOf(rendered.current) < TRIP_STAGE_ORDER.indexOf(rendered.previous) ? -1 : 1;
 
   const incomingStyle = useAnimatedStyle(() => {
-    if (depthOn) return depthIncoming(progress.value, depthDir);
+    // Clamped for opacity and the 3D turn; only the rise may overshoot (bus found).
+    if (depthOn) return depthIncoming(Math.min(progress.value, 1), depthDir);
     if (!isContainerTransform) {
       // Paged: rises the last 16 pt as it fades in.
       return {
-        opacity: progress.value,
+        opacity: Math.min(progress.value, 1),
         transform: [{ translateY: (1 - progress.value) * 16 }],
       };
     }
@@ -837,7 +854,7 @@ export default function TripScreen() {
   }, [isContainerTransform, depthOn, depthDir]);
 
   const outgoingStyle = useAnimatedStyle(() => {
-    if (depthOn) return depthOutgoing(progress.value, depthDir);
+    if (depthOn) return depthOutgoing(Math.min(progress.value, 1), depthDir);
     if (!isContainerTransform) {
       return {
         opacity: 1 - progress.value,

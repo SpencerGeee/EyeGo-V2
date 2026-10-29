@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated, { FadeIn, useAnimatedStyle, useDerivedValue, withTiming } from 'react-native-reanimated';
+import Animated, { FadeIn, LinearTransition, useAnimatedStyle, useDerivedValue, withTiming } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { SharedBusSuggestion } from '../SharedBusSuggestion';
@@ -595,6 +595,9 @@ function ConfigureStageImpl() {
                   }}
                 />
               )}
+              {/* REVEAL (spec §7): when the shared suggestion arrives, the list slides
+                  down under it in the same 300 ms it fades in — never a jump. */}
+              <Animated.View layout={LinearTransition.duration(300)}>
               <RidePicker
                 options={TIER_ORDER.map((id): RideOption => {
                   const km = nearestKm[id];
@@ -616,6 +619,7 @@ function ConfigureStageImpl() {
                 quoting={quoting}
                 nearbyKnown={nearbyKnown}
               />
+              </Animated.View>
             </Cascade></Animated.View>
           )}
 

@@ -43,7 +43,7 @@ Verify gate per phase: `node node_modules/typescript/lib/tsc.js -p apps/rider|dr
 ## Phase B — first screen + Card/Motion Spec v2 (items 8, G2, G3, G5)
 - [x] Home: Book a seat / Whole bus / Private bus → trip.tsx `product` (seat → bus list with auto-search; bus → group flow, full party; ride → configure)
 - [x] Flat card system per spec §7: RidePicker = Uber/Bolt product list (76 dp flat rows, 2 dp brand outline + tinted fill on the chosen row, 1 dp hairline otherwise, fixed order, price right); glass fills in Search/Request/Assigned/Tracking stages → flat surfaceCard; glow rings on the review ticket + request info card → hairline cards
-- [ ] Transition matrix (named per rider-phase pair) + height+opacity reveal
+- [x] Transition matrix: STAGE_TRANSITIONS names a spring per stage pair (request>assigned = the one overshoot, "bus found"; select>request + assigned>tracking quick); unnamed = fade-through. Reveal: shared-bus card fades in 300 ms while the list below slides via LinearTransition (no pop). Inline COMPACT→DETAILS ride-card expansion NOT built
 - [x] Tier pick: in-place bus turn (G2) — HeroBusSlot turns one ease-out revolution on spinKey (tier) change; gated on SYSTEM reduce-motion only (the depth probe had been silently disabling it on slow phones)
 - [x] Splash: one shared BrandIntro (packages/ui, Reanimated + SVG, NO Skia — rider dropped its Skia Grain), driver gets the wordmark+streak in blue with DRIVER label; native splash hidden on first layout; backgrounds match each native splash colour
 - [x] Driver offer countdown as rounded bar: 6 dp pill inset along the top, replacing the grabber on the offer sheet (ring kept for exact seconds)
