@@ -1,3 +1,15 @@
+# State — 2026-10-29 (client meeting full build — IN PROGRESS; tracker = docs/superpowers/plans/2026-10-29-BUILD-TRACKER.md)
+
+Specs: review-pack + client-meeting-gaps (docs/superpowers/plans/2026-10-29-*), visual teardown §7 (Motion & Card Spec v2).
+Decisions: D1–D8, G1–G5 (MIN 6 seats), Q6 polling floor yes, Q7 offer v2 yes, Q8 server text/native layout, Q9 auto-pause after 3, Q10 walk-up yes.
+Commits (local, NOT pushed): 286ee70 phase 0 · a44e56c phase A1 (segment seats, bookSeat running, corridors, seatFareData) ·
+ a031a95 phase A2 (search running buses, no-show grace, seat-passing push, walk-up API) · 5014bd6 home product picker + walk-up UI.
+Verified each step: API jest 239/239 · invariants 5/5 · tsc rider/driver 0.
+USER MUST: stop the local API, `npx prisma generate`, `npx prisma migrate deploy` (20261029120000_client_meeting_build).
+NEXT (tracker order): Phase O offer v2 + auto-pause · P polling floor · B rest (flat cards, transition matrix, tier turn, splash,
+ countdown bar) · C shared/private · D charter return + N-seat driver row · E seat map out · F repeat run, PulseSchedule
+ materialiser, admin demand + corridor CRUD. A7 deferred. Nothing device-tested.
+
 # State — 2026-10-22 (12-item pass: onboarding/auth, cards, morph reset, 3D maps, seat page)
 
 Grilled decisions: D1 morph = strip to 2 rules (delete HeroBus flights, depth turns, Cascade, StageSweep;
