@@ -61,7 +61,7 @@ Verify gate per phase: `node node_modules/typescript/lib/tsc.js -p apps/rider|dr
 - [x] ride/[id] → seats stepper → drop-off → payment; Cabin3D out of the path; client stops sending seatNumber (invariant added)
 
 ## Phase F — supply + admin (item 9)
-- [ ] Driver "Repeat last run"
+- [x] Driver "Repeat last run": last publish (both ends, seats, tier) stored locally; one tap fills it and jumps to the time step
 - [x] PulseSchedule materialiser (B4): PulseSchedule.driverId (migration 20261029130000), 5-min leased sweep publishes departures ≤3 h ahead via createTrip, dedup on (scheduleId, departure); "MON,TUE" day parser fixes the rider list that filtered every schedule out; admin shows Publishes + real Trips spawned. Admin has no schedule CREATE form (never had) — API accepts driverId
 - [x] DemandSignal (searches with 0 results) + admin /demand (unmet cells × hour-of-week, busiest boarding stops, corridor usage) + corridor create/toggle (OPS, audited)
 

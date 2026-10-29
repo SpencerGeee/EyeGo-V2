@@ -28,7 +28,7 @@ import { StepIndicator } from '../../components/StepIndicator';
 import { haversineKm } from '../../utils/haversine';
 import { consumePickedPlace } from '../../utils/placePickerResult';
 import type { GeocodeResult } from '../../utils/geocoding';
-import { getRecentDestinations, rememberDestination } from '../../utils/recentDestinations';
+import { getRecentDestinations, rememberDestination, getLastRun, rememberLastRun, type LastRun } from '../../utils/recentDestinations';
 import { fetchRoute, type RouteResult } from '../../utils/routing';
 
 const MAX_STEPS = 4;
@@ -135,11 +135,23 @@ export default function CreateTripScreen() {
    * publish, and this screen unmounts at that point.
    */
   const [recentDestinations, setRecentDestinations] = useState<GeocodeResult[]>([]);
+  const [lastRun, setLastRun] = useState<LastRun | null>(null);
   useEffect(() => {
     let cancelled = false;
     getRecentDestinations().then((list) => { if (!cancelled) setRecentDestinations(list); });
+    getLastRun().then((run) => { if (!cancelled) setLastRun(run); });
     return () => { cancelled = true; };
   }, []);
+  /** One tap: both ends, seats and tier from the last publish; only the time is asked. */
+  const repeatLastRun = () => {
+    if (!lastRun) return;
+    setOrigin(lastRun.origin);
+    setDestination(lastRun.destination);
+    setSeats(lastRun.seats);
+    setTier(lastRun.tier);
+    setStepDir(1);
+    setStep(2);
+  };
 
   const openLocationPicker = useCallback((field: 'origin' | 'destination') => {
     pickingFieldRef.current = field;
@@ -319,6 +331,7 @@ export default function CreateTripScreen() {
       // routes this driver actually ran, not places they browsed and backed out
       // of. Fire-and-forget — a failed write costs a shortcut, never a trip.
       void rememberDestination(destination);
+      if (origin && destination) void rememberLastRun({ origin, destination, seats, tier });
       setActiveTripId(tripId);
       // Without this, the Trips tab's ['driver','trips','all'] cache from
       // before publishing could still be showing when the driver navigates
@@ -428,6 +441,24 @@ export default function CreateTripScreen() {
               </View>
               <Ionicons name="map-outline" size={18} color={colors.primary} />
             </Pressable>
+
+            {!destination && lastRun && (
+              <Pressable
+                style={[styles.recentRow, styles.repeatRow, { borderColor: colors.primary }]}
+                onPress={repeatLastRun}
+                accessibilityRole="button"
+                accessibilityLabel={`Repeat last run, ${lastRun.origin.name} to ${lastRun.destination.name}`}
+              >
+                <Ionicons name="repeat" size={18} color={colors.primary} />
+                <View style={{ flex: 1 }}>
+                  <Text variant="bodyMedium" numberOfLines={1}>Repeat last run</Text>
+                  <Text variant="caption" color={colors.onSurfaceVariant} numberOfLines={1}>
+                    {lastRun.origin.name} → {lastRun.destination.name} · {lastRun.seats} seats
+                  </Text>
+                </View>
+                <Ionicons name="arrow-forward" size={15} color={colors.primary} />
+              </Pressable>
+            )}
 
             {/* RECENT DESTINATIONS — the shortcut this screen was missing.
                 Drivers republish the same handful of routes, and the only way
@@ -1077,6 +1108,7 @@ const makeStyles = (colors: DriverColors) =>
     // Recent destinations — see utils/recentDestinations.ts.
     recentBlock: { marginTop: spacing.lg, gap: spacing.xs },
     recentLabel: { letterSpacing: 0.6, marginBottom: spacing.xs },
+    repeatRow: { borderWidth: 2, borderRadius: radii.xl, marginBottom: spacing.sm },
     recentRow: {
       flexDirection: 'row',
       alignItems: 'center',

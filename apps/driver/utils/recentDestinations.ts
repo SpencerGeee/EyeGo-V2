@@ -69,3 +69,33 @@ export async function rememberDestination(place: GeocodeResult | null): Promise<
     // time. It is never worth failing a publish over.
   }
 }
+
+/**
+ * "REPEAT LAST RUN" (client 2026-10-29). A trotro driver runs the same corridor
+ * all day: the whole last publish — both ends, seats, tier — is one tap, and
+ * only the departure time is asked again. Local for the same reasons as above.
+ */
+const LAST_RUN_KEY = 'eyego_driver_last_run';
+export type LastRun = { origin: GeocodeResult; destination: GeocodeResult; seats: number; tier: 'ECONOMY' | 'COMFORT' | 'PREMIUM' };
+
+const isPlace = (p: any): p is GeocodeResult =>
+  !!p && typeof p.name === 'string' && Number.isFinite(p.latitude) && Number.isFinite(p.longitude);
+
+export async function getLastRun(): Promise<LastRun | null> {
+  try {
+    const run = JSON.parse((await AsyncStorage.getItem(LAST_RUN_KEY)) ?? 'null');
+    if (!run || !isPlace(run.origin) || !isPlace(run.destination) || !Number.isInteger(run.seats)) return null;
+    if (!['ECONOMY', 'COMFORT', 'PREMIUM'].includes(run.tier)) return null;
+    return run as LastRun;
+  } catch {
+    return null;
+  }
+}
+
+export async function rememberLastRun(run: LastRun): Promise<void> {
+  try {
+    await AsyncStorage.setItem(LAST_RUN_KEY, JSON.stringify(run));
+  } catch {
+    // Same as rememberDestination: never worth failing a publish over.
+  }
+}
