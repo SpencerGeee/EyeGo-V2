@@ -11,18 +11,18 @@ Verify gate per phase: `node node_modules/typescript/lib/tsc.js -p apps/rider|dr
 `cd eyego-api && npx jest` · static e2e. One commit per phase. NO push without the user.
 
 ## Phase 0 — confirmed bugs + bus-only
-- [ ] 0.1 B1 mid-ride offers: `eta.etaMinutes` → `etaSeconds` (+ invariant: eta.* calls name real exports)
-- [ ] 0.2 B2 matcher filters `seaterCount >= party`
-- [ ] 0.3 Android Skia background sized from container layout (LightPillar + AppBackground blobs)
-- [ ] 0.4 Bus-only: MIN_VEHICLE_SEATS = 6 (API validation + driver onboarding), reviewer fixture 14 seats, saloon/van cabin layouts removed
-- [ ] 0.5 Private ride priced as whole vehicle × `PRIVATE_RIDE_MULTIPLIER` (setting, default 1.2); `RIDE_INCLUDED_SEATS` saloon model retired
+- [x] 0.1 B1 mid-ride offers: `eta.etaMinutes` → `etaSeconds` (+ invariant: eta.* calls name real exports)
+- [x] 0.2 B2 matcher filters `seaterCount >= party`
+- [x] 0.3 Android Skia background sized from container layout (LightPillar + AppBackground blobs)
+- [x] 0.4 Bus-only: MIN_VEHICLE_SEATS = 6 (API validation + driver onboarding), reviewer fixture 14 seats, saloon/van cabin layouts removed — DONE 286ee70 (cabin layouts go with Phase E)
+- [x] 0.5 Private ride priced as whole vehicle × `PRIVATE_RIDE_MULTIPLIER` (setting, default 1.2); `RIDE_INCLUDED_SEATS` saloon model retired
 
 ## Phase A — join a moving bus (items 1, 6, 7)
-- [ ] A1 `utils/segment-seats.js` + jest
-- [ ] A2 Booking.boardRatio/alightRatio/stopArrivedAt + migration; priceSeat returns ratios; bookSeat writes them
-- [ ] A2b Corridor model + Trip.corridorId/corridorSeatPricePesewas; `fullSeatFarePesewas()` single reader; createTrip pins
-- [ ] A3 `services/trip-position.service.js` busRatioFor + jest
-- [ ] A4 bookSeat: running trips, span capacity, BUS_PASSED_STOP, mid-route prepaid, ETA-bounded hold, seatNumber optional
+- [x] A1 `utils/segment-seats.js` + jest
+- [x] A2 Booking.boardRatio/alightRatio/stopArrivedAt + migration; priceSeat returns ratios; bookSeat writes them
+- [x] A2b Corridor model + Trip.corridorId/corridorSeatPricePesewas; `fullSeatFarePesewas()` single reader; createTrip pins
+- [x] A3 `services/trip-position.service.js` busRatioFor + jest
+- [x] A4 bookSeat: running trips, span capacity, BUS_PASSED_STOP, mid-route prepaid, ETA-bounded hold, seatNumber optional
 - [ ] A5 searchTrips: running trips, polyline+direction, span seats, ETA, segment fare; rider rows "Passing your stop in N min · K seats · ₵X"
 - [ ] A6 POST /driver/trips/:id/stops/arrive + riderNoShow grace (NO_SHOW_GRACE_MINUTES=3) + resale
 - [ ] A7 driver stop timeline progress by ratio (busRatio on snapshot)

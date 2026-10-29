@@ -4,7 +4,7 @@ const { formatGhs, percentOf, assertPesewas } = require('../../utils/money');
 
 const prisma = require('../../config/database');
 const env = require('../../config/env');
-const { calculateFare, estimateFare, haversineKm, normalizeTier, pinnedRatesFor, commissionRateFor } = require('./fare.calculator');
+const { calculateFare, estimateFare, haversineKm, normalizeTier, pinnedRatesFor, commissionRateFor, seatFareData } = require('./fare.calculator');
 const { availableDriverWhere } = require('../../services/driver-availability');
 const { NotFoundError, ConflictError, ForbiddenError, AppError } = require('../../utils/errors');
 const { v4: uuidv4 } = require('uuid');
@@ -241,12 +241,20 @@ async function createTrip(driverId, data) {
       });
     }
 
+    // Pinned at publish (D5): an operator editing the corridor later never
+    // reprices a bus already selling seats — same rule as the rest of the lock.
+    const corridor = await require('../../services/corridor.service').corridorFor(tx, route);
+
     return tx.trip.create({
       data: {
         driverId,
         vehicleId: vehicle.id,
         routeId: route.id,
         tier: normalizedTier,
+        product: 'SEAT',
+        corridorId: corridor?.id ?? null,
+        corridorSeatPricePesewas: corridor?.seatPricePesewas ?? null,
+        boardingCode: require('../../utils/boarding-code').newBoardingCode(),
         departureTime: new Date(departureTime),
         doorstepPickup: doorstepPickup || false,
         pickupLat, pickupLng, pickupAddress,
@@ -298,16 +306,7 @@ async function createTrip(driverId, data) {
   // same per-seat price the rider will see — no waiting for the next refetch.
   // Always use maxSeats as the denominator: that is the capacity the driver
   // chose for this trip and must match what riders see on the listing.
-  const fareInfo = estimateFare({
-    tier: trip.tier,
-    distanceKm: trip.route?.distanceKm ?? 0,
-    doorstepPickup: trip.doorstepPickup,
-    heavyLoad: trip.heavyLoad,
-    surgeMultiplier: trip.surgeMultiplier,
-    // The WHOLE price lock, fees included — see pinnedRatesFor.
-    ...pinnedRatesFor(trip),
-    availableSeats: trip.maxSeats,
-  });
+  const fareInfo = seatFareData(trip);
   trip.farePerSeatPesewas = fareInfo.farePerPersonPesewas;
   trip.totalTripCostPesewas = fareInfo.totalTripCostPesewas;
 
@@ -423,16 +422,7 @@ async function getTrip(id, viewerUserId = null) {
   if (trip.route) {
     // Divide by maxSeats — the fixed capacity the driver chose for this trip.
     // This keeps farePerSeatPesewas stable and identical to what the listing showed.
-    const fareInfo = calculateFare({
-      tier: trip.tier,
-      distanceKm: trip.route.distanceKm,
-      seatCount: trip.maxSeats,
-      doorstepPickup: trip.doorstepPickup,
-      heavyLoad: trip.heavyLoad,
-      surgeMultiplier: trip.surgeMultiplier,
-      // The WHOLE price lock, fees included — see pinnedRatesFor.
-      ...pinnedRatesFor(trip),
-    });
+    const fareInfo = seatFareData(trip);
     trip.farePerSeatPesewas = fareInfo.farePerPersonPesewas;
     trip.fare = fareInfo.farePerPersonPesewas; // kept for backwards-compat with older clients
     // Full trip cost — what a rider pays when they choose "I'm paying for everyone".
@@ -551,16 +541,7 @@ async function getTripByShareToken(shareToken) {
     throw new AppError('This invite link has expired', 410, 'INVITE_EXPIRED');
   }
 
-  const fare = estimateFare({
-    tier: group.trip.tier,
-    distanceKm: group.trip.route.distanceKm,
-    doorstepPickup: group.trip.doorstepPickup,
-    heavyLoad: group.trip.heavyLoad,
-    surgeMultiplier: group.trip.surgeMultiplier,
-    // The WHOLE price lock, fees included — see pinnedRatesFor.
-    ...pinnedRatesFor(group.trip),
-    availableSeats: group.trip.maxSeats,
-  });
+  const fare = seatFareData(group.trip);
 
   // Flatten so the rider's group hub can read `trip.fare` / `trip.totalTripCostPesewas`
   // the same way every other rider screen does — single source of truth.
@@ -839,16 +820,7 @@ async function searchTrips(query) {
   trips.forEach(trip => {
     // Always use maxSeats as the denominator so the listed price matches exactly
     // what a rider is charged when they book — eliminating the home/payment mismatch.
-    const fareInfo = estimateFare({
-      tier: trip.tier,
-      distanceKm: trip.route.distanceKm,
-      doorstepPickup: trip.doorstepPickup,
-      heavyLoad: trip.heavyLoad,
-      surgeMultiplier: trip.surgeMultiplier,
-      // The WHOLE price lock, fees included — see pinnedRatesFor.
-      ...pinnedRatesFor(trip),
-      availableSeats: trip.maxSeats,
-    });
+    const fareInfo = seatFareData(trip);
     trip.farePerSeatPesewas = fareInfo.farePerPersonPesewas;
     trip.fare = fareInfo.farePerPersonPesewas; // backwards-compat
     trip.totalTripCostPesewas = fareInfo.totalTripCostPesewas;
@@ -1829,6 +1801,7 @@ async function getScheduledRides(userId) {
           bookingFeeRate: true,
           platformFeePesewas: true,
           commissionRate: true,
+          corridorSeatPricePesewas: true,
           surgeMultiplier: true,
           doorstepPickup: true,
           heavyLoad: true,
@@ -1843,16 +1816,7 @@ async function getScheduledRides(userId) {
       })
     : [];
   const tripById = new Map(matchedTrips.map((t) => {
-    const fare = calculateFare({
-      tier: t.tier,
-      distanceKm: t.route?.distanceKm ?? 0,
-      seatCount: t.maxSeats,
-      doorstepPickup: t.doorstepPickup,
-      heavyLoad: t.heavyLoad,
-      surgeMultiplier: t.surgeMultiplier,
-      // The WHOLE price lock, fees included — see pinnedRatesFor.
-      ...pinnedRatesFor(t),
-    });
+    const fare = seatFareData(t);
     const vehicle = t.driver?.vehicles?.[0];
     return [t.id, {
       tier: t.tier,
@@ -2019,14 +1983,7 @@ async function processScheduledRideIntents() {
             for (let n = 1; n <= candidateTrip.maxSeats && free.length < intent.seatCount; n += 1) if (!taken.has(n)) free.push(n);
             if (free.length < intent.seatCount) throw new TripFull(); // roll the claim back; live dispatch below
 
-            const fare = calculateFare({
-              tier: candidateTrip.tier,
-              distanceKm: intent.route.distanceKm,
-              seatCount: candidateTrip.maxSeats,
-              // The WHOLE price lock, fees included — see pinnedRatesFor.
-              ...pinnedRatesFor(candidateTrip),
-              surgeMultiplier: candidateTrip.surgeMultiplier,
-            });
+            const fare = seatFareData({ ...candidateTrip, route: intent.route });
             for (const seatNumber of free) {
               await tx.booking.create({
                 data: {

@@ -744,7 +744,47 @@ function commissionRateFor(trip) {
   return trip?.commissionRate != null ? trip.commissionRate : cfg('PLATFORM_COMMISSION');
 }
 
+/**
+ * ── ONE SEAT, FULL ROUTE: THE ONLY READER ───────────────────────────────────
+ *
+ * What one seat over the whole route of this bus trip costs, in the same shape
+ * as `calculateFare` so callers keep reading `farePerPersonPesewas`.
+ *
+ * A trip pinned to an operator corridor at publish (client 2026-10-29, D5:
+ * "Kasoa → Shiashie is ₵28") charges that price — every bus on the corridor
+ * costs the same regardless of its seat count or tier, and a rider boarding
+ * mid-route pays the ratio of it (callers apply the segment). Otherwise the
+ * computed fare stands: vehicle fare ÷ maxSeats.
+ *
+ * Every seat-price surface (priceSeat, searchTrips, cover-all) reads this, or a
+ * corridor bus shows one price and charges another — see the invariant.
+ */
+function seatFareData(trip) {
+  const computed = calculateFare({
+    tier: trip.tier,
+    distanceKm: trip.route?.distanceKm ?? 0,
+    seatCount: trip.maxSeats,
+    doorstepPickup: trip.doorstepPickup,
+    heavyLoad: trip.heavyLoad,
+    surgeMultiplier: trip.surgeMultiplier,
+    // The WHOLE price lock, fees included — see pinnedRatesFor.
+    ...pinnedRatesFor(trip),
+  });
+  const pinned = trip.corridorSeatPricePesewas;
+  if (!Number.isInteger(pinned) || pinned <= 0) return computed;
+  const commission = percentOf(pinned, commissionRateFor(trip));
+  return {
+    ...computed,
+    farePerPersonPesewas: pinned,
+    commissionPerSeatPesewas: commission,
+    driverEarningsPerSeatPesewas: pinned - commission,
+    totalTripCostPesewas: pinned * (trip.maxSeats ?? 1),
+    corridorPriced: true,
+  };
+}
+
 module.exports = {
+  seatFareData,
   waitFeeFor,
   routeChangeDelta,
   calculateSegmentFareByRatio,

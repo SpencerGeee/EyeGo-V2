@@ -576,6 +576,19 @@ model Trip {
   pulseScheduleId String?
   pulseSchedule   PulseSchedule? @relation(fields: [pulseScheduleId], references: [id])
 
+  /// Operator-fixed corridor seat price, PINNED at publish (client 2026-10-29, D5).
+  /// When set it IS the full-route seat price; read only via fare.calculator
+  /// `fullSeatFarePesewas`. An admin edit to the corridor never reprices this trip.
+  corridorId               String?
+  corridor                 Corridor? @relation(fields: [corridorId], references: [id])
+  corridorSeatPricePesewas Int?
+  /// Walk-up boarding (Q10): a short per-trip code shown on/inside the bus. A rider
+  /// at a stop enters it to buy a seat for their stretch. Rotated per trip.
+  boardingCode             String?
+  /// What the rider bought: SEAT (shared bus) · PRIVATE (whole bus on demand) ·
+  /// CHARTER (whole bus, party = capacity) · null on legacy rows.
+  product                  String?
+
   @@index([status])
   @@index([departureTime])
   @@index([driverId])
@@ -787,6 +800,16 @@ model Booking {
   // calculateDeviationSurcharge(). Zero for anyone boarding at the trip's
   // main pickup.
   deviationSurchargePesewas Int      @default(0)
+  /// The passenger's stretch of the route, 0 = origin, 1 = destination (Phase A).
+  /// Null = the trip's own end. Seat capacity on a bus is decided over these
+  /// spans by utils/segment-seats.js — never by counting rows against maxSeats.
+  boardRatio                Float?
+  alightRatio               Float?
+  /// When the driver marked the bus at this passenger's stop. The no-show grace
+  /// (NO_SHOW_GRACE_MINUTES) starts here; a no-show before it is refused.
+  stopArrivedAt             DateTime?
+  /// Bought at the stop with the bus's boarding code (Q10), not booked ahead.
+  walkUp                    Boolean  @default(false)
   /// Waiting at the pickup past the free minutes (hailed only). Included in fareAmountPesewas.
   waitFeePesewas            Int      @default(0)
   /// Cash actually handed over; what exceeded the fare went to the rider's wallet.
@@ -1035,6 +1058,44 @@ model ScheduledRideIntent {
 // ─────────────────────────────────────────
 // PULSE SCHEDULES
 // ─────────────────────────────────────────
+
+/// An operator-priced bus corridor (client 2026-10-29, D5), e.g. Kasoa → Shiashie
+/// at ₵28 a seat. A published trip whose two ends sit within `radiusKm` of the
+/// corridor's ends, in the same direction, is pinned to it at publish.
+model Corridor {
+  id               String   @id @default(cuid())
+  name             String
+  originLat        Float
+  originLng        Float
+  destLat          Float
+  destLng          Float
+  radiusKm         Float    @default(2)
+  seatPricePesewas Int
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  trips            Trip[]
+
+  @@index([isActive])
+}
+
+/// Unmet demand (client item 9): a rider searched for a bus and nothing covered
+/// the journey. Written fire-and-forget after the response; read by the admin
+/// demand view, grouped by place and hour of week.
+model DemandSignal {
+  id         String   @id @default(cuid())
+  kind       String   // SEARCH_EMPTY · NO_SHARED_BUS · ALERT
+  originLat  Float
+  originLng  Float
+  destLat    Float?
+  destLng    Float?
+  hourOfWeek Int      // 0..167, Monday 00:00 = 0, Africa/Accra (UTC+0)
+  userId     String?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([hourOfWeek])
+}
 
 model PulseSchedule {
   id            String   @id @default(cuid())

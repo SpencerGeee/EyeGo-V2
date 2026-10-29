@@ -2,7 +2,7 @@
 
 const prisma = require('../../config/database');
 const env = require('../../config/env');
-const { calculateFare, calculateSegmentFare, calculateSegmentFareByRatio, detourKm, calculateDeviationSurcharge, pinnedRatesFor, commissionRateFor } = require('../trips/fare.calculator');
+const { calculateFare, calculateSegmentFare, calculateSegmentFareByRatio, detourKm, calculateDeviationSurcharge, pinnedRatesFor, commissionRateFor, seatFareData } = require('../trips/fare.calculator');
 const { SeatTakenError, NotFoundError, AppError, ForbiddenError } = require('../../utils/errors');
 const tripState = require('../../services/trip-state.service');
 const { seatOccupyingWhere, SEAT_RELEASING_STATUSES, sumSeats, riderCannotCancel } = require('../../utils/booking-status');
@@ -21,7 +21,10 @@ const crypto = require('crypto');
 // Read per booking: a module-level constant froze the boot value, so after an
 // admin change the hold the server stamped and the countdown /config/public
 // told the app disagreed.
-const seatHoldMs = () => (require('../../config/settings').get('SEAT_HOLD_DURATION_MINUTES') ?? env.SEAT_HOLD_DURATION_MINUTES) * 60 * 1000;
+const settings = () => require('../../config/settings');
+const seatHoldMs = () => (settings().get('SEAT_HOLD_DURATION_MINUTES') ?? env.SEAT_HOLD_DURATION_MINUTES) * 60 * 1000;
+const { freeSeatsOnSpan, isJoinableSpan } = require('../../utils/segment-seats');
+const { busRatioFor, routeLengthM } = require('../../services/trip-position.service');
 
 // Map the rider-facing method to a value we persist on the booking.
 // MoMo defaults to the MTN provider key Paystack expects; the rider can still
@@ -110,16 +113,7 @@ async function recomputeBookingAddons(bookingId, userId, { pickupLat, pickupLng,
           'TRIP_ROUTE_MISSING',
         );
       }
-      const baseFareData = calculateFare({
-        tier: trip.tier,
-        distanceKm: trip.route.distanceKm,
-        seatCount: trip.maxSeats,
-        doorstepPickup: trip.doorstepPickup,
-        heavyLoad: trip.heavyLoad,
-        surgeMultiplier: trip.surgeMultiplier,
-        // The WHOLE price lock, fees included — see pinnedRatesFor.
-        ...pinnedRatesFor(trip),
-      });
+      const baseFareData = seatFareData(trip);
       // Preserve any existing en-route-boarding discount ratio this booking already had.
       const baseFarePerPerson = booking.enRouteRatio != null
         ? Math.round(baseFareData.farePerPersonPesewas * booking.enRouteRatio)
@@ -245,7 +239,34 @@ function resolveDropoff(trip, routeLine, dropoff, board) {
     throw new AppError('Your drop-off must come after your pickup', 400, 'INVALID_STOP_ORDER');
   }
   const ratio = proj.totalM > 0 ? Math.min(1, ridden / proj.totalM) : 1;
-  return { lat: proj.point.lat, lng: proj.point.lng, address: dropoff.address ?? null, ratio };
+  // The passenger's stretch on the same ruler (Phase A, utils/segment-seats).
+  const boardRatio = proj.totalM > 0 ? alongBoard / proj.totalM : 0;
+  const alightRatio = proj.totalM > 0 ? Math.min(1, proj.alongM / proj.totalM) : 1;
+  return { lat: proj.point.lat, lng: proj.point.lng, address: dropoff.address ?? null, ratio, boardRatio, alightRatio };
+}
+
+/**
+ * Where on the road two stops (absent = the trip's own end) sit, as 0..1
+ * ratios — the passenger's stretch for seat capacity. Null when either stop is
+ * too far off the line to place honestly, or there is no road: the caller then
+ * stores no span, which counts as the whole route (never oversells).
+ */
+function stopSpan(routeLine, board, alight) {
+  if (!routeLine) return null;
+  const { projectOntoPolyline } = require('../../utils/geo');
+  const at = (stop) => {
+    if (!stop) return null;
+    const p = projectOntoPolyline(stop.lat, stop.lng, routeLine);
+    return p && p.distanceM <= DROPOFF_MAX_OFF_ROUTE_M ? p : undefined;
+  };
+  const b = at(board);
+  const a = at(alight);
+  if (b === undefined || a === undefined) return null;
+  const total = (a ?? b)?.totalM;
+  if (!total) return null;
+  const from = b ? b.alongM / total : 0;
+  const to = a ? Math.min(1, a.alongM / total) : 1;
+  return to > from ? { from, to } : null;
 }
 
 /**
@@ -288,18 +309,9 @@ function alongRouteRatio(routeLine, board, alight) {
  * @param trip  Trip row WITH `route` (incl. active `virtualStops`)
  */
 function priceSeat(trip, { pickupStopId = null, dropoffStopId = null, dropoff = null, joinerPickup = null, routeLine = null } = {}) {
-  // Calculate fare using maxSeats as the denominator — this is the fixed
-  // capacity the driver set for the trip and matches the listing price exactly.
-  const fareData = calculateFare({
-    tier: trip.tier,
-    distanceKm: trip.route.distanceKm,
-    seatCount: trip.maxSeats,
-    doorstepPickup: trip.doorstepPickup,
-    heavyLoad: trip.heavyLoad,
-    surgeMultiplier: trip.surgeMultiplier,
-    // The WHOLE price lock, fees included — see pinnedRatesFor.
-    ...pinnedRatesFor(trip),
-  });
+  // One seat over the whole route — the pinned corridor price when there is
+  // one, else vehicle fare ÷ maxSeats. See fare.calculator `seatFareData`.
+  const fareData = seatFareData(trip);
 
   let finalFareAmount = fareData.farePerPersonPesewas;
   let finalCommission = fareData.commissionPerSeatPesewas;
@@ -307,6 +319,9 @@ function priceSeat(trip, { pickupStopId = null, dropoffStopId = null, dropoff = 
   let resolvedPickupStopId = null;
   let resolvedDropoffStopId = null;
   let resolvedDropoff = null;
+  // The passenger's stretch (Phase A). Null = whole route — the safe default.
+  let boardRatio = null;
+  let alightRatio = null;
 
   const findStop = (id, what) => {
     if (!id) return null;
@@ -328,6 +343,8 @@ function priceSeat(trip, { pickupStopId = null, dropoffStopId = null, dropoff = 
     finalCommission = percentOf(finalFareAmount, commissionRateFor(trip));
     enRouteRatio = segment.ratio;
     resolvedPickupStopId = pickupStopId ?? null;
+    boardRatio = resolvedDropoff.boardRatio;
+    alightRatio = resolvedDropoff.alightRatio;
   } else if (pickupStopId || dropoffStopId) {
     /**
      * ── THE PASSENGER'S SEGMENT, BOTH ENDS ────────────────────────────────
@@ -369,6 +386,11 @@ function priceSeat(trip, { pickupStopId = null, dropoffStopId = null, dropoff = 
     enRouteRatio = segment.ratio;
     resolvedPickupStopId = pickupStopId ?? null;
     resolvedDropoffStopId = dropoffStopId ?? null;
+    const span = stopSpan(routeLine, board, alight);
+    if (span) {
+      boardRatio = span.from;
+      alightRatio = span.to;
+    }
   }
 
   // Group-hub joiner picking their own pickup point — surcharge only the
@@ -388,6 +410,8 @@ function priceSeat(trip, { pickupStopId = null, dropoffStopId = null, dropoff = 
     resolvedDropoffStopId,
     resolvedDropoff,
     deviationSurchargePesewas: addons.deviationSurchargePesewas,
+    boardRatio,
+    alightRatio,
   };
 }
 
@@ -416,11 +440,18 @@ async function previewSeatFare(tripId, { pickupStopId = null, dropoffStopId = nu
   };
 }
 
-async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, paymentMethod = null, guestName = null, guestPhone = null, joinerPickup = null, dropoffStopId = null, dropoff = null) {
-  // The road this trip drives, for a free drop-off pin. Fetched BEFORE the
-  // serializable transaction: it may be a Mapbox round trip, and a network
-  // call inside a Serializable tx is a lock held for the length of the internet.
+/** Booking a moving bus is allowed from these (Phase A). Public group trips only. */
+const JOINABLE_STATUSES = ['SCHEDULED', 'FILLING', 'CONFIRMED', 'DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP', 'IN_PROGRESS'];
+const RUNNING_STATUSES = new Set(['DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP', 'IN_PROGRESS']);
+
+async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, paymentMethod = null, guestName = null, guestPhone = null, joinerPickup = null, dropoffStopId = null, dropoff = null, seatsRequested = 1, { walkUp = false } = {}) {
+  // The road this trip drives — for a drop-off pin, a stop's place on the line,
+  // and where the bus is now. Fetched BEFORE the serializable transaction: it
+  // may be a Mapbox round trip, and a network call inside a Serializable tx is a
+  // lock held for the length of the internet. Only when a stretch was chosen —
+  // and a seat on a moving bus always names one (refused below otherwise).
   const routeLine = dropoff || pickupStopId || dropoffStopId ? await routeLineForTrip(tripId).catch(() => null) : null;
+  const seats = Math.max(1, Number(seatsRequested) || 1);
   // Use $transaction with Serializable isolation to prevent race conditions.
   // This ensures two riders can't book the same seat simultaneously and the
   // capacity check races are eliminated.
@@ -429,16 +460,36 @@ async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, payment
       // Re-read trip INSIDE the serializable transaction so we see the latest state
       const trip = await tx.trip.findUnique({
         where: { id: tripId },
-        include: { route: { include: { virtualStops: { where: { isActive: true } } } } },
+        include: {
+          route: { include: { virtualStops: { where: { isActive: true } } } },
+          driver: { select: { currentLat: true, currentLng: true } },
+        },
       });
       if (!trip) throw new NotFoundError('Trip');
-      if (!['SCHEDULED', 'FILLING'].includes(trip.status)) {
+      /**
+       * A BUS ALREADY ON THE ROAD STILL SELLS SEATS (client 2026-10-29, item 1).
+       *
+       * This refused everything past FILLING, so a seat freed at Kaneshie could
+       * never be sold to someone waiting at Odorkor. Running trips are bookable
+       * now for a stretch still ahead of the bus (checked below). Private
+       * on-demand trips are minted on an INACTIVE route and never take a stranger.
+       */
+      if (!JOINABLE_STATUSES.includes(trip.status) || trip.route?.isActive === false) {
         throw new AppError('This trip is no longer accepting bookings', 400, 'TRIP_UNAVAILABLE');
       }
-      // Seats are 1..maxSeats (the seat map's numbering). Nothing checked it, so
-      // seat 99 on a 14-seat bus was a booking for a seat that does not exist.
-      if (!Number.isInteger(seatNumber) || seatNumber < 1 || seatNumber > trip.maxSeats) {
+      const running = RUNNING_STATUSES.has(trip.status);
+      // Seat picking left the booking path (D1): a seat number is optional, but
+      // when one is sent it must exist — seat 99 on a 14-seater is not a seat.
+      if (seatNumber != null && (!Number.isInteger(seatNumber) || seatNumber < 1 || seatNumber > trip.maxSeats)) {
         throw new AppError('That seat does not exist on this vehicle', 400, 'INVALID_SEAT');
+      }
+      if (seatNumber != null && seats > 1) {
+        throw new AppError('Book several seats without choosing a seat number.', 400, 'INVALID_SEAT');
+      }
+      // Pay first, be there on time (item 6, D8): a moving bus can't wait for a
+      // cash rider to settle at the door, and a no-show must be chargeable.
+      if (running && normalizePaymentMethod(paymentMethod) === 'CASH' && settings().get('MIDROUTE_PREPAY_REQUIRED') !== false) {
+        throw new AppError('This bus is already on the road — pay in the app to hold your seat.', 409, 'PREPAY_REQUIRED');
       }
 
       /**
@@ -586,53 +637,87 @@ async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, payment
         });
       }
 
-      // ── Capacity guard: ensure there's still room ───────────────────────
-      // Counted AFTER the release above, so this is the number of seats held by
-      // everyone other than the passenger currently asking for one.
-      // `seatOccupyingWhere()` rather than "not cancelled": a NO_SHOW, an
-      // EXPIRED hold and a REFUNDED booking all release their seat, and the old
-      // filter counted every one of them as still occupying it. That is how a
-      // trip became permanently unfillable after one no-show.
-      const activeBookingCount = await tx.booking.count({
-        where: { tripId, ...seatOccupyingWhere() },
-      });
-      if (activeBookingCount >= trip.maxSeats) {
-        throw new AppError('This trip is full', 400, 'TRIP_FULL');
-      }
-
-      // Check seat is not already taken by someone else. Same fix: this is what
-      // stopped a specific seat number from ever being re-sold.
-      const existing = await tx.booking.findFirst({
-        where: { tripId, seatNumber, ...seatOccupyingWhere() },
-      });
-      if (existing) throw new SeatTakenError();
-
       /**
        * PRICED BY THE SAME FUNCTION THE PREVIEW USES — see `priceSeat`. The
        * seat page and the payment page show `previewSeatFare`'s answer, and
        * this writes it; the two cannot disagree, which is what "it said 11 and
-       * then charged 3.61" was.
+       * then charged 3.61" was. Priced FIRST now: the price also yields the
+       * passenger's stretch, which is what capacity is measured over.
        */
       const priced = priceSeat(trip, { pickupStopId, dropoffStopId, dropoff, joinerPickup, routeLine });
       const {
         fareData,
-        finalFareAmount,
-        finalCommission,
+        finalFareAmount: perSeatFare,
+        finalCommission: perSeatCommission,
         enRouteRatio,
         resolvedPickupStopId,
         resolvedDropoffStopId,
         deviationSurchargePesewas,
         resolvedDropoff,
       } = priced;
+      // One booking, N seats (D7): one total, one payment, one pass.
+      const finalFareAmount = perSeatFare * seats;
+      const finalCommission = perSeatCommission * seats;
+      const from = priced.boardRatio ?? 0;
+      const to = priced.alightRatio ?? 1;
+
+      // A moving bus only sells stretches still ahead of it, with a margin to
+      // pay and walk out to the road (JOIN_AHEAD_MARGIN_M).
+      if (running) {
+        // Without the road we cannot tell whether the bus has passed the
+        // rider, so we refuse rather than sell a seat behind the bus.
+        if (!routeLine || priced.boardRatio == null) {
+          throw new AppError('Choose the stop where you will board this bus.', 400, 'PICKUP_STOP_REQUIRED');
+        }
+        const busRatio = busRatioFor(trip, routeLine);
+        const lengthM = routeLengthM(routeLine);
+        const marginM = settings().get('JOIN_AHEAD_MARGIN_M') ?? 150;
+        const aheadMargin = lengthM > 0 ? marginM / lengthM : 0;
+        if (!isJoinableSpan({ busRatio, from, to, aheadMargin })) {
+          throw new AppError('This bus has already passed your stop.', 409, 'BUS_PASSED_STOP');
+        }
+      }
+
+      // ── Capacity, over THIS passenger's stretch ─────────────────────────
+      // Counted AFTER the stale-hold release above, so it is seats held by
+      // everyone else. `seatOccupyingWhere()` rather than "not cancelled": a
+      // NO_SHOW, an EXPIRED hold and a REFUNDED booking all release their seat.
+      // Per stretch, not per trip: a seat freed at Kaneshie is sold to Odorkor
+      // (utils/segment-seats — the only place capacity is decided).
+      const occupying = await tx.booking.findMany({
+        where: { tripId, ...seatOccupyingWhere() },
+        select: { boardRatio: true, alightRatio: true, seats: true },
+      });
+      if (freeSeatsOnSpan(occupying, trip.maxSeats, from, to) < seats) {
+        throw new AppError('This trip is full', 400, 'TRIP_FULL');
+      }
+
+      // A chosen seat number must not be held by someone else. Optional now
+      // (D1); the unique key ignores nulls.
+      if (seatNumber != null) {
+        const existing = await tx.booking.findFirst({
+          where: { tripId, seatNumber, ...seatOccupyingWhere() },
+        });
+        if (existing) throw new SeatTakenError();
+      }
 
       const boardingQr = crypto.randomBytes(16).toString('hex');
-      const holdExpiry = new Date(Date.now() + seatHoldMs());
+      // A seat on a moving bus is held briefly: it arrives in minutes, and an
+      // unpaid hold must not block the next stop's riders for ten.
+      // ponytail: flat 4-minute cap; bound it by the bus's ETA to the stop if
+      // holds are seen expiring after the bus has passed.
+      const holdMs = running ? Math.min(seatHoldMs(), 4 * 60 * 1000) : seatHoldMs();
+      const holdExpiry = new Date(Date.now() + holdMs);
 
       const booking = await tx.booking.create({
         data: {
           tripId,
           userId,
           seatNumber,
+          seats,
+          boardRatio: priced.boardRatio,
+          alightRatio: priced.alightRatio,
+          walkUp,
           fareAmountPesewas: finalFareAmount,
           commissionAmountPesewas: finalCommission,
           paymentMethod: normalizePaymentMethod(paymentMethod),
@@ -831,6 +916,8 @@ async function syncCoveredSeatsTx(tx, tripId, leadUserId, coverAll) {
       bookingFeeRate: true,
       platformFeePesewas: true,
       commissionRate: true,
+      // The corridor pin is part of the price — see seatFareData.
+      corridorSeatPricePesewas: true,
       route: { select: { distanceKm: true } },
     },
   });
@@ -884,16 +971,7 @@ async function syncCoveredSeatsTx(tx, tripId, leadUserId, coverAll) {
   // The same denominator the host's own seat was priced with (`maxSeats`), so
   // every seat on this trip costs the same and the total is exactly the trip's
   // total cost rather than a second, separately-derived number.
-  const fareData = calculateFare({
-    tier: trip.tier,
-    distanceKm: trip.route?.distanceKm ?? 0,
-    seatCount: trip.maxSeats,
-    doorstepPickup: trip.doorstepPickup,
-    heavyLoad: trip.heavyLoad,
-    surgeMultiplier: trip.surgeMultiplier,
-    // The WHOLE price lock, fees included — see pinnedRatesFor.
-    ...pinnedRatesFor(trip),
-  });
+  const fareData = seatFareData(trip);
 
   const lead = await tx.booking.findFirst({
     where: { tripId, userId: leadUserId, isCoveredByLead: false, ...seatOccupyingWhere() },

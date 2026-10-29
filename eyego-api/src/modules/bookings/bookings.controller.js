@@ -136,7 +136,11 @@ const bookSeat = async (req, res) => {
   const joinerPickup = point(pickupLat, pickupLng, pickupAddress);
   // The rider's own drop-off pin on the route map — see bookings.service `resolveDropoff`.
   const dropoff = point(dropoffLat, dropoffLng, dropoffAddress);
-  const result = await bookingsService.bookSeat(req.user.userId, tripId, Number(seatNumber), pickupStopId ?? null, paymentMethod ?? null, shortText(guestName, 60), shortText(guestPhone, 20), joinerPickup, dropoffStopId ?? null, dropoff);
+  // Seat picking is gone from the booking path (client 2026-10-29, D1): a
+  // seat number is optional, and `seats` books N places under ONE booking (D7).
+  const seatNo = seatNumber == null || seatNumber === '' ? null : Number(seatNumber);
+  const seats = Math.min(20, Math.max(1, parseInt(req.body.seats, 10) || 1));
+  const result = await bookingsService.bookSeat(req.user.userId, tripId, seatNo, pickupStopId ?? null, paymentMethod ?? null, shortText(guestName, 60), shortText(guestPhone, 20), joinerPickup, dropoffStopId ?? null, dropoff, seats);
 
   // Emit real-time seat update to passengers and driver
   try {
