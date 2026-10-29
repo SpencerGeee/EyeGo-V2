@@ -44,7 +44,7 @@ Verify gate per phase: `node node_modules/typescript/lib/tsc.js -p apps/rider|dr
 - [x] Home: Book a seat / Whole bus / Private bus → trip.tsx `product` (seat → bus list with auto-search; bus → group flow, full party; ride → configure)
 - [ ] Flat card system per spec §7 (tokens, rows 76 dp, outlines 2/1 dp, no glass on sheets)
 - [ ] Transition matrix (named per rider-phase pair) + height+opacity reveal
-- [ ] Tier pick: in-place bus turn (G2)
+- [x] Tier pick: in-place bus turn (G2) — HeroBusSlot turns one ease-out revolution on spinKey (tier) change; gated on SYSTEM reduce-motion only (the depth probe had been silently disabling it on slow phones)
 - [x] Splash: one shared BrandIntro (packages/ui, Reanimated + SVG, NO Skia — rider dropped its Skia Grain), driver gets the wordmark+streak in blue with DRIVER label; native splash hidden on first layout; backgrounds match each native splash colour
 - [ ] Driver offer countdown as rounded bar
 

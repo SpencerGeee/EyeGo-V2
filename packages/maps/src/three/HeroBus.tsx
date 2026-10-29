@@ -1,6 +1,6 @@
-import React, { createContext, useContext, useEffect, useMemo, useRef } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { View, type StyleProp, type ViewStyle } from 'react-native';
-import Animated, { useAnimatedStyle, useSharedValue, withSequence, withSpring, withTiming } from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, useReducedMotion, useSharedValue, withSequence, withSpring, withTiming } from 'react-native-reanimated';
 import { Model3D } from './Model3D';
 import type { Model } from './engine';
 
@@ -27,11 +27,14 @@ export const SHOWROOM_PITCH = 58;
 /** full = booking flows; live = live-trip stages. Kept for callers. */
 export type HeroStrength = 'full' | 'live';
 
-const Ctx = createContext<{ model: Model; spinKey: string; reduced: boolean } | null>(null);
+const TURN_MS = 680;
+
+const Ctx = createContext<{ model: Model; spinKey: string; spinDir: 1 | -1; reduced: boolean } | null>(null);
 
 export function HeroBusProvider({
   model,
   spinKey,
+  spinDir,
   reduced = false,
   children,
 }: {
@@ -44,7 +47,7 @@ export function HeroBusProvider({
   reduced?: boolean;
   children: React.ReactNode;
 }) {
-  const value = useMemo(() => ({ model, spinKey, reduced }), [model, spinKey, reduced]);
+  const value = useMemo(() => ({ model, spinKey, spinDir: spinDir ?? 1, reduced: !!reduced }), [model, spinKey, spinDir, reduced]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
@@ -70,6 +73,8 @@ export function HeroBusSlot({
   const ctx = useContext(Ctx);
   const model = ownModel ?? ctx?.model;
   const k = useSharedValue(1);
+  const [turn, setTurn] = useState(0);
+  const systemReduced = useReducedMotion();
   const first = useRef(true);
   const spinKey = ctx?.spinKey ?? '';
   useEffect(() => {
@@ -77,15 +82,40 @@ export function HeroBusSlot({
       first.current = false;
       return;
     }
-    if (ctx?.reduced) return;
-    k.value = withSequence(withTiming(0.94, { duration: 110 }), withSpring(1, { stiffness: 320, damping: 26, mass: 1 }));
-  }, [spinKey, ctx?.reduced, k]);
+    if (!ctx?.reduced) {
+      k.value = withSequence(withTiming(0.94, { duration: 110 }), withSpring(1, { stiffness: 320, damping: 26, mass: 1 }));
+    }
+    // Gated on the SYSTEM setting only, not the depth probe (`ctx.reduced`):
+    // a phone the probe rates slow lost the turn entirely — "the flat thing".
+    // A handful of cached frames costs nothing a slow phone cannot afford.
+    if (systemReduced) return;
+    /**
+     * THE TURN (G2). Picking a tier turns the bus once, in place — it never
+     * flies anywhere. Driven like Model3D's `spin`: a JS-side yaw offset over
+     * one revolution, ease-out, landing back on the showroom angle. The engine
+     * quantises yaw, so this is a handful of cached frames, not a re-render
+     * per degree.
+     */
+    const dir = ctx?.spinDir ?? 1;
+    const t0 = Date.now();
+    let raf = 0;
+    const tick = () => {
+      const p = Math.min(1, (Date.now() - t0) / TURN_MS);
+      const eased = 1 - Math.pow(1 - p, 3);
+      setTurn(p < 1 ? dir * 360 * eased : 0);
+      if (p < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+    // Only a tier change turns the bus; a settings flip must not replay it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spinKey]);
   const press = useAnimatedStyle(() => ({ transform: [{ scale: k.value }] }));
 
   if (land || !model) return <View style={[{ width: size, height: size }, style]} pointerEvents="none" />;
   return (
     <Animated.View style={[{ width: size, height: size }, style, press]} pointerEvents="none">
-      <Model3D model={model} heading={yaw} pitch={pitch} size={size} />
+      <Model3D model={model} heading={yaw + turn} pitch={pitch} size={size} />
     </Animated.View>
   );
 }
