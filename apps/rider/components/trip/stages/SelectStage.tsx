@@ -285,6 +285,16 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
     },
   });
 
+  // "Book a seat" lands here with both ends already chosen — show the buses
+  // passing this rider straight away instead of waiting for a tap.
+  const autoSearched = React.useRef(false);
+  React.useEffect(() => {
+    if (autoSearched.current || origin?.latitude == null || destination?.latitude == null) return;
+    autoSearched.current = true;
+    searchTrips.mutate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [origin?.latitude, destination?.latitude]);
+
   return (
     <View style={[styles.safe, mode === 'stage' && { paddingTop: insets.top }]}>
       {/* BUGFIX ("the map is pure black on the ride-select page"): stage mode

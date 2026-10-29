@@ -1721,6 +1721,13 @@ export default function ActiveTripScreen() {
       >
         <Text style={styles.manageHeading}>MANAGE TRIP</Text>
         <CabinStrip seatsTotal={total} seatsTaken={passengers} boarded={boardedSeats} />
+        {/* Walk-up boarding (Q10): riders at a stop type this to buy a seat. */}
+        {typeof (trip as any)?.boardingCode === 'string' && (
+          <View style={styles.boardingCodeRow} accessibilityLabel={`Boarding code ${(trip as any).boardingCode}`}>
+            <Text style={styles.boardingCodeLabel}>BOARDING CODE</Text>
+            <Text style={[styles.boardingCodeValue, { color: colors.primary }]}>{(trip as any).boardingCode}</Text>
+          </View>
+        )}
         <View style={styles.quickRow}>
           {canAddRider && (
             <QuickAction
@@ -2337,7 +2344,10 @@ const makeStyles = (colors: DriverColors) =>
       fontSize: fontSizes.caption,
       color: colors.onSurfaceVariant,
     },
-    manageHeading: {
+    boardingCodeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, paddingHorizontal: 14, borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.10)', marginBottom: 10 },
+  boardingCodeLabel: { fontSize: 11, letterSpacing: 1.2, opacity: 0.7 },
+  boardingCodeValue: { fontSize: 22, letterSpacing: 6, fontWeight: '700' },
+  manageHeading: {
       fontFamily: fonts.semiBold,
       fontSize: 11,
       letterSpacing: 1.2,

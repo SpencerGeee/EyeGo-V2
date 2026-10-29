@@ -58,7 +58,7 @@ export default function RideDetailScreen() {
   const colors = useColors();
   const isDark = useThemeStore((s) => s.isDark);
   const insets = useSafeAreaInsets();
-  const { id, tier: tierParam, group, pickupStopId, dropoffStopId } = useLocalSearchParams<{ id: string; tier?: string; group?: string; pickupStopId?: string; dropoffStopId?: string }>();
+  const { id, tier: tierParam, group, pickupStopId, dropoffStopId, walkUpCode } = useLocalSearchParams<{ id: string; tier?: string; group?: string; pickupStopId?: string; dropoffStopId?: string; walkUpCode?: string }>();
   const isGroupFlow = group === '1';
   const router = useRouter();
   const { morphBack } = useMorph();
@@ -291,7 +291,7 @@ export default function RideDetailScreen() {
   });
   const seatFare: number | null = farePreview?.farePerSeatPesewas ?? trip?.farePerSeatPesewas ?? null;
   // A bus already on the road arrives with the rider's stretch (Phase A).
-  const seatQuery = [pickupStopId ? `pickupStopId=${pickupStopId}` : '', dropoffStopId ? `dropoffStopId=${dropoffStopId}` : ''].filter(Boolean).join('&');
+  const seatQuery = [pickupStopId ? `pickupStopId=${pickupStopId}` : '', dropoffStopId ? `dropoffStopId=${dropoffStopId}` : '', walkUpCode ? `walkUpCode=${walkUpCode}` : ''].filter(Boolean).join('&');
   const seatPath = `/ride/${id}/seat${seatQuery ? `?${seatQuery}` : ''}`;
 
   // `?? 10` was an invented capacity — a 14-seater rendered as 10 and a 4-seater

@@ -71,6 +71,11 @@ function requireId(id: string | undefined | null, op: string): string {
 }
 
 export const bookingsApi = {
+  /** Walk-up boarding (Q10): which bus a code on the sticker names, and the stop it is at. */
+  resolveWalkUp: (code: string) =>
+    apiClient.get<ApiResponse<{ tripId: string; pickupStopId: string | null; destinationName: string | null }>>(
+      `/bookings/walk-up/${encodeURIComponent(code)}`,
+    ),
   /**
    * Hold a seat. The server responds with a WRAPPER, not a bare Booking:
    * `created(res, { booking, fareData, holdExpiry })`.

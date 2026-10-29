@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useCallback, useRef, useEffect } from 'react';
+import { ProductPicker } from '../../components/home/ProductPicker';
 import { formatGhs } from '@eyego/utils';
 import {
   View,
@@ -83,6 +84,8 @@ const QUICK_ACTIONS = [
   // at the scanner. The driver's own copy says "open the EyeGo app to pay",
   // which was an instruction the app could not be followed on. This is that
   // instruction's destination.
+  // Walk-up boarding (Q10): type the code on a bus that has pulled in.
+  { id: 'board',    label: 'Board',    icon: 'keypad-outline'     as const },
   { id: 'scan',     label: 'Scan',     icon: 'qr-code-outline'    as const },
   { id: 'saved',    label: 'Saved',    icon: 'bookmark-outline'   as const },
   { id: 'schedule', label: 'Schedule', icon: 'calendar-outline'   as const },
@@ -1039,6 +1042,7 @@ export default function HomeScreen() {
   const handleQuickAction = (id: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const routes: Record<string, string> = {
+      board:    '/ride/board-code',
       scan:     '/profile/scan-pay',
       saved:    '/profile/saved-places',
       schedule: '/ride/schedule',
@@ -1183,6 +1187,9 @@ export default function HomeScreen() {
             <WhereToPressable onPress={handleWhereTo} colors={colors} styles={styles} />
           </MorphSource>
         </Animated.View>
+
+        {/* What do you want to do? (client 2026-10-29, item 8) */}
+        <ProductPicker colors={colors} />
 
         {/* Quick Action Circles */}
         <Animated.View entering={FadeIn.delay(80).duration(250)}>

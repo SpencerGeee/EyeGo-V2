@@ -35,7 +35,8 @@ type PaymentTab = 'momo' | 'card' | 'cash' | 'wallet';
 export default function PaymentScreen() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const { id, pickupStopId, dropoffStopId, dropoffLat, dropoffLng, dropoffAddress, tier: busTierParam } = useLocalSearchParams<{
+  const { id, pickupStopId, dropoffStopId, dropoffLat, dropoffLng, dropoffAddress, tier: busTierParam, walkUpCode } = useLocalSearchParams<{
+    walkUpCode?: string;
     id: string;
     tier?: string;
     pickupStopId?: string;
@@ -344,7 +345,9 @@ export default function PaymentScreen() {
               ? { dropoffLat: freeDropoff.lat, dropoffLng: freeDropoff.lng, dropoffAddress: freeDropoff.address ?? undefined }
               : {}),
             ...(guestInfo ? { guestName: guestInfo.name, guestPhone: guestInfo.phone } : {}),
-          });
+            // Walk-up boarding (Q10): the server books from where the bus is now.
+            ...(walkUpCode ? { walkUpCode } : {}),
+          } as Parameters<typeof bookingsApi.create>[0]);
           // ROOT CAUSE of "pay in cash → validation failed / payment
           // initialization failed", which survived several rounds of narrower
           // fixes: POST /bookings answers `created(res, { booking, fareData,

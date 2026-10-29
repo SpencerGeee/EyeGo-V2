@@ -31,6 +31,7 @@ router.post(
 router.post('/', requireBookingEnabled, bookingCreateLimiter, controller.bookSeat);
 // Walk-up boarding (Q10): POST { code, dropoffStopId?, dropoffLat?, dropoffLng?, paymentMethod, seats? }
 router.post('/walk-up', requireBookingEnabled, bookingCreateLimiter, controller.walkUpBook);
+router.get('/walk-up/:code', controller.resolveWalkUp);
 // Fixed-segment routes MUST come before /:bookingId to avoid param capture
 router.get('/active', controller.getActiveBooking);
 router.get('/outcomes', controller.getOutcomes);

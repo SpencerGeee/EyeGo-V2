@@ -68,7 +68,7 @@ export default function SeatPickerScreen() {
   const motion = useDepthMotion();
   const insets = useSafeAreaInsets();
   const { width: winW, height: winH } = useWindowDimensions();
-  const { id, pickupStopId, dropoffStopId: dropoffStopParam } = useLocalSearchParams<{ id: string; pickupStopId?: string; dropoffStopId?: string }>();
+  const { id, pickupStopId, dropoffStopId: dropoffStopParam, walkUpCode } = useLocalSearchParams<{ id: string; pickupStopId?: string; dropoffStopId?: string; walkUpCode?: string }>();
   const queryClient = useQueryClient();
   const { setSelectedSeat, selectedTrip } = useRideStore(
     useShallow((s) => ({ setSelectedSeat: s.setSelectedSeat, selectedTrip: s.selectedTrip })),
@@ -231,6 +231,7 @@ export default function SeatPickerScreen() {
     const query = [
       pickupStopId ? `pickupStopId=${pickupStopId}` : '',
       dropoffStopId ? `dropoffStopId=${dropoffStopId}` : '',
+      walkUpCode ? `walkUpCode=${walkUpCode}` : '',
       dropoff ? `dropoffLat=${dropoff.latitude}&dropoffLng=${dropoff.longitude}` : '',
       dropoff?.address ? `dropoffAddress=${encodeURIComponent(dropoff.address)}` : '',
       `tier=${busTier}`,

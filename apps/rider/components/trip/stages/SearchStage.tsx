@@ -346,7 +346,9 @@ function SearchStageImpl() {
    */
   const handleOrderRide = useCallback(() => {
     haptic.medium();
-    goStage('configure');
+    // "Book a seat" (home, client 2026-10-29) goes to the buses passing this
+    // rider's stop; whole-bus and private rides configure the vehicle.
+    goStage(useTripFlow.getState().type === 'seat' ? 'select' : 'configure');
   }, [goStage]);
 
   // Same choice, later departure. Pickup and destination already live in the

@@ -816,6 +816,13 @@ async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, payment
  * paid in-app like any mid-route seat. Everything else is `bookSeat`.
  */
 async function walkUpBook(userId, rawCode, { dropoffStopId = null, dropoff = null, paymentMethod = null, seats = 1 } = {}) {
+  const { tripId, pickupStopId } = await resolveWalkUp(rawCode);
+  const result = await bookSeat(userId, tripId, null, pickupStopId, paymentMethod, null, null, null, dropoffStopId, dropoff, seats, { walkUp: true });
+  return { ...result, tripId };
+}
+
+/** Which bus a boarding code names, and the stop it is at now. Lookup only. */
+async function resolveWalkUp(rawCode) {
   const { normalizeBoardingCode } = require('../../utils/boarding-code');
   const code = normalizeBoardingCode(rawCode);
   if (code.length < 4) throw new AppError('Enter the 4-character code shown on the bus.', 400, 'BOARDING_CODE_INVALID');
@@ -843,8 +850,7 @@ async function walkUpBook(userId, rawCode, { dropoffStopId = null, dropoff = nul
     const bus = placeOnChain(chain, trip.driver?.currentLat, trip.driver?.currentLng);
     pickupStopId = bus ? nearestStop(chain, bus.ratio)?.id ?? null : null;
   }
-  const result = await bookSeat(userId, trip.id, null, pickupStopId, paymentMethod, null, null, null, dropoffStopId, dropoff, seats, { walkUp: true });
-  return { ...result, tripId: trip.id };
+  return { tripId: trip.id, pickupStopId, destinationName: trip.route?.destinationName ?? null };
 }
 
 /**
@@ -2056,4 +2062,4 @@ async function joinGroup(shareToken) {
 
 module.exports = {
   previewSeatFare,
-  priceSeat, bookSeat, walkUpBook, normalizePaymentMethod, createRideGroup, generateInvite, regenerateInvite, getGroup, joinGroup, cancelBooking, getUserBookings, getBooking, rateBooking, getMyRating, applyPromoCode, getActiveBooking, tipDriver, submitDispute, reportLostItem, recomputeBookingAddons, getTripFareForRider, cargoSurchargeFor };
+  priceSeat, bookSeat, walkUpBook, resolveWalkUp, normalizePaymentMethod, createRideGroup, generateInvite, regenerateInvite, getGroup, joinGroup, cancelBooking, getUserBookings, getBooking, rateBooking, getMyRating, applyPromoCode, getActiveBooking, tipDriver, submitDispute, reportLostItem, recomputeBookingAddons, getTripFareForRider, cargoSurchargeFor };

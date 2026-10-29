@@ -128,8 +128,13 @@ const previewSeatFare = async (req, res) => {
  * Walk-up boarding (Q10): the rider typed the code on the bus. Prepaid; the
  * same stretch pool and the same booking row as a seat booked ahead.
  */
+const resolveWalkUp = async (req, res) => {
+  ok(res, await bookingsService.resolveWalkUp(req.params.code), 'Bus found');
+};
+
 const walkUpBook = async (req, res) => {
-  const { code, dropoffStopId, paymentMethod, dropoffLat, dropoffLng, dropoffAddress } = req.body ?? {};
+  const { dropoffStopId, paymentMethod, dropoffLat, dropoffLng, dropoffAddress } = req.body ?? {};
+  const code = req.body?.code ?? req.body?.walkUpCode;
   const seats = Math.min(20, Math.max(1, parseInt(req.body?.seats, 10) || 1));
   const result = await bookingsService.walkUpBook(req.user.userId, code, {
     dropoffStopId: dropoffStopId ?? null,
@@ -155,6 +160,7 @@ const bookSeat = async (req, res) => {
   const dropoff = point(dropoffLat, dropoffLng, dropoffAddress);
   // Seat picking is gone from the booking path (client 2026-10-29, D1): a
   // seat number is optional, and `seats` books N places under ONE booking (D7).
+  if (req.body.walkUpCode) return walkUpBook(req, res);
   const seatNo = seatNumber == null || seatNumber === '' ? null : Number(seatNumber);
   const seats = Math.min(20, Math.max(1, parseInt(req.body.seats, 10) || 1));
   const result = await bookingsService.bookSeat(req.user.userId, tripId, seatNo, pickupStopId ?? null, paymentMethod ?? null, shortText(guestName, 60), shortText(guestPhone, 20), joinerPickup, dropoffStopId ?? null, dropoff, seats);
@@ -379,5 +385,6 @@ const joinGroup = async (req, res) => {
 
 module.exports = {
   walkUpBook,
+  resolveWalkUp,
   previewSeatFare, bookSeat, createGroup, cancelBooking, getUserBookings, getBooking, rateBooking,
   getMyRating, applyPromoCode, validatePromoCode, getActiveBooking, getOutcomes, tipDriver, submitDispute, reportLostItem, generateInvite, regenerateInvite, getGroup, joinGroup, updatePickup, updateHeavyCargo };

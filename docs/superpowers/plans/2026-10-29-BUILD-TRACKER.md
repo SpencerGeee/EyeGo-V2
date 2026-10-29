@@ -30,7 +30,7 @@ Verify gate per phase: `node node_modules/typescript/lib/tsc.js -p apps/rider|dr
 - [x] A9 invariants + verify + commit + state/session-log
 
 ## Phase A+ — walk-up boarding (Q10)
-- [~] Per-trip 4-char boarding code; POST /bookings/walk-up (SERVER DONE; driver code display + rider entry pending) {code, dropoff}; prepaid; same span pool; driver timeline shows walk-ups; rider "Board with code" entry
+- [x] Per-trip 4-char boarding code; POST /bookings/walk-up + GET lookup; rider "Board" quick action + code screen; driver manage card shows the code {code, dropoff}; prepaid; same span pool; driver timeline shows walk-ups; rider "Board with code" entry
 
 ## Phase O — offer protocol v2 (Q7) + driver eligibility (Q9)
 - [ ] DispatchOffer identity (offerId), ACK, discardAfter, minimumViewMs, expiringSoonMs, accept carries offerId + GPS, stale → 409 OFFER_INVALID
@@ -41,7 +41,7 @@ Verify gate per phase: `node node_modules/typescript/lib/tsc.js -p apps/rider|dr
 - [ ] Versioned snapshot polling 2 s searching / 5 s riding / 4 s otherwise, served from Redis snapshot
 
 ## Phase B — first screen + Card/Motion Spec v2 (items 8, G2, G3, G5)
-- [ ] Home: Book a seat / Book the whole bus / Book a ride → trip.tsx `product`
+- [x] Home: Book a seat / Whole bus / Private bus → trip.tsx `product` (seat → bus list with auto-search; bus → group flow, full party; ride → configure)
 - [ ] Flat card system per spec §7 (tokens, rows 76 dp, outlines 2/1 dp, no glass on sheets)
 - [ ] Transition matrix (named per rider-phase pair) + height+opacity reveal
 - [ ] Tier pick: in-place bus turn (G2)

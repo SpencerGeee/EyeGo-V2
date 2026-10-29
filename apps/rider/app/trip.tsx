@@ -14,7 +14,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { bookingsApi } from '@eyego/api';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { withOpacity, springs, fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { withOpacity, springs, fonts, fontSizes, spacing, radii, MAX_SEATS_PER_BOOKING } from '@eyego/config';
 import { SheetMetricsProvider, useCreateSheetMetrics, AppBackground, Pressable, goBack, goOut, afterTransition, morphSurfaceHidden, depthIncoming, depthOutgoing, useDepthMotion, getTierTheme } from '@eyego/ui';
 import { HeroBusProvider, minibus } from '@eyego/maps';
 import { LIVERY, type RideTierId } from '../components/trip/RidePicker';
@@ -244,6 +244,8 @@ export default function TripScreen() {
   const sheetMetrics = useCreateSheetMetrics(screenHeight);
   const params = useLocalSearchParams<{
     stage?: string; tier?: string; type?: string; morphId?: string; bookingId?: string;
+    /** Home's product choice: seat · bus · ride (client 2026-10-29, item 8). */
+    product?: string;
     /**
      * The pending on-demand request this surface was opened to show.
      *
@@ -343,14 +345,22 @@ export default function TripScreen() {
      * has to do work before it becomes the thing they asked for. Two is the
      * smallest number that is a group; the picker goes to eight from there.
      */
-    if (params.type === 'group') {
+    /**
+     * THE THREE PRODUCTS (client 2026-10-29, item 8). Home asks first:
+     *   seat → join a bus passing you: search, then the bus list (SelectStage)
+     *   bus  → book the whole bus: the group flow, party preset to a full bus
+     *   ride → a private bus on demand: the ordinary configure flow
+     */
+    const flowType = params.product === 'bus' ? 'group' : params.product === 'seat' ? 'seat' : params.type;
+    if (flowType === 'group') {
       const ride = useRideStore.getState();
-      if (ride.requestSeatCount < 2) ride.setRequestSeats(2, ride.requestCoverAll);
+      const min = params.product === 'bus' ? MAX_SEATS_PER_BOOKING : 2;
+      if (ride.requestSeatCount < min) ride.setRequestSeats(min, ride.requestCoverAll);
     }
     seed({
       stage: seeded,
       tier: params.tier,
-      type: params.type,
+      type: flowType,
       morphId: params.morphId,
       bookingId: params.bookingId,
     });
@@ -446,7 +456,7 @@ export default function TripScreen() {
      * is idempotent for a given set of them.
      */
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params.stage, params.tier, params.type, params.morphId, params.bookingId, params.resumeRequestId, params.tripId, params.destLat, params.destLng]);
+  }, [params.stage, params.tier, params.type, params.product, params.morphId, params.bookingId, params.resumeRequestId, params.tripId, params.destLat, params.destLng]);
 
   /**
    * THE PROJECTION. Once a trip exists its status decides the stage, full
