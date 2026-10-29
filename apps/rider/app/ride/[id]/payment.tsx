@@ -530,6 +530,23 @@ export default function PaymentScreen() {
         return;
       }
 
+      /**
+       * A BUS ALREADY ON THE ROAD (Phase A). These are real refusals with their
+       * own codes — two of them are 409s, so they MUST be branched before the
+       * generic conflict handling below treats a 409 as "probably booked".
+       */
+      const joinCode = err?.response?.data?.code;
+      if (joinCode === 'PREPAY_REQUIRED' || joinCode === 'BUS_PASSED_STOP' || joinCode === 'PICKUP_STOP_REQUIRED' || joinCode === 'TRIP_FULL') {
+        setStatus('idle');
+        const title =
+          joinCode === 'PREPAY_REQUIRED' ? 'Pay in the app to join'
+          : joinCode === 'BUS_PASSED_STOP' ? 'This bus has passed your stop'
+          : joinCode === 'TRIP_FULL' ? 'No seat left on your stretch'
+          : 'Choose your stop';
+        notify(title, err?.response?.data?.message ?? 'Pick another bus from the list.', { tone: 'error' });
+        return;
+      }
+
       // BUGFIX (reported: "cash payment gave me an error but the seat was
       // booked, and the home live-trip card then showed the wrong details").
       //

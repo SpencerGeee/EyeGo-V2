@@ -58,7 +58,7 @@ export default function RideDetailScreen() {
   const colors = useColors();
   const isDark = useThemeStore((s) => s.isDark);
   const insets = useSafeAreaInsets();
-  const { id, tier: tierParam, group, pickupStopId } = useLocalSearchParams<{ id: string; tier?: string; group?: string; pickupStopId?: string }>();
+  const { id, tier: tierParam, group, pickupStopId, dropoffStopId } = useLocalSearchParams<{ id: string; tier?: string; group?: string; pickupStopId?: string; dropoffStopId?: string }>();
   const isGroupFlow = group === '1';
   const router = useRouter();
   const { morphBack } = useMorph();
@@ -284,13 +284,15 @@ export default function RideDetailScreen() {
    * page's number from cache.
    */
   const { data: farePreview } = useQuery({
-    queryKey: ['seat-fare-preview', id, pickupStopId ?? null, null, null, null],
-    queryFn: () => bookingsApi.previewFare({ tripId: id ?? '', pickupStopId: pickupStopId ?? null, dropoffStopId: null }),
+    queryKey: ['seat-fare-preview', id, pickupStopId ?? null, dropoffStopId ?? null, null, null],
+    queryFn: () => bookingsApi.previewFare({ tripId: id ?? '', pickupStopId: pickupStopId ?? null, dropoffStopId: dropoffStopId ?? null }),
     enabled: !!id,
     staleTime: 30_000,
   });
   const seatFare: number | null = farePreview?.farePerSeatPesewas ?? trip?.farePerSeatPesewas ?? null;
-  const seatPath = `/ride/${id}/seat${pickupStopId ? `?pickupStopId=${pickupStopId}` : ''}`;
+  // A bus already on the road arrives with the rider's stretch (Phase A).
+  const seatQuery = [pickupStopId ? `pickupStopId=${pickupStopId}` : '', dropoffStopId ? `dropoffStopId=${dropoffStopId}` : ''].filter(Boolean).join('&');
+  const seatPath = `/ride/${id}/seat${seatQuery ? `?${seatQuery}` : ''}`;
 
   // `?? 10` was an invented capacity — a 14-seater rendered as 10 and a 4-seater
   // as 10, and the occupancy bar was wrong in both directions with nothing to

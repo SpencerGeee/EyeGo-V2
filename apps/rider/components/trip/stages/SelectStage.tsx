@@ -43,6 +43,14 @@ type TripWithRoute = Trip & {
   destination?: { address?: string };
   departureTime?: string;
   availableSeats?: number;
+  // Phase A — a bus already on the road (server searchTrips). Seats and price
+  // are for THIS rider's stretch; the stops are where to board and alight.
+  isRunning?: boolean;
+  etaToPickupSec?: number | null;
+  riderFarePesewas?: number;
+  walkToPickupKm?: number;
+  suggestedPickupStop?: { id: string; name: string } | null;
+  suggestedDropoffStop?: { id: string; name: string } | null;
   farePerSeatPesewas?: number;
   fare?: number;
   maxSeats?: number;
@@ -593,7 +601,9 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                 };
                 const fullFare = trip.farePerSeatPesewas ?? 0;
                 const selectedStop = selectedStopByTrip[trip.id ?? ''];
-                const displayFare = selectedStop ? selectedStop.fare : fullFare;
+                // A chosen en-route stop wins; else the server's price for this
+                // rider's stretch (Phase A); else the full-route seat.
+                const displayFare = selectedStop ? selectedStop.fare : trip.riderFarePesewas ?? fullFare;
                 /**
                  * `?? 3` invented a number. A trip whose seat count had not
                  * loaded rendered "3 SEATS LEFT" — a plausible, specific,
@@ -610,9 +620,15 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                 const seatsLow = seatsLeft != null && seatsLeft <= 2;
                 const activeStops = trip.route?.virtualStops?.filter(s => s.isActive) ?? [];
                 const hasEnRoute = activeStops.length > 0;
-                const timeStr = trip.departureTime
-                  ? clockTime(trip.departureTime)
-                  : 'Departing soon';
+                // "Bus to Shiashie passing your stop in 4 min" (client 2026-10-29).
+                const etaMin = trip.isRunning && trip.etaToPickupSec != null ? Math.max(1, Math.round(trip.etaToPickupSec / 60)) : null;
+                const timeStr = etaMin != null
+                  ? `Passing ${trip.suggestedPickupStop?.name ?? 'your stop'} in ${etaMin} min`
+                  : trip.isRunning
+                    ? 'On the road now'
+                    : trip.departureTime
+                      ? clockTime(trip.departureTime)
+                      : 'Departing soon';
                 return (
                   <Animated.View
                     key={trip.id ?? i}
@@ -650,8 +666,13 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                       ]}
                       onPress={() => {
                         if (!trip.id) return;
+                        // A running bus is booked for the rider's own stretch:
+                        // carry the stops the server placed them at.
+                        const pickupId = selectedStop?.id ?? trip.suggestedPickupStop?.id;
+                        const dropoffId = trip.suggestedDropoffStop?.id;
                         const query = [
-                          selectedStop ? `pickupStopId=${selectedStop.id}` : '',
+                          pickupId ? `pickupStopId=${pickupId}` : '',
+                          dropoffId ? `dropoffStopId=${dropoffId}` : '',
                           isGroupFlow ? 'group=1' : '',
                         ].filter(Boolean).join('&');
                         const path = `/ride/${trip.id}${query ? `?${query}` : ''}`;

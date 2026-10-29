@@ -68,7 +68,7 @@ export default function SeatPickerScreen() {
   const motion = useDepthMotion();
   const insets = useSafeAreaInsets();
   const { width: winW, height: winH } = useWindowDimensions();
-  const { id, pickupStopId } = useLocalSearchParams<{ id: string; pickupStopId?: string }>();
+  const { id, pickupStopId, dropoffStopId: dropoffStopParam } = useLocalSearchParams<{ id: string; pickupStopId?: string; dropoffStopId?: string }>();
   const queryClient = useQueryClient();
   const { setSelectedSeat, selectedTrip } = useRideStore(
     useShallow((s) => ({ setSelectedSeat: s.setSelectedSeat, selectedTrip: s.selectedTrip })),
@@ -188,7 +188,7 @@ export default function SeatPickerScreen() {
   const canPin = routeLine != null && routeLine.length >= 2;
   const hasAlight = canPin || stops.length > 0;
 
-  const [dropoffStopId, setDropoffStopId] = useState<string | null>(null);
+  const [dropoffStopId, setDropoffStopId] = useState<string | null>(dropoffStopParam ?? null);
   /** A free pin on the route — see RouteDropoffMap. Exclusive with a named stop. */
   const [dropoff, setDropoff] = useState<RouteDropoff | null>(null);
   const [pickingPin, setPickingPin] = useState(false);

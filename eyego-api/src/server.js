@@ -348,6 +348,30 @@ async function start() {
     };
     every('dispatch-offer-expiry', 60 * 1000, runDispatchOfferExpiry);
 
+    // ── "Bus with a free seat passing your stop" (Phase A, item 1) ─────
+    // Every minute, each running public bus offers its free stretches to riders
+    // waiting further down its road. One push per (alert, bus) — the claim lives
+    // in trip-notify.notifySeatPassing.
+    const runSeatPassing = async () => {
+      try {
+        const prisma = require('./config/database');
+        const running = await prisma.trip.findMany({
+          where: {
+            status: { in: ['DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP', 'IN_PROGRESS'] },
+            route: { isActive: true },
+            updatedAt: { gte: new Date(Date.now() - 6 * 60 * 60 * 1000) },
+          },
+          select: { id: true },
+          take: 200,
+        });
+        const notify = require('./services/trip-notify.service');
+        for (const t of running) await notify.notifySeatPassing(t.id).catch(() => {});
+      } catch (err) {
+        logger.warn(`[seat-passing] sweep failed: ${err?.message ?? err}`);
+      }
+    };
+    every('seat-passing', 60 * 1000, runSeatPassing, { now: false });
+
     // ── Driver quest regeneration ────────────────────────────────────
     // DriverQuest rows previously only came from a one-time seed script with
     // hardcoded date windows — the Quests tab went permanently empty once those

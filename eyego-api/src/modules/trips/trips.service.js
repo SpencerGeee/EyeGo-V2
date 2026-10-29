@@ -764,52 +764,107 @@ async function searchTrips(query) {
   const include = {
     route: { include: { virtualStops: { where: { isActive: true }, orderBy: { sequence: 'asc' } } } },
     vehicle: true,
-    // No currentLat/currentLng: a public listing handed every browsing rider each
-    // driver's live GPS — for a bus leaving on Thursday, wherever the driver is now.
-    driver: { select: { id: true, name: true, profilePhoto: true } },
+    // The driver's live fix is read HERE for running buses only (to place the
+    // bus on its road) and stripped before the response — a public listing
+    // must not hand every browsing rider each driver's live GPS.
+    driver: { select: { id: true, name: true, profilePhoto: true, currentLat: true, currentLng: true } },
     bookings: {
       where: { ...seatOccupyingWhere() },
-      select: { id: true, seatNumber: true, status: true, seats: true },
+      select: { id: true, seatNumber: true, status: true, seats: true, boardRatio: true, alightRatio: true },
     },
   };
 
   let trips, totalCount;
 
   if (hasGeoFilter) {
-    // SQLite has no native geo query — pull a larger upcoming-trip candidate
-    // pool, filter by proximity in memory, THEN paginate. Filtering AFTER a
-    // DB-level skip/take (the old approach) could silently drop genuinely
-    // nearby trips that just weren't in that page's date-ordered slice.
     const oLat = parseFloat(originLat);
     const oLng = parseFloat(originLng);
     const dLat = parseFloat(finalDestLat);
     const dLng = parseFloat(finalDestLng);
     const rad = parseFloat(radius);
 
+    /**
+     * ── BUSES ALREADY ON THE ROAD ARE IN THE LIST (client 2026-10-29) ───────
+     *
+     * "Bus to Shiashie passing your stop in 4 min, 1 seat free." Running public
+     * trips join the candidates (fresh only — same abandonment bound the busy
+     * filter uses), and every candidate is placed on its own road:
+     *   • the rider's pickup and destination must both lie near the route,
+     *     IN ORDER (pickup before drop-off — the old check matched either end
+     *     in either direction);
+     *   • a running bus must not have passed the pickup;
+     *   • seats are counted over the rider's stretch, not the whole trip.
+     */
+    const RUNNING = ['DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP', 'IN_PROGRESS'];
     const candidates = await prisma.trip.findMany({
-      where,
+      where: {
+        ...where,
+        OR: [
+          ...where.OR,
+          { status: { in: RUNNING }, updatedAt: { gte: new Date(now.getTime() - 6 * 60 * 60 * 1000) } },
+        ],
+      },
       include,
       orderBy: { departureTime: 'asc' },
       take: 500,
     });
 
-    const filtered = candidates.filter(trip => {
-      const route = trip.route;
-      let originNear = haversineKm(oLat, oLng, route.originLat, route.originLng) <= rad;
-      if (!originNear) {
-        originNear = route.virtualStops.some(stop => haversineKm(oLat, oLng, stop.lat, stop.lng) <= rad);
+    const { chainFor, placeOnChain, nearestStop } = require('../../utils/route-chain');
+    const { freeSeatsOnSpan } = require('../../utils/segment-seats');
+    const placed = [];
+    for (const trip of candidates) {
+      const chain = chainFor(trip.route);
+      const a = placeOnChain(chain, oLat, oLng);
+      const b = placeOnChain(chain, dLat, dLng);
+      if (!a || !b || a.offKm > rad || b.offKm > rad || !(b.ratio > a.ratio)) continue;
+      const running = RUNNING.includes(trip.status);
+      let busRatio = 0;
+      if (running) {
+        const bus = placeOnChain(chain, trip.driver?.currentLat, trip.driver?.currentLng);
+        if (!bus) continue; // a running bus we cannot place is not offered
+        busRatio = bus.ratio;
+        if (a.ratio <= busRatio) continue; // it has passed this rider
       }
+      const pickupStop = nearestStop(chain, a.ratio);
+      const dropoffStop = nearestStop(chain, b.ratio, { after: pickupStop?.ratio ?? -1 });
+      trip.riderSpan = { from: a.ratio, to: b.ratio };
+      trip.availableSeats = freeSeatsOnSpan(trip.bookings, trip.maxSeats, a.ratio, b.ratio);
+      trip.isRunning = running;
+      trip.suggestedPickupStop = pickupStop;
+      trip.suggestedDropoffStop = dropoffStop;
+      // Km of road from the bus to the rider's stop, for the ETA below.
+      trip.kmToPickup = running ? (a.ratio - busRatio) * a.lengthKm : null;
+      trip.walkToPickupKm = Math.round(a.offKm * 100) / 100;
+      placed.push(trip);
+    }
 
-      let destNear = haversineKm(dLat, dLng, route.destLat, route.destLng) <= rad;
-      if (!destNear) {
-        destNear = route.virtualStops.some(stop => haversineKm(dLat, dLng, stop.lat, stop.lng) <= rad);
-      }
+    /**
+     * ETA for running buses only, and only for the page being returned: one
+     * cached ETA call each (eta.service falls back to free-flow, never throws).
+     */
+    placed.sort((x, y) => (x.isRunning === y.isRunning ? 0 : x.isRunning ? -1 : 1) || (x.kmToPickup ?? 0) - (y.kmToPickup ?? 0));
+    totalCount = placed.length;
+    trips = placed.slice(skip, skip + take);
+    const eta = require('../../services/eta.service');
+    await Promise.all(trips.filter((t) => t.isRunning).map(async (t) => {
+      const pick = t.suggestedPickupStop
+        ? t.route.virtualStops.find((s) => s.id === t.suggestedPickupStop.id) ?? { lat: oLat, lng: oLng }
+        : { lat: oLat, lng: oLng };
+      const r = await eta
+        .etaSeconds({ lat: t.driver.currentLat, lng: t.driver.currentLng }, { lat: pick.lat, lng: pick.lng })
+        .catch(() => null);
+      t.etaToPickupSec = r?.seconds != null ? Math.round(r.seconds) : null;
+    }));
+    trips.sort((x, y) => (x.isRunning === y.isRunning ? 0 : x.isRunning ? -1 : 1) || (x.etaToPickupSec ?? 1e9) - (y.etaToPickupSec ?? 1e9));
 
-      return originNear && destNear;
-    });
-
-    totalCount = filtered.length;
-    trips = filtered.slice(skip, skip + take);
+    // Unmet demand for the admin view (client item 9). Fire-and-forget.
+    if (placed.length === 0) {
+      const d = new Date();
+      const hourOfWeek = ((d.getUTCDay() + 6) % 7) * 24 + d.getUTCHours(); // Accra = UTC
+      prisma.demandSignal
+        .create({ data: { kind: 'SEARCH_EMPTY', originLat: oLat, originLng: oLng, destLat: dLat, destLng: dLng, hourOfWeek, userId: query.userId ?? null } })
+        .catch(() => {});
+    }
   } else {
     [totalCount, trips] = await Promise.all([
       prisma.trip.count({ where }),
@@ -846,8 +901,23 @@ async function searchTrips(query) {
      */
     // Seats, not rows: one booking can hold several (Booking.seats).
     const occupied = sumSeats(trip.bookings ?? []);
-    trip.availableSeats = Math.max(0, trip.maxSeats - occupied);
     trip.occupiedSeats = occupied;
+    if (trip.riderSpan) {
+      // Free seats over THIS rider's stretch were set above (segment-seats),
+      // and the price is the stretch's share of the full-route seat — the same
+      // ratio bookSeat charges (it measures the real road; this is the chain).
+      const { calculateSegmentFareByRatio } = require('./fare.calculator');
+      const ratio = trip.riderSpan.to - trip.riderSpan.from;
+      trip.riderFarePesewas = calculateSegmentFareByRatio({ fullFarePerSeatPesewas: fareInfo.farePerPersonPesewas, ratio }).farePerSeatPesewas;
+    } else {
+      trip.availableSeats = Math.max(0, trip.maxSeats - occupied);
+    }
+    // Used to place the bus; never sent to a browsing rider.
+    if (trip.driver) {
+      delete trip.driver.currentLat;
+      delete trip.driver.currentLng;
+    }
+    delete trip.kmToPickup;
   });
 
   // The driver's rating, for the browse row — same integrity filter as the
@@ -1561,9 +1631,34 @@ async function driverNoShow(tripId, reportingUserId) {
  * `myBooking.status`. So a rider watching the screen sees it immediately and one
  * whose phone was asleep gets it on replay.
  */
+/**
+ * "The bus is at this stop" (Phase A, item 6). Stamps `stopArrivedAt` on the
+ * named passengers who are still waiting, so the no-show grace has a start and
+ * the rider is told to come out. Idempotent: an already-stamped row keeps its
+ * first time (the grace must not restart on a second tap).
+ */
+async function markStopArrived(tripId, bookingIds, reportingUserId) {
+  const ids = Array.isArray(bookingIds) ? bookingIds.filter((x) => typeof x === 'string').slice(0, 50) : [];
+  if (ids.length === 0) throw new AppError('Name the passengers at this stop.', 400, 'NO_BOOKINGS');
+  const trip = await prisma.trip.findUnique({ where: { id: tripId }, select: { id: true, driverId: true } });
+  if (!trip) throw new NotFoundError('Trip');
+  if (trip.driverId !== reportingUserId) throw new ForbiddenError('You are not the driver assigned to this trip');
+  const now = new Date();
+  const { count } = await prisma.booking.updateMany({
+    where: { id: { in: ids }, tripId, stopArrivedAt: null, status: { in: ['CONFIRMED', 'SEAT_HELD', 'PAID'] } },
+    data: { stopArrivedAt: now },
+  });
+  const graceMin = require('../../config/settings').get('NO_SHOW_GRACE_MINUTES') ?? 3;
+  // Tell each waiting passenger; one owner for notifications.
+  require('../../services/trip-notify.service')
+    .notifyBusAtStop?.(tripId, ids)
+    ?.catch?.(() => {});
+  return { stamped: count, noShowAllowedAt: new Date(now.getTime() + graceMin * 60_000) };
+}
+
 async function riderNoShow(tripId, bookingId, reportingUserId) {
   const result = await prisma.$transaction(async (tx) => {
-    const trip = await tx.trip.findUnique({ where: { id: tripId }, select: { id: true, driverId: true, commissionRate: true } });
+    const trip = await tx.trip.findUnique({ where: { id: tripId }, select: { id: true, driverId: true, commissionRate: true, arrivedAt: true } });
     if (!trip) throw new NotFoundError('Trip');
     if (trip.driverId !== reportingUserId) {
       throw new ForbiddenError('You are not the driver assigned to this trip');
@@ -1574,6 +1669,29 @@ async function riderNoShow(tripId, bookingId, reportingUserId) {
     if (booking.tripId !== tripId) throw new AppError('Booking does not belong to this trip', 400);
     if (!['CONFIRMED', 'SEAT_HELD'].includes(booking.status)) {
       throw new AppError('Booking is not in a confirmable state', 400);
+    }
+
+    /**
+     * THE GRACE (client 2026-10-29, item 6; D6 = 3 min). "Be at the stop on
+     * time" cuts both ways: the bus must have actually reached the passenger
+     * before they can be written off. The clock starts at the driver's
+     * "at this stop" (stopArrivedAt), or — for a passenger boarding at the
+     * trip's own start — the trip's pickup arrival. A mid-route passenger has
+     * no other honest start, so without the stamp the no-show is refused.
+     */
+    const graceMin = require('../../config/settings').get('NO_SHOW_GRACE_MINUTES') ?? 3;
+    const midRoute = (booking.boardRatio ?? 0) > 0;
+    const startedAt = booking.stopArrivedAt ?? (midRoute ? null : trip.arrivedAt);
+    if (midRoute && !startedAt) {
+      throw new AppError('Mark the bus at this passenger’s stop first.', 409, 'NO_SHOW_TOO_EARLY');
+    }
+    if (startedAt) {
+      const waitUntil = new Date(new Date(startedAt).getTime() + graceMin * 60_000);
+      if (Date.now() < waitUntil.getTime()) {
+        const err = new AppError(`Give them until ${graceMin} minutes after you reached the stop.`, 409, 'NO_SHOW_TOO_EARLY');
+        err.details = { waitUntil: waitUntil.toISOString() };
+        throw err;
+      }
     }
 
     /**
@@ -1659,6 +1777,12 @@ async function riderNoShow(tripId, bookingId, reportingUserId) {
       payload: { bookingId, seatNumber: result.seatNumber ?? null },
     })
     .catch((err) => logger.warn(`Rider no-show event failed for ${tripId}: ${err.message}`));
+
+  // The stretch is for sale again right now (Phase A) — tell riders waiting
+  // further down this bus's road instead of waiting for the next sweep.
+  require('../../services/trip-notify.service')
+    .notifySeatPassing(tripId)
+    .catch((err) => logger.debug(`[trips] seat-passing after no-show failed: ${err?.message ?? err}`));
 
   (async () => {
     if (!result.userId) return;
@@ -2402,4 +2526,4 @@ async function deleteTripAlert(userId, id) {
   return { deleted: true };
 }
 
-module.exports = { createTripAlert, listTripAlerts, deleteTripAlert, getNearbyAvailableDrivers, createTrip, getTrip, getTripByShareToken, getSeatMap, getPulseSchedules, searchTrips, getActiveTrip, completeTrip, getTripReceipt, driverNoShow, riderNoShow, scheduleTrip, getTrackingData, getScheduledRides, cancelScheduledRide, processScheduledRideIntents, saveLiveActivityToken, clearLiveActivityToken, estimateDeviationSurcharge };
+module.exports = { createTripAlert, listTripAlerts, deleteTripAlert, getNearbyAvailableDrivers, createTrip, getTrip, getTripByShareToken, getSeatMap, getPulseSchedules, searchTrips, getActiveTrip, completeTrip, getTripReceipt, driverNoShow, riderNoShow, markStopArrived, scheduleTrip, getTrackingData, getScheduledRides, cancelScheduledRide, processScheduledRideIntents, saveLiveActivityToken, clearLiveActivityToken, estimateDeviationSurcharge };

@@ -309,6 +309,11 @@ const riderNoShow = async (req, res) => {
   ok(res, result, 'Rider no-show recorded');
 };
 
+const markStopArrived = async (req, res) => {
+  const result = await tripsService.markStopArrived(req.params.id, req.body?.bookingIds, req.user.userId);
+  ok(res, result, 'Passengers told the bus is here');
+};
+
 const requestTrip = async (req, res) => {
   const { destination, scheduledAt, seatCount, coverAll, pickupLat, pickupLng, destLat, destLng } = req.body;
   const result = await tripRequestService.createRequest(req.user.userId, {
@@ -380,4 +385,4 @@ const deleteTripAlert = async (req, res) => {
   ok(res, await tripsService.deleteTripAlert(req.user.userId, req.params.id), 'Alert removed');
 };
 
-module.exports = { createTripAlert, listTripAlerts, deleteTripAlert, getNearbyDrivers, createTrip, getTrip, getTripByShareToken, getSeatMap, getPulseSchedules, searchTrips, getActiveTrip, getFareEstimate, getDeviationEstimate, emergencyAlert, getTripReceipt, driverNoShow, riderNoShow, scheduleTrip, getScheduledRides, cancelScheduledRide, getTrackingData, getJoinData, requestTrip, getTripRequestStatus, cancelTripRequest, saveLiveActivityToken };
+module.exports = { createTripAlert, listTripAlerts, deleteTripAlert, getNearbyDrivers, createTrip, getTrip, getTripByShareToken, getSeatMap, getPulseSchedules, searchTrips, getActiveTrip, getFareEstimate, getDeviationEstimate, emergencyAlert, getTripReceipt, driverNoShow, riderNoShow, markStopArrived, scheduleTrip, getScheduledRides, cancelScheduledRide, getTrackingData, getJoinData, requestTrip, getTripRequestStatus, cancelTripRequest, saveLiveActivityToken };

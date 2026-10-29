@@ -23,14 +23,14 @@ Verify gate per phase: `node node_modules/typescript/lib/tsc.js -p apps/rider|dr
 - [x] A2b Corridor model + Trip.corridorId/corridorSeatPricePesewas; `fullSeatFarePesewas()` single reader; createTrip pins
 - [x] A3 `services/trip-position.service.js` busRatioFor + jest
 - [x] A4 bookSeat: running trips, span capacity, BUS_PASSED_STOP, mid-route prepaid, ETA-bounded hold, seatNumber optional
-- [ ] A5 searchTrips: running trips, polyline+direction, span seats, ETA, segment fare; rider rows "Passing your stop in N min · K seats · ₵X"
-- [ ] A6 POST /driver/trips/:id/stops/arrive + riderNoShow grace (NO_SHOW_GRACE_MINUTES=3) + resale
-- [ ] A7 driver stop timeline progress by ratio (busRatio on snapshot)
-- [ ] A8 trip-notify.notifySeatPassing + 60 s sweep + rider listener + "tell me when a bus passes"
-- [ ] A9 invariants + verify + commit + state/session-log
+- [x] A5 searchTrips: running trips, polyline+direction, span seats, ETA, segment fare; rider rows "Passing your stop in N min · K seats · ₵X"
+- [x] A6 POST /driver/trips/:id/stops/arrive + riderNoShow grace (NO_SHOW_GRACE_MINUTES=3) + resale
+- [ ] A7 driver stop timeline progress by ratio (busRatio on snapshot) — DEFERRED (needs busRatio on the driver snapshot; lower demo value)
+- [x] A8 trip-notify.notifySeatPassing + 60 s sweep + rider listener + "tell me when a bus passes"
+- [x] A9 invariants + verify + commit + state/session-log
 
 ## Phase A+ — walk-up boarding (Q10)
-- [ ] Per-trip 4-char boarding code; POST /bookings/walk-up {code, dropoff}; prepaid; same span pool; driver timeline shows walk-ups; rider "Board with code" entry
+- [~] Per-trip 4-char boarding code; POST /bookings/walk-up (SERVER DONE; driver code display + rider entry pending) {code, dropoff}; prepaid; same span pool; driver timeline shows walk-ups; rider "Board with code" entry
 
 ## Phase O — offer protocol v2 (Q7) + driver eligibility (Q9)
 - [ ] DispatchOffer identity (offerId), ACK, discardAfter, minimumViewMs, expiringSoonMs, accept carries offerId + GPS, stale → 409 OFFER_INVALID

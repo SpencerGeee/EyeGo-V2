@@ -131,5 +131,7 @@ router.delete('/scheduled/:id', authenticate, tripsController.cancelScheduledRid
 // ── Driver-only state transitions ────────────────────────────
 router.post('/:id/driver-no-show', authenticateDriver, tripsController.driverNoShow);
 router.post('/:id/rider-no-show/:bookingId', authenticateDriver, tripsController.riderNoShow);
+// Phase A: "the bus is at this stop" — starts the no-show grace for these passengers.
+router.post('/:id/stops/arrive', authenticateDriver, tripsController.markStopArrived);
 
 module.exports = router;

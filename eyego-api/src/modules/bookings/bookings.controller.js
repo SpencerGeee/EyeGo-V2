@@ -124,6 +124,23 @@ const previewSeatFare = async (req, res) => {
   ok(res, result);
 };
 
+/**
+ * Walk-up boarding (Q10): the rider typed the code on the bus. Prepaid; the
+ * same stretch pool and the same booking row as a seat booked ahead.
+ */
+const walkUpBook = async (req, res) => {
+  const { code, dropoffStopId, paymentMethod, dropoffLat, dropoffLng, dropoffAddress } = req.body ?? {};
+  const seats = Math.min(20, Math.max(1, parseInt(req.body?.seats, 10) || 1));
+  const result = await bookingsService.walkUpBook(req.user.userId, code, {
+    dropoffStopId: dropoffStopId ?? null,
+    dropoff: point(dropoffLat, dropoffLng, dropoffAddress),
+    paymentMethod: paymentMethod ?? null,
+    seats,
+  });
+  require('../../services/trip-events.publisher').publishSeatUpdate(result.tripId).catch(() => {});
+  created(res, result, 'Seat on this bus held — pay to board');
+};
+
 const bookSeat = async (req, res) => {
   const tripId = req.params.tripId || req.params.id || req.body.tripId;
   let { seatNumber } = req.body;
@@ -361,5 +378,6 @@ const joinGroup = async (req, res) => {
 };
 
 module.exports = {
+  walkUpBook,
   previewSeatFare, bookSeat, createGroup, cancelBooking, getUserBookings, getBooking, rateBooking,
   getMyRating, applyPromoCode, validatePromoCode, getActiveBooking, getOutcomes, tipDriver, submitDispute, reportLostItem, generateInvite, regenerateInvite, getGroup, joinGroup, updatePickup, updateHeavyCargo };

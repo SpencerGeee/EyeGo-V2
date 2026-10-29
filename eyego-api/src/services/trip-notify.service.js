@@ -498,9 +498,92 @@ async function notifyTripAlertMatches(tripId) {
   return matches.length;
 }
 
+/**
+ * "Your bus is at the stop" (Phase A). Sent when the driver stamps the stop;
+ * the no-show grace starts now, so the passenger must hear it now.
+ */
+async function notifyBusAtStop(tripId, bookingIds) {
+  const graceMin = require('../config/settings').get('NO_SHOW_GRACE_MINUTES') ?? 3;
+  const rows = await prisma.booking.findMany({
+    where: { id: { in: bookingIds }, tripId },
+    select: { user: { select: { fcmToken: true } } },
+  });
+  const tokens = [...new Set(rows.map((r) => r.user?.fcmToken).filter(Boolean))];
+  await Promise.all(tokens.map((t) => pushService
+    .sendPush(t, 'Your bus is at the stop', `Board within ${graceMin} min or your seat goes to the next rider.`, { type: 'BUS_AT_STOP', tripId })
+    .catch((err) => logger.debug(`[trip-notify] bus-at-stop push failed: ${err?.message ?? err}`))));
+  return tokens.length;
+}
+
+/**
+ * "BUS WITH A FREE SEAT PASSING YOUR STOP IN N MIN" (client 2026-10-29, item 1).
+ *
+ * For a bus already on the road: every open "tell me when a bus passes" alert
+ * whose pickup and destination lie on this bus's road, in order, still ahead of
+ * the bus, with at least one seat free over that stretch and an ETA inside
+ * SEAT_PASSING_PUSH_MAX_MIN, is pushed once per (alert, bus) — a Redis claim, so
+ * the 60 s sweep and a no-show landing together cannot both push.
+ *
+ * ponytail: scans open alerts per running bus; index alerts by H3 cell when the
+ * count reaches the thousands.
+ */
+async function notifySeatPassing(tripId) {
+  const redis = require('../config/redis');
+  const { chainFor, placeOnChain } = require('../utils/route-chain');
+  const { freeSeatsOnSpan } = require('../utils/segment-seats');
+  const eta = require('./eta.service');
+  const trip = await prisma.trip.findUnique({
+    where: { id: tripId },
+    select: {
+      id: true, status: true, maxSeats: true,
+      driver: { select: { currentLat: true, currentLng: true } },
+      route: { select: { isActive: true, originName: true, originLat: true, originLng: true, destLat: true, destLng: true, destinationName: true, virtualStops: { where: { isActive: true }, select: { id: true, name: true, lat: true, lng: true, sequence: true } } } },
+      bookings: { where: { status: { in: ['PENDING', 'SEAT_HELD', 'CONFIRMED', 'PAID', 'BOARDED'] } }, select: { boardRatio: true, alightRatio: true, seats: true } },
+    },
+  });
+  if (!trip?.route?.isActive || !['DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP', 'IN_PROGRESS'].includes(trip.status)) return 0;
+  const chain = chainFor(trip.route);
+  const bus = placeOnChain(chain, trip.driver?.currentLat, trip.driver?.currentLng);
+  if (!bus) return 0;
+
+  const now = new Date();
+  const maxMin = require('../config/settings').get('SEAT_PASSING_PUSH_MAX_MIN') ?? 15;
+  const alerts = await prisma.tripAlert.findMany({
+    where: { expiresAt: { gt: now }, originLat: { not: null }, originLng: { not: null } },
+    select: { id: true, destName: true, destLat: true, destLng: true, originLat: true, originLng: true, radiusKm: true, user: { select: { fcmToken: true } } },
+  });
+  let sent = 0;
+  for (const a of alerts) {
+    const from = placeOnChain(chain, a.originLat, a.originLng);
+    const to = placeOnChain(chain, a.destLat, a.destLng);
+    const rad = Math.max(a.radiusKm ?? 1, 0.5);
+    if (!from || !to || from.offKm > rad || to.offKm > rad || !(to.ratio > from.ratio) || from.ratio <= bus.ratio) continue;
+    const seats = freeSeatsOnSpan(trip.bookings, trip.maxSeats, from.ratio, to.ratio);
+    if (seats < 1 || !a.user?.fcmToken) continue;
+    const r = await eta.etaSeconds({ lat: trip.driver.currentLat, lng: trip.driver.currentLng }, { lat: a.originLat, lng: a.originLng }).catch(() => null);
+    const mins = r?.seconds != null ? Math.max(1, Math.round(r.seconds / 60)) : null;
+    if (mins == null || mins > maxMin) continue;
+    const fresh = await redis.set(`seatpass:${a.id}:${trip.id}`, '1', 'EX', 3 * 3600, 'NX').catch(() => null);
+    if (!fresh) continue;
+    await pushService
+      .sendPush(
+        a.user.fcmToken,
+        `Bus to ${(a.destName ?? trip.route.destinationName ?? 'your stop').split(',')[0]} passing you in ${mins} min`,
+        `${seats} seat${seats === 1 ? '' : 's'} free on your stretch. Tap to book before it fills.`,
+        { type: 'SEAT_PASSING', tripId: trip.id },
+      )
+      .then(() => { sent += 1; })
+      .catch((err) => logger.debug(`[trip-notify] seat-passing push failed: ${err?.message ?? err}`));
+  }
+  if (sent) logger.info(`[trip-notify] bus ${trip.id} — ${sent} "seat passing" push(es)`);
+  return sent;
+}
+
 module.exports = {
   notifyTransition,
   notifyTripAlertMatches,
+  notifyBusAtStop,
+  notifySeatPassing,
   LIVE_ACTIVITY_STATUS_TEXT,
   PUSHABLE,
 };

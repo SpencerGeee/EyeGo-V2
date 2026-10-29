@@ -663,7 +663,9 @@ async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, payment
 
       // A moving bus only sells stretches still ahead of it, with a margin to
       // pay and walk out to the road (JOIN_AHEAD_MARGIN_M).
-      if (running) {
+      // A walk-up rider is standing AT the bus (they typed its code), so the
+      // "still ahead of the bus" rule does not apply to them.
+      if (running && !walkUp) {
         // Without the road we cannot tell whether the bus has passed the
         // rider, so we refuse rather than sell a seat behind the bus.
         if (!routeLine || priced.boardRatio == null) {
@@ -802,6 +804,47 @@ async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, payment
   // was taken twice.
   if (result.transition) tripState.publishCommitted(result.transition);
   return result;
+}
+
+/**
+ * ── WALK-UP BOARDING (Q10) ───────────────────────────────────────────────────
+ *
+ * A rider at a stop with no booking types the short code shown on/inside the
+ * bus (Uber's directed dispatch, Bolt's PinToMatch — the trotro mate, in an
+ * app). The seat is sold from the same stretch pool as everyone else's, priced
+ * for the stretch from where the bus is NOW to the rider's drop-off, and must be
+ * paid in-app like any mid-route seat. Everything else is `bookSeat`.
+ */
+async function walkUpBook(userId, rawCode, { dropoffStopId = null, dropoff = null, paymentMethod = null, seats = 1 } = {}) {
+  const { normalizeBoardingCode } = require('../../utils/boarding-code');
+  const code = normalizeBoardingCode(rawCode);
+  if (code.length < 4) throw new AppError('Enter the 4-character code shown on the bus.', 400, 'BOARDING_CODE_INVALID');
+  const trip = await prisma.trip.findFirst({
+    where: {
+      boardingCode: code,
+      status: { in: JOINABLE_STATUSES },
+      route: { isActive: true },
+      updatedAt: { gte: new Date(Date.now() - 12 * 60 * 60 * 1000) },
+    },
+    orderBy: { updatedAt: 'desc' },
+    select: {
+      id: true, status: true,
+      driver: { select: { currentLat: true, currentLng: true } },
+      route: { select: { originName: true, originLat: true, originLng: true, destinationName: true, destLat: true, destLng: true, virtualStops: { where: { isActive: true }, select: { id: true, name: true, lat: true, lng: true, sequence: true } } } },
+    },
+  });
+  if (!trip) throw new AppError('No bus on the road has that code. Check the sticker and try again.', 404, 'BOARDING_CODE_UNKNOWN');
+
+  // Board at the stop the bus is at (or just reached) — the rider is beside it.
+  let pickupStopId = null;
+  if (RUNNING_STATUSES.has(trip.status)) {
+    const { chainFor, placeOnChain, nearestStop } = require('../../utils/route-chain');
+    const chain = chainFor(trip.route);
+    const bus = placeOnChain(chain, trip.driver?.currentLat, trip.driver?.currentLng);
+    pickupStopId = bus ? nearestStop(chain, bus.ratio)?.id ?? null : null;
+  }
+  const result = await bookSeat(userId, trip.id, null, pickupStopId, paymentMethod, null, null, null, dropoffStopId, dropoff, seats, { walkUp: true });
+  return { ...result, tripId: trip.id };
 }
 
 /**
@@ -2013,4 +2056,4 @@ async function joinGroup(shareToken) {
 
 module.exports = {
   previewSeatFare,
-  priceSeat, bookSeat, normalizePaymentMethod, createRideGroup, generateInvite, regenerateInvite, getGroup, joinGroup, cancelBooking, getUserBookings, getBooking, rateBooking, getMyRating, applyPromoCode, getActiveBooking, tipDriver, submitDispute, reportLostItem, recomputeBookingAddons, getTripFareForRider, cargoSurchargeFor };
+  priceSeat, bookSeat, walkUpBook, normalizePaymentMethod, createRideGroup, generateInvite, regenerateInvite, getGroup, joinGroup, cancelBooking, getUserBookings, getBooking, rateBooking, getMyRating, applyPromoCode, getActiveBooking, tipDriver, submitDispute, reportLostItem, recomputeBookingAddons, getTripFareForRider, cargoSurchargeFor };

@@ -156,6 +156,47 @@ test('eta.* calls name real eta.service exports', () => {
 });
 
 /**
+ * Seat capacity on a bus trip is decided per STRETCH, by utils/segment-seats.
+ *
+ * Client meeting 2026-10-29: a bus that left Kasoa full is half empty by
+ * Kaneshie, and that freed seat must be sold to the rider at Odorkor. Counting
+ * occupying booking rows against `maxSeats` calls the bus full for the whole
+ * road — the exact bug Phase A removed from bookSeat. A future "quick capacity
+ * check" written that way would quietly bring it back.
+ */
+test('bus capacity is never a row count against maxSeats in the booking path', () => {
+  const file = join(ROOT, 'eyego-api/src/modules/bookings/bookings.service.js');
+  const src = readFileSync(file, 'utf8');
+  const hits = [];
+  src.split('\n').forEach((text, i) => {
+    if (/booking\.count\(/.test(text) && /seatOccupyingWhere/.test(src.split('\n').slice(i, i + 3).join(' '))) {
+      hits.push({ file, line: i + 1, text });
+    }
+    if (/>=\s*trip\.maxSeats/.test(text)) hits.push({ file, line: i + 1, text });
+  });
+  assert.ok(src.includes('freeSeatsOnSpan('), 'bookSeat must decide capacity with freeSeatsOnSpan');
+  assert.equal(hits.length, 0, `Capacity must come from utils/segment-seats freeSeatsOnSpan:\n${report(hits)}`);
+});
+
+/**
+ * Every full-route seat price comes from fare.calculator `seatFareData`.
+ *
+ * A corridor-pinned bus (D5, "Kasoa → Shiashie is ₵28") charges the pinned
+ * price. A surface that calls calculateFare/estimateFare for a seat on its own
+ * would show the computed price while bookSeat charges the corridor price.
+ */
+test('seat prices in bookings/trips services go through seatFareData', () => {
+  const hits = [];
+  for (const rel of ['eyego-api/src/modules/bookings/bookings.service.js', 'eyego-api/src/modules/trips/trips.service.js']) {
+    const file = join(ROOT, rel);
+    readFileSync(file, 'utf8').split('\n').forEach((text, i) => {
+      if (/\b(calculateFare|estimateFare)\(\{/.test(text)) hits.push({ file, line: i + 1, text });
+    });
+  }
+  assert.equal(hits.length, 0, `Use seatFareData(trip) for a seat price:\n${report(hits)}`);
+});
+
+/**
  * `Driver.status` approved is 'ACTIVE'. Never 'APPROVED'.
  *
  * The column is a free-form String and eligibility compares it exactly, so
