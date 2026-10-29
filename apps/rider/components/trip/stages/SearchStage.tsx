@@ -575,7 +575,7 @@ function SearchStageImpl() {
               {/* The card's actual surface. See `floatingCard` — the style
                   itself is transparent so the ambient background reads through
                   the whole flow instead of stopping at a grey slab. */}
-              <GlassSurface style={StyleSheet.absoluteFill} borderRadius={24} intensity="high" />
+              <View style={[StyleSheet.absoluteFill, { borderRadius: 24, backgroundColor: colors.surfaceCard }]} pointerEvents="none" />
 
               {/*
                 ── The two fields ───────────────────────────────────────────
@@ -618,7 +618,7 @@ function SearchStageImpl() {
                     accessibilityRole="button"
                     accessibilityLabel="Set pickup location"
                   >
-                    <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii.xl} intensity="low" />
+                    <View style={[StyleSheet.absoluteFill, { borderRadius: radii.xl, backgroundColor: colors.surfaceCard }]} pointerEvents="none" />
                     <View style={[styles.locationDot, { backgroundColor: colors.onSurfaceVariant }]} />
                     <View style={styles.locationTextCol}>
                       <Text style={styles.fieldLabel} numberOfLines={1}>PICKUP</Text>
@@ -662,7 +662,7 @@ function SearchStageImpl() {
                     accessibilityRole="button"
                     accessibilityLabel="Choose destination"
                   >
-                    <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii.xl} intensity="low" />
+                    <View style={[StyleSheet.absoluteFill, { borderRadius: radii.xl, backgroundColor: colors.surfaceCard }]} pointerEvents="none" />
                     <View style={[styles.locationDot, { backgroundColor: colors.primary }]} />
                     <View style={styles.locationTextCol}>
                       <Text style={[styles.fieldLabel, styles.fieldLabelDest]} numberOfLines={1}>WHERE TO</Text>
@@ -798,7 +798,7 @@ function SearchStageImpl() {
             <>
               <Text style={styles.sectionLabel}>Saved places</Text>
               <View style={styles.sectionCard}>
-                <GlassSurface style={StyleSheet.absoluteFill} borderRadius={20} intensity="high" />
+                <View style={[StyleSheet.absoluteFill, { borderRadius: 20, backgroundColor: colors.surfaceCard }]} pointerEvents="none" />
                 {otherSaved.map((p, i) => (
                   <React.Fragment key={p.id}>
                     {i > 0 && <View style={styles.rowDivider} />}
@@ -821,7 +821,7 @@ function SearchStageImpl() {
             <>
               <Text style={styles.sectionLabel}>Recent</Text>
               <View style={styles.sectionCard}>
-                <GlassSurface style={StyleSheet.absoluteFill} borderRadius={20} intensity="high" />
+                <View style={[StyleSheet.absoluteFill, { borderRadius: 20, backgroundColor: colors.surfaceCard }]} pointerEvents="none" />
                 {relevantRecents.map((p, i) => (
                   <React.Fragment key={`${p.latitude},${p.longitude}`}>
                     {i > 0 && <View style={styles.rowDivider} />}

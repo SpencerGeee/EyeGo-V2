@@ -787,13 +787,8 @@ function ConfigureStageImpl() {
 
           {step === 5 && (
             <Animated.View key="step5" entering={stepEnter} exiting={stepExit} style={styles.list}><Cascade dir={stepDir}>
-              <GradientGlowBorder
-                palette="brandGreen"
-                fillColor={colors.surfaceContainerHigh}
-                borderRadius={radii['2xl']}
-                glow
-                style={styles.review}
-              >
+              {/* Flat, like Uber's confirm card (G3): no glow ring on a sheet. */}
+              <View style={[styles.review, { backgroundColor: colors.surfaceCard, borderRadius: 24, borderWidth: 1, borderColor: colors.outlineVariant, overflow: 'hidden' }]}>
                 <View style={styles.ticketHead}>
                   <HeroBusSlot id="configure-review" size={92} />
                   <View style={{ flex: 1, minWidth: 0 }}>
@@ -883,7 +878,7 @@ function ConfigureStageImpl() {
                     )}
                   </View>
                 </View>
-              </GradientGlowBorder>
+              </View>
             </Cascade></Animated.View>
           )}
         </ScrollView>

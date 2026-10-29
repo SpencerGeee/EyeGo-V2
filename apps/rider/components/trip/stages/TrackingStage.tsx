@@ -80,7 +80,7 @@ function TrackingStageImpl() {
       */}
       {driverLinkLostSinceMs != null ? (
         <View style={styles.chip} pointerEvents="none">
-          <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii.lg} intensity="low" />
+          <View style={[StyleSheet.absoluteFill, { borderRadius: radii.lg, backgroundColor: colors.surfaceCard }]} pointerEvents="none" />
           <Ionicons name="warning-outline" size={13} color={colors.error} />
           <Text variant="caption" color={colors.error}>
             Driver&apos;s signal lost — location may be out of date
@@ -88,7 +88,7 @@ function TrackingStageImpl() {
         </View>
       ) : (!connected || recovering) && (
         <View style={styles.chip} pointerEvents="none">
-          <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii.lg} intensity="low" />
+          <View style={[StyleSheet.absoluteFill, { borderRadius: radii.lg, backgroundColor: colors.surfaceCard }]} pointerEvents="none" />
           <Ionicons name="cloud-offline-outline" size={13} color={colors.onSurfaceVariant} />
           <Text variant="caption" color={colors.onSurfaceVariant}>
             {recovering ? 'Catching up…' : 'Reconnecting…'}

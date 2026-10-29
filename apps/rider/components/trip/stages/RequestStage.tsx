@@ -1202,24 +1202,16 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
             Faint on purpose ("or better still make it faint"): it only has to say
             "still looking". */}
         {(variant === 'route' || snap === 2) && (
-        <GradientGlowBorder
-          palette="brandGreen"
-          borderRadius={radii.lg}
-          thickness="thin"
-          fillColor={colors.surfaceCard}
-          glow={status === 'searching'}
-          glowIntensity={0.5}
-          maxGlowRadius={12}
-          style={{ width: '100%' }}
-        >
+        // G3: a flat hairline card — the searching state has its own indicator.
+        <View style={{ width: '100%', borderRadius: radii.lg, borderWidth: 1, borderColor: colors.outlineVariant, overflow: 'hidden' }}>
           <View style={styles.infoCard}>
-            <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii.lg} intensity="low" />
+            <View style={[StyleSheet.absoluteFill, { borderRadius: radii.lg, backgroundColor: colors.surfaceCard }]} pointerEvents="none" />
             <Ionicons name="information-circle-outline" size={16} color={colors.onSurfaceVariant} />
             <Text style={styles.infoText}>
               Trip requests are grouped — other riders heading the same way will be added automatically.
             </Text>
           </View>
-        </GradientGlowBorder>
+        </View>
         )}
 
         {/* RAISE THE FARE. Offered once the wait has started to bite (or at

@@ -58,6 +58,7 @@ export function HeroBusSlot({
   pitch = SHOWROOM_PITCH,
   land = false,
   model: ownModel,
+  turnKey,
   style,
 }: {
   id: string;
@@ -67,6 +68,12 @@ export function HeroBusSlot({
   /** A former landing pad — draws nothing. */
   land?: boolean | 'into';
   model?: Model;
+  /**
+   * Turn on THIS key instead of the provider's tier key. An empty string never
+   * turns — a list row passes `on ? 'on' : ''`, so only the row being picked
+   * turns, and the one being let go stays still.
+   */
+  turnKey?: string;
   settleMs?: number;
   style?: StyleProp<ViewStyle>;
 }) {
@@ -76,12 +83,13 @@ export function HeroBusSlot({
   const [turn, setTurn] = useState(0);
   const systemReduced = useReducedMotion();
   const first = useRef(true);
-  const spinKey = ctx?.spinKey ?? '';
+  const spinKey = turnKey ?? ctx?.spinKey ?? '';
   useEffect(() => {
     if (first.current) {
       first.current = false;
       return;
     }
+    if (turnKey !== undefined && turnKey === '') return;
     if (!ctx?.reduced) {
       k.value = withSequence(withTiming(0.94, { duration: 110 }), withSpring(1, { stiffness: 320, damping: 26, mass: 1 }));
     }
