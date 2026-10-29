@@ -15,7 +15,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useRideStore } from '../../../stores/ride.store';
 import { useAuthStore } from '../../../stores/auth.store';
 import { SaveDestinationCard } from '../../../components/trip/SaveDestinationCard';
-import { fonts, fontSizes, spacing, radii, withOpacity, springs } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, withOpacity, springs, MAX_SEATS_PER_BOOKING } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
 import { formatGhs, formatDistance, formatDuration, originLabel, destinationLabel, dayMonthTime, dayMonthYear, clockTime } from '@eyego/utils';
 import { useQuery } from '@tanstack/react-query';
@@ -228,6 +228,22 @@ export default function TripCompleteScreen() {
    * looking like an overcharge.
    */
   const fareSeatCount = fareBreakdown?.seatCount ?? (snapshot as any)?.fare?.seatsPaidFor ?? 1;
+  const returnHref = useMemo((): Href | null => {
+    const from = (snapshot as any)?.pickup;
+    if (from?.lat == null || from?.lng == null) return null;
+    const product = (snapshot as any)?.route ? 'seat' : fareSeatCount >= MAX_SEATS_PER_BOOKING ? 'bus' : 'ride';
+    const name = encodeURIComponent(String(from.address ?? 'Where you started').split(',')[0]);
+    return `/trip?stage=search&product=${product}&destLat=${from.lat}&destLng=${from.lng}&destName=${name}` as Href;
+  }, [snapshot, fareSeatCount]);
+  const bookReturn = () => {
+    if (!returnHref) return;
+    // The same party size the other way.
+    if (fareSeatCount > 1) {
+      const ride = useRideStore.getState();
+      ride.setRequestSeats(Math.min(MAX_SEATS_PER_BOOKING, fareSeatCount), ride.requestCoverAll);
+    }
+    goDeeper(returnHref);
+  };
   const farePerSeat = fareBreakdown?.perSeatPesewas ?? (snapshot as any)?.fare?.perSeatPesewas ?? null;
 
   /**
@@ -718,6 +734,14 @@ export default function TripCompleteScreen() {
             at all. A rider who left a phone in a car had to know the feature was
             there and go looking for it.
           */}
+          {/* BOOK THE RETURN (client 2026-10-29, item 3). The same product the
+              other way: where they were dropped is where they start. */}
+          {returnHref ? (
+            <Pressable style={styles.ghostBtn} onPress={bookReturn} accessibilityRole="button" accessibilityLabel="Book the return trip">
+              <Text numberOfLines={1} style={styles.ghostBtnText}>Book the return</Text>
+            </Pressable>
+          ) : null}
+
           <Pressable
             style={styles.reportBtn}
             onPress={() => goDeeper(`/ride/${id}/dispute` as Href)}

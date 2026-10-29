@@ -54,7 +54,7 @@ Verify gate per phase: `node node_modules/typescript/lib/tsc.js -p apps/rider|dr
 - [x] NO_SHARED_BUS → private picker shown (private = whole vehicle × multiplier, 0.5)
 
 ## Phase D — charter + N seats (items 3, 4)
-- [ ] Charter product (party = capacity, private pricing, door to door) + "book the return"
+- [x] Charter = "Book the whole bus" tile → group flow preset to a full bus (D4, private multiplier applies) + "Book the return" on trip complete (same product, ends swapped, same party size)
 - [x] bookSeat seats: N (one row), payment shows N-seat total, driver boarding shows "Name · N passengers"
 
 ## Phase E — seat map removal (item 5, D1)
