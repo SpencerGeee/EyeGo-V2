@@ -20,6 +20,8 @@ export type PulseSchedule = {
   createdAt: string;
   route?: { id?: string; name?: string; originName?: string; destinationName?: string } | null;
   _count?: { trips: number };
+  /** Only a schedule with a driver publishes trips (B4). */
+  driver?: { id: string; name?: string | null } | null;
 };
 
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -95,6 +97,17 @@ export function SchedulesTable({
       align: 'right',
       sortValue: (s) => s.maxSeats,
       render: (s) => num(s.maxSeats),
+    },
+    {
+      key: 'driver',
+      header: 'Publishes',
+      hideBelow: 'md',
+      render: (s) =>
+        s.driver ? (
+          <Badge tone="info">{s.driver.name ?? 'Driver'}</Badge>
+        ) : (
+          <Badge tone="neutral">No driver · display only</Badge>
+        ),
     },
     {
       key: 'trips',

@@ -256,6 +256,8 @@ async function createTrip(driverId, data) {
         corridorSeatPricePesewas: corridor?.seatPricePesewas ?? null,
         boardingCode: require('../../utils/boarding-code').newBoardingCode(),
         departureTime: new Date(departureTime),
+        // Published from a recurring schedule (B4) — the materialiser's dedupe key.
+        ...(data.pulseScheduleId ? { pulseScheduleId: String(data.pulseScheduleId) } : {}),
         doorstepPickup: doorstepPickup || false,
         pickupLat, pickupLng, pickupAddress,
         heavyLoad: heavyLoad || false,
@@ -687,14 +689,10 @@ async function getPulseSchedules() {
     orderBy: { departureTime: 'asc' },
   });
 
-  const schedules = allActiveSchedules.filter((s) => {
-    try {
-      const days = JSON.parse(s.daysOfWeek);
-      return Array.isArray(days) && days.includes(dayOfWeek);
-    } catch {
-      return false;
-    }
-  });
+  // BUGFIX (B4): admin stores "MON,TUE" but this only read JSON "[1,2]", so
+  // every schedule was filtered out. One parser now reads both.
+  const { scheduleDays } = require('../../services/pulse-materialiser.service');
+  const schedules = allActiveSchedules.filter((s) => scheduleDays(s.daysOfWeek).has(dayOfWeek));
 
   return schedules.map((s) => ({
     ...s,

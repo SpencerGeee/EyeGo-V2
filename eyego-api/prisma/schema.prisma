@@ -404,6 +404,7 @@ model Driver {
   /// availableDriverWhere() in services/driver-availability.js, which is the
   /// only place eligibility is decided.
   @@index([isOnline, requestsPaused])
+  pulseSchedules        PulseSchedule[]
 }
 
 
@@ -1107,6 +1108,11 @@ model PulseSchedule {
   maxSeats      Int
   isActive      Boolean  @default(true)
   createdAt     DateTime @default(now())
+  // The operator's own driver who runs it (client 2026-10-29: "own drivers").
+  // Only schedules with a driver are published — a driverless trip would sell
+  // seats on a bus nobody is driving, and nothing can claim it.
+  driverId      String?
+  driver        Driver?  @relation(fields: [driverId], references: [id])
 
   trips Trip[]
 }

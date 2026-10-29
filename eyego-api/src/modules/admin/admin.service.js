@@ -249,7 +249,8 @@ async function addVirtualStops(routeId, stops) {
 
 async function getAllPulseSchedules() {
   return prisma.pulseSchedule.findMany({
-    include: { route: true },
+    // `_count` feeds the "Trips spawned" column, which read a field never sent.
+    include: { route: true, driver: { select: { id: true, name: true } }, _count: { select: { trips: true } } },
     orderBy: { departureTime: 'asc' },
   });
 }
@@ -266,7 +267,7 @@ const PULSE_TIERS = ['ECO', 'COMFORT', 'PREMIUM'];
  * fire and that nothing downstream reports as broken.
  */
 async function createPulseSchedule(data = {}) {
-  const { routeId, tier, departureTime, daysOfWeek, maxSeats } = data;
+  const { routeId, tier, departureTime, daysOfWeek, maxSeats, driverId } = data;
 
   if (!routeId) throw new ValidationError('routeId is required');
   const route = await prisma.route.findUnique({ where: { id: String(routeId) }, select: { id: true } });
@@ -296,8 +297,16 @@ async function createPulseSchedule(data = {}) {
     throw new ValidationError('maxSeats must be a whole number between 1 and 60');
   }
 
+  // Optional: only a schedule with a driver is published as trips (B4).
+  let driver = null;
+  if (driverId) {
+    driver = await prisma.driver.findUnique({ where: { id: String(driverId) }, select: { id: true } });
+    if (!driver) throw new NotFoundError('Driver');
+  }
+
   return prisma.pulseSchedule.create({
     data: {
+      ...(driver ? { driverId: driver.id } : {}),
       routeId: route.id,
       tier,
       departureTime: String(departureTime),

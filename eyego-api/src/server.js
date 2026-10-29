@@ -372,6 +372,15 @@ async function start() {
     };
     every('seat-passing', 60 * 1000, runSeatPassing, { now: false });
 
+    // ── Pulse schedules → trips (B4) ─────────────────────────────────
+    every('pulse-materialise', 5 * 60 * 1000, async () => {
+      try {
+        await require('./services/pulse-materialiser.service').materialisePulseSchedules();
+      } catch (err) {
+        logger.warn(`[pulse] sweep failed: ${err?.message ?? err}`);
+      }
+    });
+
     // ── Driver quest regeneration ────────────────────────────────────
     // DriverQuest rows previously only came from a one-time seed script with
     // hardcoded date windows — the Quests tab went permanently empty once those
