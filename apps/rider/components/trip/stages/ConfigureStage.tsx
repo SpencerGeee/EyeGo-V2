@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeIn, useAnimatedStyle, useDerivedValue, withTiming } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { SharedBusSuggestion } from '../SharedBusSuggestion';
 import { ridesApi, tripsApi } from '@eyego/api';
 import { formatGhs, clockTime } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii, MAX_SEATS_PER_BOOKING } from '@eyego/config';
@@ -582,6 +583,18 @@ function ConfigureStageImpl() {
           */}
           {step === 3 && (
             <Animated.View key="step3" entering={stepEnter} exiting={stepExit} style={styles.list}><Cascade dir={stepDir}>
+              {/* Shared (item 2): a bus already heading this way, at the seat price. */}
+              {!isGroup && (
+                <SharedBusSuggestion
+                  origin={origin}
+                  destination={destination}
+                  colors={colors}
+                  onTakeSeat={() => {
+                    useTripFlow.setState({ type: 'seat' } as any);
+                    goStage('select');
+                  }}
+                />
+              )}
               <RidePicker
                 options={TIER_ORDER.map((id): RideOption => {
                   const km = nearestKm[id];

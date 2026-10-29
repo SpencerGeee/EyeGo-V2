@@ -49,8 +49,9 @@ Verify gate per phase: `node node_modules/typescript/lib/tsc.js -p apps/rider|dr
 - [ ] Driver offer countdown as rounded bar
 
 ## Phase C — shared vs private (item 2)
-- [ ] Shared eligibility branch (drivers on trips heading the rider's way with span seats) in driver-availability + cascade kind SHARED_SEAT; accept → bookSeat on host trip; placeholder trip CANCELLED (MERGED_INTO_TRIP)
-- [ ] NO_SHARED_BUS → "go private?" (private = whole vehicle × multiplier)
+- [x] Shared = "a bus is heading your way" card above the private picker (Yango AUTO_SHUTTLE pattern): seat price, opens the bus list; no bus → the private picker (whole bus × multiplier) is the fallback
+- [ ] (detour version, needs driver consent) Shared eligibility branch (drivers on trips heading the rider's way with span seats) in driver-availability + cascade kind SHARED_SEAT; accept → bookSeat on host trip; placeholder trip CANCELLED (MERGED_INTO_TRIP)
+- [x] NO_SHARED_BUS → private picker shown (private = whole vehicle × multiplier, 0.5)
 
 ## Phase D — charter + N seats (items 3, 4)
 - [ ] Charter product (party = capacity, private pricing, door to door) + "book the return"
