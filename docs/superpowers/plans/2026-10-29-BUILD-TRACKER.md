@@ -46,7 +46,7 @@ Verify gate per phase: `node node_modules/typescript/lib/tsc.js -p apps/rider|dr
 - [ ] Transition matrix (named per rider-phase pair) + height+opacity reveal
 - [x] Tier pick: in-place bus turn (G2) — HeroBusSlot turns one ease-out revolution on spinKey (tier) change; gated on SYSTEM reduce-motion only (the depth probe had been silently disabling it on slow phones)
 - [x] Splash: one shared BrandIntro (packages/ui, Reanimated + SVG, NO Skia — rider dropped its Skia Grain), driver gets the wordmark+streak in blue with DRIVER label; native splash hidden on first layout; backgrounds match each native splash colour
-- [ ] Driver offer countdown as rounded bar
+- [x] Driver offer countdown as rounded bar: 6 dp pill inset along the top, replacing the grabber on the offer sheet (ring kept for exact seconds)
 
 ## Phase C — shared vs private (item 2)
 - [x] Shared = "a bus is heading your way" card above the private picker (Yango AUTO_SHUTTLE pattern): seat price, opens the bus list; no bus → the private picker (whole bus × multiplier) is the fallback

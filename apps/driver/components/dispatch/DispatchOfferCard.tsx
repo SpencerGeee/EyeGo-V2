@@ -580,6 +580,9 @@ export function DispatchOfferCard({
         backgroundColor={colors.surfaceCard}
         gutter={spacing.xl}
         gap={spacing.md}
+        // The countdown bar sits where the grabber would; the grab zone still
+        // answers taps, it just draws nothing under the bar.
+        {...(offer.expiresAtServerMs ? { grabberColor: 'transparent' } : {})}
         topEdge={
           offer.expiresAtServerMs ? (
             <View style={styles.railTrack} pointerEvents="none">
@@ -1354,17 +1357,23 @@ const makeStyles = (colors: DriverColors) =>
     /** The head padding is carried by `sheetBadges`, so the panel starts tighter. */
     sheetPanel: { paddingTop: spacing.base },
 
-    /** The offer window, draining left to right along the card's top edge. */
+    /**
+     * The offer window as a ROUNDED BAR inset along the top (Uber's offer
+     * card): a 6 dp pill is readable at a glance from a dashboard mount, where
+     * the old 3 dp hairline at the very edge was not.
+     */
     railTrack: {
       position: 'absolute',
-      top: 0,
-      left: 0,
-      right: 0,
-      height: 3,
+      top: 10,
+      left: spacing.xl,
+      right: spacing.xl,
+      height: 6,
+      borderRadius: 3,
+      overflow: 'hidden',
       zIndex: 3,
       backgroundColor: colors.rimLightSubtle,
     },
-    rail: { height: '100%', borderTopLeftRadius: 3, borderBottomRightRadius: 3 },
+    rail: { height: '100%', borderRadius: 3 },
     /** Carries the map down into the glass panel so the card is one surface. */
     mapFade: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 88 },
     /** A breathing hairline where the map meets the panel. */
