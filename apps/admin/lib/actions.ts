@@ -274,6 +274,22 @@ export async function deletePulseSchedule(id: string): Promise<ActionResult> {
   return result;
 }
 
+// ─── Corridors (client 2026-10-29, D5) ────────────────────────────
+
+export async function createCorridor(payload: {
+  name: string; originLat: number; originLng: number; destLat: number; destLng: number; radiusKm?: number; seatPriceGhs: number;
+}): Promise<ActionResult> {
+  const result = await run('Corridor created', () => apiPost('/corridors', payload));
+  revalidatePath('/demand');
+  return result;
+}
+
+export async function updateCorridor(id: string, payload: { seatPriceGhs?: number; isActive?: boolean; radiusKm?: number }): Promise<ActionResult> {
+  const result = await run('Corridor updated — published trips keep their price', () => apiPatch(`/corridors/${id}`, payload));
+  revalidatePath('/demand');
+  return result;
+}
+
 // ─── Platform: releases ───────────────────────────────────────────
 
 export async function publishOta(payload: {

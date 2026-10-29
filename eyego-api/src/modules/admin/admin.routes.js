@@ -120,6 +120,12 @@ router.post('/users/:id/unban', requireRole(ROLE.OPS, ROLE.SUPPORT), adminAction
 // routes. Routes are an internal-only concept (trips reuse the Prisma Route
 // model as ad-hoc rows created during dispatch/accept).
 
+// Demand by place/hour + operator corridor prices (client 2026-10-29, item 9, D5).
+const demandAdmin = require('./demand.admin');
+router.get('/demand', demandAdmin.getDemand);
+router.get('/corridors', demandAdmin.listCorridors);
+router.post('/corridors', requireRole(ROLE.OPS), audit('corridor.create', { targetType: 'Corridor' }), demandAdmin.createCorridor);
+router.patch('/corridors/:id', requireRole(ROLE.OPS), adminActionLimiter, audit('corridor.update', { targetType: 'Corridor' }), demandAdmin.updateCorridor);
 router.get('/pulse-schedules', controller.getPulseSchedules);
 router.post('/pulse-schedules', requireRole(ROLE.OPS), audit('pulse_schedule.create', { targetType: 'PulseSchedule' }), controller.createPulseSchedule);
 router.delete('/pulse-schedules/:id', requireRole(ROLE.OPS), adminActionLimiter, audit('pulse_schedule.delete', { targetType: 'PulseSchedule' }), controller.deletePulseSchedule);

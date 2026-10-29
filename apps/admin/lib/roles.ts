@@ -77,6 +77,7 @@ export const NAV: NavSection[] = [
       { href: '/bookings', label: 'Bookings', icon: 'ticket', roles: ALL },
       { href: '/surge', label: 'Surge', icon: 'bolt', roles: ['OPS'] },
       { href: '/pulse-schedules', label: 'Pulse schedules', icon: 'clock', roles: ['OPS'] },
+      { href: '/demand', label: 'Demand & corridors', icon: 'route', roles: ALL },
     ],
   },
   {

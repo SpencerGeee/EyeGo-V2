@@ -63,7 +63,7 @@ Verify gate per phase: `node node_modules/typescript/lib/tsc.js -p apps/rider|dr
 ## Phase F — supply + admin (item 9)
 - [ ] Driver "Repeat last run"
 - [ ] PulseSchedule materialiser (B4)
-- [ ] DemandSignal (searches with 0 results) + admin /demand (stop/corridor × hour) + corridor CRUD
+- [x] DemandSignal (searches with 0 results) + admin /demand (unmet cells × hour-of-week, busiest boarding stops, corridor usage) + corridor create/toggle (OPS, audited)
 
 ## Final
 - [ ] state.md + session-log.md + memory; full verify; report what is NOT device-verified
