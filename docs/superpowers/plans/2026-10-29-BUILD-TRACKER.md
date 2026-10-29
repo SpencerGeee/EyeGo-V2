@@ -38,7 +38,7 @@ Verify gate per phase: `node node_modules/typescript/lib/tsc.js -p apps/rider|dr
 - [x] Offer card text from server (Q8): payload.card {title, subtitle, acceptLabel, passLabel}; app rendering of it = Phase B card pass
 
 ## Phase P — rider live sync floor (Q6)
-- [ ] Versioned snapshot polling 2 s searching / 5 s riding / 4 s otherwise, served from Redis snapshot
+- [x] Polling floor always on: 2 s searching / 5 s riding / 4 s otherwise; server answers unchanged from a Redis version key (no DB); quiet mode = no re-render unless the snapshot moved
 
 ## Phase B — first screen + Card/Motion Spec v2 (items 8, G2, G3, G5)
 - [x] Home: Book a seat / Whole bus / Private bus → trip.tsx `product` (seat → bus list with auto-search; bus → group flow, full party; ride → configure)

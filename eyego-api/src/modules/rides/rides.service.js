@@ -682,6 +682,19 @@ async function getActiveRide(userId) {
 
 /** Replay. The client sends the last seq it applied; it gets everything after. */
 async function getRideEvents(tripId, viewerId, sinceSeq = 0) {
+  /**
+   * POLLING FLOOR (Q6): nothing moved since `sinceSeq` → answer from Redis, no
+   * DB. Only when the recorded version is known AND equals what the rider has;
+   * a missing key (seat change, restart, expiry) always falls through to the
+   * full read, so this can never hide a change.
+   */
+  if (sinceSeq > 0) {
+    const { versionKey } = require('../../services/trip-events.publisher');
+    const known = await require('../../config/redis').get(versionKey(tripId)).catch(() => null);
+    if (known != null && Number(known) === sinceSeq) {
+      return { unchanged: true, version: sinceSeq, serverNowMs: Date.now() };
+    }
+  }
   const trip = await prisma.trip.findUnique({ where: { id: tripId }, include: TRIP_INCLUDE });
   if (!trip) throw new NotFoundError('Trip');
   const isParticipant =

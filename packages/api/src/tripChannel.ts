@@ -368,16 +368,25 @@ export function subscribeToTrip({
    * client that missed an event had no mechanism to notice, let alone recover,
    * and simply displayed a stale trip until something unrelated refetched.
    */
-  const recover = async () => {
+  /**
+   * `quiet` is the polling floor's mode: no "recovering" flicker and no emit
+   * unless the server actually sent a newer snapshot — a 2 s floor must not
+   * re-render every subscriber every 2 s for a trip that has not moved.
+   */
+  const recover = async ({ quiet = false }: { quiet?: boolean } = {}) => {
     if (state.recovering) return;
-    state = { ...state, recovering: true };
-    emit();
+    if (!quiet) {
+      state = { ...state, recovering: true };
+      emit();
+    }
+    let changed = false;
     try {
       const { data } = await apiClient.get(`/rides/${tripId}/events`, {
         params: { since: state.lastSeq },
       });
       const payload = data?.data;
       if (payload?.snapshot) {
+        changed = true;
         state = {
           ...state,
           snapshot: payload.snapshot,
@@ -388,8 +397,12 @@ export function subscribeToTrip({
     } catch {
       // Left to the next reconnect, which replays from lastSeq anyway.
     } finally {
-      state = { ...state, recovering: false };
-      emit();
+      if (!quiet) {
+        state = { ...state, recovering: false };
+        emit();
+      } else if (changed) {
+        emit();
+      }
     }
   };
 
@@ -515,15 +528,33 @@ export function subscribeToTrip({
    * server's copy, discarded by `shouldApply` if a socket event ever overtakes
    * it. Slower than the socket by design; it is a floor, not a replacement.
    */
-  const OFFLINE_POLL_MS = 5_000;
-  const offlinePollTimer = setInterval(() => {
-    if (!socket.connected) void recover();
-  }, OFFLINE_POLL_MS);
+  /**
+   * THE POLLING FLOOR, ALWAYS ON (Q6 — Bolt's versioned polling, measured in
+   * its app: 1 s searching, 4 s riding, 2 s otherwise; ours a touch slower for
+   * a database 280 ms away). The socket stays the fast path; this is the floor
+   * under it even while it is "connected" — a socket can be open and silently
+   * not delivering. The server answers "unchanged" from Redis when the version
+   * has not moved, so a quiet trip costs no database read.
+   */
+  const pollMsFor = (status?: string) => {
+    if (!socket.connected) return 5_000;
+    if (status === 'REQUESTED' || status === 'MATCHING' || status === 'REASSIGNING') return 2_000;
+    if (status === 'IN_PROGRESS') return 5_000;
+    return 4_000;
+  };
+  let offlinePollTimer: ReturnType<typeof setTimeout> | undefined;
+  const pollLoop = () => {
+    if (disposed) return;
+    offlinePollTimer = setTimeout(() => {
+      void recover({ quiet: true }).finally(pollLoop);
+    }, pollMsFor((state.snapshot as { status?: string } | null)?.status));
+  };
+  pollLoop();
 
   return () => {
     disposed = true;
     clearInterval(ackTimer);
-    clearInterval(offlinePollTimer);
+    if (offlinePollTimer) clearTimeout(offlinePollTimer);
     socket.emit('trip:unsubscribe', { tripId });
     socket.off('trip:event', handleEvent);
     socket.off('connect', handleConnect);

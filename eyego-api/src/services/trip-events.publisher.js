@@ -104,7 +104,23 @@ function buildEnvelope(trip, event, snapshot) {
  * un-hear. Failures here are logged, never thrown: the database is the source
  * of truth and the client's next reconnect replays from `seq`.
  */
+/**
+ * The rider polling floor (Q6) asks "has anything moved since seq N?" every few
+ * seconds. The answer lives here, in Redis, so an unchanged trip costs no DB
+ * read: every published event records the version; a seat change (no version
+ * bump) deletes it, which forces the next poll to read the full snapshot.
+ */
+const versionKey = (tripId) => `trip:ver:${tripId}`;
+function noteVersion(tripId, seq) {
+  if (!tripId || !Number.isFinite(seq)) return;
+  require('../config/redis').set(versionKey(tripId), String(seq), 'EX', 6 * 60 * 60).catch(() => {});
+}
+function touchVersion(tripId) {
+  if (tripId) require('../config/redis').del(versionKey(tripId)).catch(() => {});
+}
+
 function publish(trip, event, snapshotOverride = null) {
+  noteVersion(trip?.id, event?.seq);
   if (!io) {
     logger.warn('trip:event dropped — socket server not wired yet');
     return;
@@ -222,6 +238,7 @@ async function publishById(tripId, event) {
  * the same push, carrying the data it should have carried all along.
  */
 async function publishSeatUpdate(tripId) {
+  touchVersion(tripId);
   if (!io || !tripId) return;
   try {
     const prisma = require('../config/database');
@@ -522,6 +539,7 @@ function publishBoardingPinRequested(tripId, bookingId) {
 }
 
 module.exports = {
+  versionKey,
   setIo,
   publish,
   publishById,
