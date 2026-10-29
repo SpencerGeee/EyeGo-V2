@@ -25,7 +25,7 @@ Verify gate per phase: `node node_modules/typescript/lib/tsc.js -p apps/rider|dr
 - [x] A4 bookSeat: running trips, span capacity, BUS_PASSED_STOP, mid-route prepaid, ETA-bounded hold, seatNumber optional
 - [x] A5 searchTrips: running trips, polyline+direction, span seats, ETA, segment fare; rider rows "Passing your stop in N min · K seats · ₵X"
 - [x] A6 POST /driver/trips/:id/stops/arrive + riderNoShow grace (NO_SHOW_GRACE_MINUTES=3) + resale
-- [ ] A7 driver stop timeline progress by ratio (busRatio on snapshot) — DEFERRED (needs busRatio on the driver snapshot; lower demo value)
+- [x] A7 driver stop timeline: GET /driver/trips/:id carries busRatio (IN_PROGRESS, same route line as the booking ratios); drops sorted by alightRatio (route order, was booking order); current drop = first one ahead of the bus (lags ≤30 s = screen refetch)
 - [x] A8 trip-notify.notifySeatPassing + 60 s sweep + rider listener + "tell me when a bus passes"
 - [x] A9 invariants + verify + commit + state/session-log
 
@@ -50,7 +50,7 @@ Verify gate per phase: `node node_modules/typescript/lib/tsc.js -p apps/rider|dr
 
 ## Phase C — shared vs private (item 2)
 - [x] Shared = "a bus is heading your way" card above the private picker (Yango AUTO_SHUTTLE pattern): seat price, opens the bus list; no bus → the private picker (whole bus × multiplier) is the fallback
-- [ ] (detour version, needs driver consent) Shared eligibility branch (drivers on trips heading the rider's way with span seats) in driver-availability + cascade kind SHARED_SEAT; accept → bookSeat on host trip; placeholder trip CANCELLED (MERGED_INTO_TRIP)
+- [ ] DEFERRED, not built — (detour version, needs driver consent) Shared eligibility branch (drivers on trips heading the rider's way with span seats) in driver-availability + cascade kind SHARED_SEAT; accept → bookSeat on host trip; placeholder trip CANCELLED (MERGED_INTO_TRIP)
 - [x] NO_SHARED_BUS → private picker shown (private = whole vehicle × multiplier, 0.5)
 
 ## Phase D — charter + N seats (items 3, 4)

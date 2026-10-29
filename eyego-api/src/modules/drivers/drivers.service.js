@@ -1083,8 +1083,27 @@ async function getTripById(driverId, tripId) {
    * digits from the response and satisfy the check without ever asking the
    * passenger, which is exactly the failure the feature is named after.
    */
+  /**
+   * WHERE THE BUS IS ALONG ITS ROUTE (A7, fixes B3), 0..1 — the same frame the
+   * bookings' boardRatio/alightRatio were measured in (one route line, from
+   * routeLineForTrip). The driver's Stop Timeline advances past a drop once the
+   * bus is beyond it, instead of sticking on the first drop until the trip ends.
+   * Only while moving with passengers; null otherwise.
+   * ponytail: refreshed with the screen's 30 s refetch, so the timeline can lag a
+   * stop by up to 30 s; push it on the location frame if that ever matters.
+   */
+  let busRatio = null;
+  if (trip.status === 'IN_PROGRESS') {
+    const [line, me] = await Promise.all([
+      require('../bookings/bookings.service').routeLineForTrip(tripId).catch(() => null),
+      prisma.driver.findUnique({ where: { id: driverId }, select: { currentLat: true, currentLng: true } }),
+    ]);
+    if (line && me) busRatio = require('../../services/trip-position.service').busRatioFor({ status: trip.status, driver: me }, line);
+  }
+
   return {
     ...scrubBookingSecrets(attachFarePerSeat(trip)),
+    busRatio,
     ratedUserIds: rated.map((r) => r.userId),
     ratedStarsByUserId: Object.fromEntries(rated.map((r) => [r.userId, r.stars])),
   };

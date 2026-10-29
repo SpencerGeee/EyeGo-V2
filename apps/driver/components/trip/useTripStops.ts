@@ -101,6 +101,8 @@ export interface TripStop {
   state: StopState;
   /** Who this stop is for. Empty for a waypoint nobody is using. */
   passengers: StopPassenger[];
+  /** DROP only: where it sits along the route, 0..1 (A7). Absent for the pickup. */
+  ratio?: number;
 }
 
 /** Booking rows that no longer occupy a seat or a stop. */
@@ -156,13 +158,19 @@ function passengerFrom(b: any): StopPassenger {
 }
 
 /** How far through the trip we are, as a stop index. */
-function currentIndexFor(status: string, stops: TripStop[]): number {
+function currentIndexFor(status: string, stops: TripStop[], busRatio: number | null = null): number {
   const s = status.toUpperCase();
   // Before departure everything is about the pickup.
   if (['SCHEDULED', 'FILLING', 'CONFIRMED', 'DRIVER_ASSIGNED', 'DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP'].includes(s)) {
     return 0;
   }
   if (s === 'IN_PROGRESS') {
+    // A7 / B3: with the bus's place on the route known, the current drop is the
+    // first one still AHEAD of it (drops are in route order, see below).
+    if (busRatio != null) {
+      const ahead = stops.findIndex((st) => st.kind === 'DROP' && (st.ratio ?? 1) > busRatio + 0.01);
+      return ahead === -1 ? stops.length - 1 : ahead;
+    }
     // The first drop that still has somebody aboard is the one being driven to.
     const next = stops.findIndex(
       (st) => st.kind === 'DROP' && st.passengers.some((p) => !p.noShow),
@@ -253,10 +261,16 @@ export function useTripStops(trip: any): UseTripStopsResult {
         [],
       );
     }
-    for (const [label, group] of byDrop) {
+    // ROUTE ORDER, not booking order: a drop's place on the road is the
+    // furthest alightRatio among its riders (null = the end of the route).
+    const ratioOf = (group: { b: any }[]) =>
+      group.reduce((m, { b }) => Math.max(m, num(b?.alightRatio) ?? 1), 0) || 1;
+    const orderedDrops = [...byDrop.entries()].sort((x, y) => ratioOf(x[1]) - ratioOf(y[1]));
+    for (const [label, group] of orderedDrops) {
       stops.push({
         id: `drop:${label}`,
         kind: 'DROP',
+        ratio: group.length ? ratioOf(group) : 1,
         title: label,
         address: null,
         lat: dropAt.get(label)?.lat ?? num(trip?.dropoffLat) ?? num(trip?.route?.destLat) ?? num(trip?.route?.destinationLat),
@@ -266,7 +280,7 @@ export function useTripStops(trip: any): UseTripStopsResult {
       });
     }
 
-    const currentIndex = currentIndexFor(status, stops);
+    const currentIndex = currentIndexFor(status, stops, num(trip?.busRatio) ?? null);
     for (let i = 0; i < stops.length; i++) {
       stops[i].state = i < currentIndex ? 'DONE' : i === currentIndex ? 'CURRENT' : 'UPCOMING';
     }

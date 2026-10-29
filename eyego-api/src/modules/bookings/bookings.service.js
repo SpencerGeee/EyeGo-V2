@@ -2062,4 +2062,5 @@ async function joinGroup(shareToken) {
 
 module.exports = {
   previewSeatFare,
+  routeLineForTrip,
   priceSeat, bookSeat, walkUpBook, resolveWalkUp, normalizePaymentMethod, createRideGroup, generateInvite, regenerateInvite, getGroup, joinGroup, cancelBooking, getUserBookings, getBooking, rateBooking, getMyRating, applyPromoCode, getActiveBooking, tipDriver, submitDispute, reportLostItem, recomputeBookingAddons, getTripFareForRider, cargoSurchargeFor };
