@@ -55,10 +55,10 @@ Verify gate per phase: `node node_modules/typescript/lib/tsc.js -p apps/rider|dr
 
 ## Phase D — charter + N seats (items 3, 4)
 - [ ] Charter product (party = capacity, private pricing, door to door) + "book the return"
-- [ ] bookSeat seats: N (one row, one pass/QR), driver shows "N passengers · 1 booking"
+- [x] bookSeat seats: N (one row), payment shows N-seat total, driver boarding shows "Name · N passengers"
 
 ## Phase E — seat map removal (item 5, D1)
-- [ ] ride/[id] → seats stepper → drop-off → payment; Cabin3D out of the path; client stops sending seatNumber
+- [x] ride/[id] → seats stepper → drop-off → payment; Cabin3D out of the path; client stops sending seatNumber (invariant added)
 
 ## Phase F — supply + admin (item 9)
 - [ ] Driver "Repeat last run"

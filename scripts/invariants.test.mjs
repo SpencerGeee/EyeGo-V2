@@ -232,3 +232,13 @@ test("Driver.status is never compared or written as 'APPROVED'", () => {
       `dispatch — driver-availability.js compares the string exactly.\n${report(hits)}`,
   );
 });
+
+test('the rider booking path has no seat picking (client 2026-10-29, D1)', () => {
+  // A trotro is boarded, not assigned: the rider chooses HOW MANY and the
+  // server counts `seats` on their stretch. A seat map back in the path
+  // re-creates the "pick a seat that is taken mid-route" problem.
+  const seat = readFileSync(join(ROOT, 'apps/rider/app/ride/[id]/seat.tsx'), 'utf8');
+  assert.ok(!/from ['"][^'"]*seat\/Cabin3D['"]/.test(seat), 'seat.tsx imports Cabin3D again');
+  const pay = readFileSync(join(ROOT, 'apps/rider/app/ride/[id]/payment.tsx'), 'utf8');
+  assert.ok(/seats:\s*seatsWanted/.test(pay), 'payment.tsx no longer sends the seat count to POST /bookings');
+});

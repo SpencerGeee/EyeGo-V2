@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { View, StyleSheet, useWindowDimensions } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, type Href } from 'expo-router';
-import { useIsFocused } from '@react-navigation/native';
 import Animated, { FadeIn, FadeInDown, FadeOut } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -11,9 +10,8 @@ import { tripsApi, bookingsApi, socketEvents, connectSocket } from '@eyego/api';
 import { useShallow } from 'zustand/react/shallow';
 import { formatGhs, clockTime } from '@eyego/utils';
 import { useRideStore } from '../../../stores/ride.store';
-import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, withOpacity, MAX_SEATS_PER_BOOKING } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
-import { layoutFor, type CabinSeat, type CabinLayout } from '../../../components/seat/VehicleCabin';
 import { RouteDropoffMap, type RouteDropoff } from '../../../components/seat/RouteDropoffMap';
 import { useThemeStore } from '../../../stores/theme.store';
 import {
@@ -27,9 +25,7 @@ import {
   goBack,
   getTierTheme,
   notify,
-  useDepthMotion,
 } from '@eyego/ui';
-import { Cabin3D } from '../../../components/seat/Cabin3D';
 import { LIVERY } from '../../../components/trip/RidePicker';
 import type { Seat } from '@eyego/types';
 
@@ -65,15 +61,12 @@ export default function SeatPickerScreen() {
   const colors = useColors();
   const isDark = useThemeStore((s) => s.isDark);
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const motion = useDepthMotion();
   const insets = useSafeAreaInsets();
-  const { width: winW, height: winH } = useWindowDimensions();
   const { id, pickupStopId, dropoffStopId: dropoffStopParam, walkUpCode } = useLocalSearchParams<{ id: string; pickupStopId?: string; dropoffStopId?: string; walkUpCode?: string }>();
   const queryClient = useQueryClient();
   const { setSelectedSeat, selectedTrip } = useRideStore(
     useShallow((s) => ({ setSelectedSeat: s.setSelectedSeat, selectedTrip: s.selectedTrip })),
   );
-  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const { data, isError, refetch } = useQuery({
     queryKey: ['seats', id],
@@ -95,11 +88,6 @@ export default function SeatPickerScreen() {
 
   const rawSeats = (data?.data?.data as any)?.seats || (data?.data as any)?.seats || [];
 
-  /** The rider's own releasable hold reads as free and is chosen for them (`isMyHold`). */
-  const myHoldNumbers = useMemo(
-    () => new Set<number>(rawSeats.filter((s: any) => s?.isMyHold).map((s: any) => s.number)),
-    [rawSeats],
-  );
   const seats: Seat[] = useMemo(
     () =>
       rawSeats.map((s: any) => ({
@@ -117,55 +105,25 @@ export default function SeatPickerScreen() {
     [rawSeats],
   );
 
-  /** Capacity picks the body template — a saloon is never drawn as a minibus. */
-  const seatCount =
-    (selectedTrip as { vehicle?: { seaterCount?: number } })?.vehicle?.seaterCount ??
-    (selectedTrip as { maxSeats?: number })?.maxSeats ??
-    seats.length;
-
-  const selectedSeat = seats.find((s) => s.id === selectedId);
+  /**
+   * NO SEAT PICKING (client 2026-10-29, D1/D7). A trotro is boarded, not
+   * assigned: the rider says HOW MANY, one booking covers them all, and they
+   * sit anywhere. Free seats are the rider's own stretch when search sent them
+   * (a seat freed at Kaneshie is free from Kaneshie on), else the live count.
+   */
   const freeCount = seats.filter((s) => s.status === 'AVAILABLE').length;
-  const heldCount = seats.filter((s) => (s.status as string) === 'PENDING').length;
-  const cabinLayout = useMemo(() => layoutFor(seatCount || seats.length || 4), [seatCount, seats.length]);
-
-  // Arrive holding a seat → it is already chosen. Once.
-  const preselectedRef = useRef(false);
+  const spanFree = (selectedTrip as { availableSeats?: number })?.availableSeats;
+  const freeForMe = typeof spanFree === 'number' ? Math.min(spanFree, seats.length ? freeCount : spanFree) : freeCount;
+  const maxSeats = Math.max(1, Math.min(MAX_SEATS_PER_BOOKING, freeForMe));
+  const [count, setCount] = useState(1);
   useEffect(() => {
-    if (preselectedRef.current || selectedId || myHoldNumbers.size === 0) return;
-    preselectedRef.current = true;
-    setSelectedId(`seat-${Math.min(...myHoldNumbers)}`);
-  }, [myHoldNumbers, selectedId]);
-
-  // The map is live: a seat taken from under the rider is let go, and said so.
-  // Focus-gated — this screen stays mounted under payment, where the rider's
-  // own booking turns this very seat OCCUPIED.
-  const isFocused = useIsFocused();
-  useEffect(() => {
-    if (!isFocused || !selectedSeat || selectedSeat.status === 'AVAILABLE') return;
-    setSelectedId(null);
-    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
-    notify(`Seat ${selectedSeat.number} was just taken`, 'Pick another — the seat map is live.', { tone: 'info' });
-  }, [selectedSeat, isFocused]);
-
-  const chooseSeat = (seatId: string | null) => {
+    if (count > maxSeats) setCount(maxSeats);
+  }, [count, maxSeats]);
+  const step = (d: number) => {
     void Haptics.selectionAsync().catch(() => {});
-    setSelectedId(seatId);
+    setCount((c) => Math.min(maxSeats, Math.max(1, c + d)));
   };
-
-  /** "Pick for me": windows front to back, then the front seat, the bench ends, the rest. */
-  const pickForMe = () => {
-    const free = new Set(seats.filter((x) => x.status === 'AVAILABLE').map((x) => x.number));
-    const { rows, bench, front } = cabinLayout;
-    const order = [
-      ...rows.flatMap((r) => [r.pair[0], r.single].filter((n): n is number => n != null)),
-      ...front,
-      ...bench.filter((_, i) => i === 0 || i === bench.length - 1),
-      ...rows.map((r) => r.pair[1]),
-      ...bench,
-    ];
-    const best = order.find((n) => free.has(n));
-    if (best != null) chooseSeat(`seat-${best}`);
-  };
+  const isFull = seats.length > 0 && freeForMe <= 0;
 
   const busTier = String((selectedTrip as any)?.tier ?? 'ECO').toUpperCase() as keyof typeof LIVERY;
   const tierTheme = getTierTheme(colors as any, busTier);
@@ -225,8 +183,8 @@ export default function SeatPickerScreen() {
   const stopName = dropoffStopId ? stops.find((s) => s.id === dropoffStopId)?.name ?? null : null;
 
   const handleConfirm = () => {
-    if (!selectedSeat) return;
-    setSelectedSeat(selectedSeat);
+    if (isFull) return;
+    setSelectedSeat(null);
     // Both stop ids travel to payment, which is what books the seat.
     const query = [
       pickupStopId ? `pickupStopId=${pickupStopId}` : '',
@@ -235,14 +193,12 @@ export default function SeatPickerScreen() {
       dropoff ? `dropoffLat=${dropoff.latitude}&dropoffLng=${dropoff.longitude}` : '',
       dropoff?.address ? `dropoffAddress=${encodeURIComponent(dropoff.address)}` : '',
       `tier=${busTier}`,
+      `seats=${count}`,
     ]
       .filter(Boolean)
       .join('&');
     goDeeper(`/ride/${id}/payment${query ? `?${query}` : ''}` as Href);
   };
-
-  // The cabin gets whatever the header and the sheet's peek leave.
-  const cabinSize = Math.max(220, Math.min(winW - spacing.lg * 2, winH - insets.top - insets.bottom - 360, 440));
 
   // Fail loudly: never a fabricated seat layout.
   if (isError) {
@@ -263,38 +219,27 @@ export default function SeatPickerScreen() {
   }
 
   // ── The sheet ───────────────────────────────────────────────────────────
+  const total = farePesewas != null ? farePesewas * count : null;
   const peek = (
     <View style={styles.peekRow}>
-      <View style={[styles.seatTile, selectedSeat && { backgroundColor: withOpacity(colors.primary, 0.14), borderColor: withOpacity(colors.primary, 0.5) }]}>
-        {selectedSeat ? (
-          <Animated.Text key={selectedSeat.id} entering={FadeIn.duration(180)} style={[styles.seatTileNum, { color: colors.primary }]}>
-            {selectedSeat.number}
-          </Animated.Text>
-        ) : (
-          <Ionicons name="person-outline" size={20} color={colors.onSurfaceVariant} />
-        )}
+      <View style={[styles.seatTile, { backgroundColor: withOpacity(colors.primary, 0.14), borderColor: withOpacity(colors.primary, 0.5) }]}>
+        <Animated.Text key={count} entering={FadeIn.duration(180)} style={[styles.seatTileNum, { color: colors.primary }]}>
+          {count}
+        </Animated.Text>
       </View>
       <View style={{ flex: 1, gap: 2 }}>
         <Text style={styles.peekTitle} numberOfLines={1}>
-          {selectedSeat ? `Seat ${selectedSeat.number}` : freeCount > 0 ? 'Choose your seat' : 'This ride is full'}
+          {isFull ? 'This bus is full' : `${count} seat${count === 1 ? '' : 's'}`}
         </Text>
-        {selectedSeat ? (
-          <Text variant="caption" color={colors.onSurfaceVariant} numberOfLines={1}>
-            {myHoldNumbers.has(selectedSeat.number) ? 'Held for you · ' : ''}
-            {describeSeat(selectedSeat.number, cabinLayout)}
-          </Text>
-        ) : freeCount > 0 ? (
-          <Pressable onPress={pickForMe} hitSlop={8} style={styles.pickForMe} accessibilityRole="button" accessibilityLabel="Pick the best seat for me">
-            <Ionicons name="sparkles" size={13} color={colors.primary} />
-            <Text style={[styles.pickForMeText, { color: colors.primary }]}>Pick the best seat for me</Text>
-          </Pressable>
-        ) : null}
+        <Text variant="caption" color={colors.onSurfaceVariant} numberOfLines={1}>
+          {count > 1 ? 'One booking · everyone boards with it' : 'Sit anywhere on board'}
+        </Text>
       </View>
-      {farePesewas != null ? (
+      {total != null ? (
         <View style={styles.fareBlock}>
-          <Text style={[styles.fareValue, repricing && { opacity: 0.55 }]}>{formatGhs(farePesewas)}</Text>
+          <Text style={[styles.fareValue, repricing && { opacity: 0.55 }]}>{formatGhs(total)}</Text>
           <Text variant="caption" color={saving > 0 ? colors.primary : colors.onSurfaceVariant}>
-            {saving > 0 ? `You save ${formatGhs(saving)}` : 'per seat'}
+            {saving > 0 ? `You save ${formatGhs(saving * count)}` : count > 1 ? `${formatGhs(farePesewas!)} each` : 'per seat'}
           </Text>
         </View>
       ) : null}
@@ -365,9 +310,9 @@ export default function SeatPickerScreen() {
   const footer = (
     <Button
       variant="glow"
-      label={selectedSeat ? `Continue · Seat ${selectedSeat.number}` : 'Choose a seat'}
+      label={isFull ? 'This bus is full' : `Continue · ${count} seat${count === 1 ? '' : 's'}`}
       onPress={handleConfirm}
-      disabled={!selectedId}
+      disabled={isFull}
     />
   );
 
@@ -379,36 +324,32 @@ export default function SeatPickerScreen() {
         <Header colors={colors} styles={styles} subtitle={routeLabel} />
         {seats.length ? (
           <Animated.View entering={FadeInDown.duration(280)} style={styles.facts}>
-            <Fact styles={styles} dot={freeCount > 2 ? colors.primary : colors.statusWarning} label={freeCount === 0 ? 'Full' : `${freeCount} seat${freeCount === 1 ? '' : 's'} left`} />
+            <Fact styles={styles} dot={freeForMe > 2 ? colors.primary : colors.statusWarning} label={freeForMe <= 0 ? 'Full' : `${freeForMe} seat${freeForMe === 1 ? '' : 's'} left`} />
             {departs && departs !== '—' ? <Fact styles={styles} icon="time-outline" color={colors.onSurfaceVariant} label={`Leaves ${departs}`} /> : null}
-            <Fact styles={styles} icon="bus-outline" color={tierTheme.accent} label={`${tierTheme.label} · ${cabinLayout.label}`} />
+            <Fact styles={styles} icon="bus-outline" color={tierTheme.accent} label={tierTheme.label} />
           </Animated.View>
         ) : null}
       </View>
 
-      {/* The cabin — the only vehicle on this page. */}
+      {/* How many — the whole question now (D1). */}
       <View style={styles.stage}>
-        <Cabin3D
-          seats={seats}
-          seatCount={seatCount}
-          selectedId={selectedId}
-          onSelect={(seat: CabinSeat) => {
-            if (seat.status !== 'AVAILABLE') return;
-            chooseSeat(selectedId === seat.id ? null : seat.id);
-          }}
-          size={cabinSize}
-          accent={colors.primary}
-          body={(LIVERY[busTier] ?? LIVERY.ECO).body}
-          dark={isDark}
-          motion={motion}
-        />
-        <View style={styles.legend}>
-          <LegendItem colors={colors} tone="free" label="Free" />
-          <LegendItem colors={colors} tone="selected" label="Yours" />
-          {heldCount > 0 ? <LegendItem colors={colors} tone="pending" label="On hold" /> : null}
-          <LegendItem colors={colors} tone="taken" label="Taken" />
-          {motion ? <Text variant="caption" color={colors.onSurfaceVariant}>· swipe to look around</Text> : null}
+        <Text style={styles.sectionLabel}>HOW MANY SEATS?</Text>
+        <View style={styles.stepper}>
+          <Pressable onPress={() => step(-1)} disabled={count <= 1} hitSlop={8} accessibilityRole="button" accessibilityLabel="Fewer seats" style={[styles.stepBtn, count <= 1 && { opacity: 0.35 }]}>
+            <Ionicons name="remove" size={26} color={colors.onSurface} />
+          </Pressable>
+          <Animated.Text key={`n${count}`} entering={FadeIn.duration(160)} style={[styles.stepValue, { color: colors.onSurface }]}>
+            {count}
+          </Animated.Text>
+          <Pressable onPress={() => step(1)} disabled={count >= maxSeats} hitSlop={8} accessibilityRole="button" accessibilityLabel="More seats" style={[styles.stepBtn, count >= maxSeats && { opacity: 0.35 }]}>
+            <Ionicons name="add" size={26} color={colors.onSurface} />
+          </Pressable>
         </View>
+        <Text variant="caption" color={colors.onSurfaceVariant} style={{ textAlign: 'center', paddingHorizontal: spacing.xl }}>
+          {count > 1
+            ? `Booking for others too? They don't need the app — they board with your booking.`
+            : 'Seats are not numbered. Board and sit anywhere.'}
+        </Text>
       </View>
 
       <SnapSheet peek={peek} half={half} footer={footer} backgroundColor={colors.surfaceCard} radius={28} gutter={spacing.xl} />
@@ -437,19 +378,6 @@ export default function SeatPickerScreen() {
       ) : null}
     </View>
   );
-}
-
-/** Where a seat is, in the words a rider uses: window or aisle, which row. */
-function describeSeat(n: number, layout: CabinLayout): string {
-  if (layout.front.includes(n)) return 'Front · beside the driver';
-  const ri = layout.rows.findIndex((r) => r.pair.includes(n) || r.single === n);
-  if (ri >= 0) {
-    const r = layout.rows[ri];
-    return `${r.pair[1] === n ? 'Aisle' : 'Window'} · Row ${ri + 1}`;
-  }
-  const bi = layout.bench.indexOf(n);
-  if (bi >= 0) return bi === 0 || bi === layout.bench.length - 1 ? 'Back row · window' : 'Back row · middle';
-  return '';
 }
 
 /** One answer to "where do you get off", as a selectable row. */
@@ -549,35 +477,6 @@ function Header({
   );
 }
 
-function LegendItem({
-  colors,
-  tone,
-  label,
-}: {
-  colors: Colors;
-  tone: 'free' | 'selected' | 'pending' | 'taken';
-  label: string;
-}) {
-  const bg =
-    tone === 'selected' ? colors.primary
-    : tone === 'pending' ? `${colors.statusWarning}22`
-    : tone === 'taken' ? colors.surfaceContainerHigh
-    : 'transparent';
-  const border =
-    tone === 'selected' ? colors.primary
-    : tone === 'pending' ? colors.statusWarning
-    : tone === 'taken' ? colors.outlineVariant
-    : `${colors.onSurface}99`;
-  return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-      <View style={{ width: 10, height: 10, borderRadius: 3, backgroundColor: bg, borderWidth: 1.25, borderColor: border }} />
-      <Text variant="caption" color={tone === 'selected' ? colors.onSurface : colors.onSurfaceVariant}>
-        {label}
-      </Text>
-    </View>
-  );
-}
-
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     root: { flex: 1, backgroundColor: colors.backgroundDeep ?? colors.background },
@@ -623,7 +522,18 @@ const makeStyles = (colors: Colors) =>
     liveDot: { width: 7, height: 7, borderRadius: 3.5 },
     // Centred in what the header leaves, lifted clear of the sheet's peek.
     stage: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 170, gap: spacing.sm },
-    legend: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', gap: spacing.base },
+    stepper: { flexDirection: 'row', alignItems: 'center', gap: spacing.xl, marginVertical: spacing.md },
+    stepBtn: {
+      width: 56,
+      height: 56,
+      borderRadius: 28,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 2,
+      borderColor: colors.outlineVariant,
+      backgroundColor: colors.surfaceCard,
+    },
+    stepValue: { fontFamily: fonts.semiBold, fontSize: 64, minWidth: 80, textAlign: 'center', fontVariant: ['tabular-nums'] },
 
     peekRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
     seatTile: {

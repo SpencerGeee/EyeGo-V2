@@ -1258,7 +1258,8 @@ export default function ActiveTripScreen() {
       .map((b) => ({
         bookingId: b.id as string,
         seatNumber: typeof b.seatNumber === 'number' ? b.seatNumber : 0,
-        name: (b.guestName ?? b.user?.name ?? 'Passenger') as string,
+        // One booking, N people (D7): the driver lets the whole party on.
+        name: `${b.guestName ?? b.user?.name ?? 'Passenger'}${seatsOf(b) > 1 ? ` · ${seatsOf(b)} passengers` : ''}`,
       }));
 
   /**

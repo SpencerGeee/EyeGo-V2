@@ -21,7 +21,7 @@ import * as Haptics from 'expo-haptics';
 import { useShallow } from 'zustand/react/shallow';
 import { useRideStore } from '../../../stores/ride.store';
 import { useAuthStore } from '../../../stores/auth.store';
-import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, springs, clampSeats } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
 import { Text, Button, AnimatedFareText, getTierTheme, depthEnter, useDepthMotion, Cascade } from '@eyego/ui';
 import Animated, { FadeIn } from 'react-native-reanimated';
@@ -35,8 +35,10 @@ type PaymentTab = 'momo' | 'card' | 'cash' | 'wallet';
 export default function PaymentScreen() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const { id, pickupStopId, dropoffStopId, dropoffLat, dropoffLng, dropoffAddress, tier: busTierParam, walkUpCode } = useLocalSearchParams<{
+  const { id, pickupStopId, dropoffStopId, dropoffLat, dropoffLng, dropoffAddress, tier: busTierParam, walkUpCode, seats: seatsParam } = useLocalSearchParams<{
     walkUpCode?: string;
+    /** How many seats (D1/D7: no seat picking — one booking, N people). */
+    seats?: string;
     id: string;
     tier?: string;
     pickupStopId?: string;
@@ -46,6 +48,9 @@ export default function PaymentScreen() {
     dropoffAddress?: string;
   }>();
   const amountEnter = useDepthMotion() ? depthEnter : FadeIn.duration(200);
+  const seatsWanted = clampSeats(Number(seatsParam) || 1);
+  /** A held row only speaks for this checkout if it holds the same number of seats. */
+  const sameSeatCount = (b: unknown) => !seatsParam || (((b as { seats?: number })?.seats ?? 1) === seatsWanted);
   const busTier = String(busTierParam ?? 'ECO').toUpperCase() as keyof typeof LIVERY;
   const busModel = useMemo(
     () => minibus({ accent: getTierTheme(colors, busTier).accent, body: (LIVERY[busTier] ?? LIVERY.ECO).body }),
@@ -146,7 +151,8 @@ export default function PaymentScreen() {
   const bookingIsForThisCheckout =
     !!activeBooking &&
     activeBooking.tripId === id &&
-    activeBooking.seatNumber === selectedSeat?.number &&
+    (selectedSeat ? activeBooking.seatNumber === selectedSeat.number : true) &&
+    sameSeatCount(activeBooking) &&
     (activeBooking.guestName ?? null) === (guestInfo?.name ?? null) &&
     (activeBooking.status === 'SEAT_HELD' || activeBooking.status === 'PENDING');
 
@@ -170,12 +176,14 @@ export default function PaymentScreen() {
   });
   const serverPerSeat =
     (bookingIsForThisCheckout ? activeBooking?.fareAmountPesewas : null) ??
-    farePreview?.farePerSeatPesewas ??
-    // No `computedFare` here: it is PERSISTED, so while the preview loaded it
-    // painted whatever an earlier flow last wrote — the price "going up" when
-    // the rider came back to this page.
-    selectedTrip?.farePerSeatPesewas ??
-    0;
+    // Before the row exists: the per-seat preview × seats (the row itself
+    // stores the N-seat total, so a held booking is never multiplied again).
+    ((farePreview?.farePerSeatPesewas ??
+      // No `computedFare` here: it is PERSISTED, so while the preview loaded it
+      // painted whatever an earlier flow last wrote — the price "going up" when
+      // the rider came back to this page.
+      selectedTrip?.farePerSeatPesewas ??
+      0) * seatsWanted);
   // Same reasoning as the fare above: an en-route discount belongs to one
   // specific held booking, so a stale row must not annotate this checkout.
   const enRouteRatio: number | null = bookingIsForThisCheckout
@@ -237,7 +245,7 @@ export default function PaymentScreen() {
   const fareAmountPesewas =
     groupTotalPesewas != null && groupTotalPesewas > 0 ? groupTotalPesewas : serverPerSeat;
   // How many seats this one figure buys — shown, not multiplied.
-  const fareSeatCount = groupTotalPesewas != null && groupTotalPesewas > 0 ? groupFare?.seatCount ?? 1 : 1;
+  const fareSeatCount = groupTotalPesewas != null && groupTotalPesewas > 0 ? groupFare?.seatCount ?? 1 : seatsWanted;
 
   // Free a SEAT_HELD booking immediately on a hard payment failure instead of
   // waiting up to ~15 min for the server seat-hold sweep. Best-effort and
@@ -326,16 +334,18 @@ export default function PaymentScreen() {
         !!activeBooking &&
         activeBooking.tripId === id &&
         (selectedSeat ? activeBooking.seatNumber === selectedSeat.number : true) &&
+        sameSeatCount(activeBooking) &&
         (activeBooking.guestName ?? null) === (guestInfo?.name ?? null) &&
         payable(activeBooking.status);
       let bookingId = resumable ? activeBooking?.id ?? '' : '';
       attemptBookingIdRef.current = bookingId;
       try {
-        if (!bookingId && id && selectedSeat) {
+        if (!bookingId && id && (selectedSeat || seatsParam)) {
           const { data: bookingData } = await bookingsApi.create({
             tripId: id,
-            seatId: selectedSeat.id,
-            seatNumber: selectedSeat.number,
+            // No seat picking (D1): the server books N seats on the rider's stretch.
+            ...(selectedSeat ? { seatId: selectedSeat.id, seatNumber: selectedSeat.number } : {}),
+            seats: seatsWanted,
             paymentMethod: (activeTab === 'momo' ? 'MOMO' : activeTab === 'cash' ? 'CASH' : activeTab === 'wallet' ? 'WALLET' : 'CARD') as 'MOMO' | 'CARD' | 'WALLET',
             ...(pickupStopId ? { pickupStopId } : {}),
             // Where they get OFF, when that is not the end of the route. The
@@ -792,7 +802,7 @@ export default function PaymentScreen() {
               </Text>
             )}
             <Text variant="caption" color={colors.onSurfaceVariant}>
-              Seat #{selectedSeat?.number ?? '—'} · {selectedTrip?.origin?.address?.split(',')[0] ?? ''} → {selectedTrip?.destination?.address?.split(',')[0] ?? ''}
+              {selectedSeat ? `Seat #${selectedSeat.number}` : 'Sit anywhere'} · {selectedTrip?.origin?.address?.split(',')[0] ?? ''} → {selectedTrip?.destination?.address?.split(',')[0] ?? ''}
             </Text>
             {enRouteRatio != null && (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.xs, backgroundColor: colors.primary + '18', borderRadius: radii.full, paddingHorizontal: spacing.sm, paddingVertical: 3 }}>

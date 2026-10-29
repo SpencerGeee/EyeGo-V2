@@ -76,7 +76,10 @@ export interface Booking {
 
 export interface CreateBookingRequest {
   tripId: string;
-  seatId: string;
+  /** Optional since D1 (no seat picking): the server assigns nothing, it counts `seats`. */
+  seatId?: string;
+  /** How many seats this one booking holds (D7). Defaults to 1. */
+  seats?: number;
   seatNumber?: number;
   paymentMethod: 'MOMO' | 'CARD' | 'WALLET';
   pickupStopId?: string;
