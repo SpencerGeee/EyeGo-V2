@@ -10,6 +10,7 @@ interface Props {
 interface State {
   hasError: boolean;
   error: Error | null;
+  stack?: string;
 }
 
 export class ErrorBoundary extends Component<Props, State> {
@@ -18,13 +19,15 @@ export class ErrorBoundary extends Component<Props, State> {
     error: null,
   };
 
-  public static getDerivedStateFromError(error: Error): State {
+  public static getDerivedStateFromError(error: Error): Partial<State> {
     return { hasError: true, error };
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     captureException(error, { componentStack: errorInfo.componentStack, source: 'ErrorBoundary' });
     console.error('🚨 [Global ErrorBoundary] Caught fatal crash:', error, errorInfo);
+    // The first few components above the throw name the screen that broke.
+    this.setState({ stack: (errorInfo.componentStack ?? '').trim().split('\n').slice(0, 6).join('\n') });
   }
 
   private handleRestart = () => {
@@ -48,9 +51,15 @@ export class ErrorBoundary extends Component<Props, State> {
               The application encountered an unexpected error. Our team has been notified.
             </Text>
             
-            {__DEV__ && (
+            {/* Test builds too: a sideloaded build has no Sentry DSN, so this
+                screen is the only place the cause can be read. */}
+            {(__DEV__ || process.env.EXPO_PUBLIC_APP_ENV !== 'production') && (
               <View style={styles.devError}>
-                <Text style={styles.devErrorText}>{this.state.error?.toString()}</Text>
+                <Text style={styles.devErrorText} selectable>
+                  {this.state.error?.toString()}
+                  {'\n'}
+                  {this.state.stack}
+                </Text>
               </View>
             )}
 
@@ -107,7 +116,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 12,
     marginBottom: 24,
-    maxHeight: 150,
+    maxHeight: 220,
   },
   devErrorText: {
     color: '#FF5252',

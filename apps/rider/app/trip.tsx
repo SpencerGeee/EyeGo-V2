@@ -15,7 +15,7 @@ import { bookingsApi } from '@eyego/api';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { withOpacity, springs, fonts, fontSizes, spacing, radii, MAX_SEATS_PER_BOOKING } from '@eyego/config';
-import { SheetMetricsProvider, useCreateSheetMetrics, AppBackground, Pressable, goBack, goOut, afterTransition, morphSurfaceHidden, depthIncoming, depthOutgoing, useDepthMotion, getTierTheme } from '@eyego/ui';
+import { SheetMetricsProvider, useCreateSheetMetrics, AppBackground, Pressable, goBack, goOut, afterTransition, morphSurfaceHidden, useDepthMotion, getTierTheme } from '@eyego/ui';
 import { HeroBusProvider, minibus } from '@eyego/maps';
 import { LIVERY, type RideTierId } from '../components/trip/RidePicker';
 import { useRideEnded } from '../stores/rideEnded.store';
@@ -145,6 +145,14 @@ const CONTAINER_TRANSFORM_INTO: Partial<Record<TripStage, readonly TripStage[]>>
  * time and make the exit feel clipped.
  */
 const FADE_THROUGH_PIVOT = 0.35;
+
+/**
+ * Paged swaps: the windows of spring progress over which the outgoing page
+ * leaves and the incoming one (and the map, when it is arriving) appears.
+ * They overlap by design — see `incomingStyle`.
+ */
+const OVERLAP_OUT = [0, 0.55];
+const OVERLAP_IN = [0.06, 0.6];
 
 /**
  * Where a control has to sit to clear TripMap's recentre chip.
@@ -636,8 +644,9 @@ export default function TripScreen() {
                 ? cancelledBy === 'DRIVER' && tripStatus !== 'NO_SHOW'
                   ? 'DRIVER_CANCELLED'
                   : 'DRIVER_NO_SHOW'
-                : cancelledBy === 'RIDER'
-                  ? 'RIDER_CANCELLED'
+                : cancelledBy === 'RIDER' || !(snapshot as any)?.driver
+                  ? // Nobody accepted it, so no driver could have cancelled it.
+                    'RIDER_CANCELLED'
                   : 'DRIVER_CANCELLED',
         refunded: prepaid,
         destinationLabel:
@@ -820,7 +829,10 @@ export default function TripScreen() {
   const mapVeilStyle = useAnimatedStyle(() => {
     const from = previousStageDrawsMap ? 1 : 0;
     const to = currentStageDrawsMap ? 1 : 0;
-    return { opacity: from + (to - from) * progress.value };
+    // Arrives on the incoming page's own window (OVERLAP below), so the map
+    // and the sheet over it come in together and the floor never shows.
+    const t = interpolate(Math.min(progress.value, 1), OVERLAP_IN, [0, 1], 'clamp');
+    return { opacity: from + (to - from) * t };
   }, [currentStageDrawsMap, previousStageDrawsMap]);
 
   /**
@@ -853,14 +865,23 @@ export default function TripScreen() {
   const depthDir =
     rendered.previous != null && TRIP_STAGE_ORDER.indexOf(rendered.current) < TRIP_STAGE_ORDER.indexOf(rendered.previous) ? -1 : 1;
 
+  /**
+   * PAGED SWAPS OVERLAP — NEVER FADE THROUGH THE FLOOR.
+   *
+   * BUGFIX (device recording 2026-10-30: "no morphing", "looks cheap"). The
+   * depth turn was a fade-THROUGH: the old page gone by 30 % of the spring, the
+   * new one starting at 30 %. On every stage that owns the screen that is a
+   * frame-exact moment with nothing on it but the black floor — measured at
+   * ~300 ms of pure black on Where-to → Available rides and Ready → Choose
+   * ride. Yango and Uber never show the floor: the next screen (and the map
+   * under it) is already arriving while the last one is still leaving.
+   */
   const incomingStyle = useAnimatedStyle(() => {
-    // Clamped for opacity and the 3D turn; only the rise may overshoot (bus found).
-    if (depthOn) return depthIncoming(Math.min(progress.value, 1), depthDir);
     if (!isContainerTransform) {
-      // Paged: rises the last 16 pt as it fades in.
+      // Opacity clamped; the rise reads the raw spring so it may overshoot.
       return {
-        opacity: Math.min(progress.value, 1),
-        transform: [{ translateY: (1 - progress.value) * 16 }],
+        opacity: interpolate(Math.min(progress.value, 1), OVERLAP_IN, [0, 1], 'clamp'),
+        transform: [{ translateY: (1 - progress.value) * 28 * depthDir }],
       };
     }
     // Container transform: nothing until the outgoing content has gone, then
@@ -869,14 +890,14 @@ export default function TripScreen() {
       opacity: interpolate(progress.value, [FADE_THROUGH_PIVOT, 1], [0, 1], 'clamp'),
       transform: [{ translateY: 0 }],
     };
-  }, [isContainerTransform, depthOn, depthDir]);
+  }, [isContainerTransform, depthDir]);
 
   const outgoingStyle = useAnimatedStyle(() => {
-    if (depthOn) return depthOutgoing(Math.min(progress.value, 1), depthDir);
     if (!isContainerTransform) {
+      const p = Math.min(progress.value, 1);
       return {
-        opacity: 1 - progress.value,
-        transform: [{ translateY: progress.value * -12 }],
+        opacity: interpolate(p, OVERLAP_OUT, [1, 0], 'clamp'),
+        transform: [{ translateY: p * -18 * depthDir }],
       };
     }
     /**
@@ -889,7 +910,7 @@ export default function TripScreen() {
       opacity: interpolate(progress.value, [0, FADE_THROUGH_PIVOT], [1, 0], 'clamp'),
       transform: [{ translateY: 0 }, { scale: 1 }],
     };
-  }, [isContainerTransform, depthOn, depthDir]);
+  }, [isContainerTransform, depthDir]);
 
   /**
    * The hero bus, in the livery of the class the rider has chosen — one object

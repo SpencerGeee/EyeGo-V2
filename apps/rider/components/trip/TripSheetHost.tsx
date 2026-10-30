@@ -33,10 +33,10 @@ const SHEET_STYLE: Record<TripStage, SheetChrome> = {
   // Once a ride exists the panel carries money and identity: solid, so nothing
   // behind it competes with a fare or a plate number.
   request: { radius: 28, glass: false },
-  assigned: { radius: 28, glass: false, collapsed: 0.44, aurora: 0.13 },
+  assigned: { radius: 28, glass: false, collapsed: 0.44 },
   // Less than `assigned`: the map earns more room once the rider is moving
   // through it rather than waiting at a kerb.
-  tracking: { radius: 28, glass: false, collapsed: 0.34, aurora: 0.15 },
+  tracking: { radius: 28, glass: false, collapsed: 0.34 },
 };
 
 export interface TripSheetHostProps {
@@ -62,7 +62,9 @@ export function TripSheetHost({ current, previous, retired = false }: TripSheetH
       chromeFor={SHEET_STYLE}
       fallbackChrome={SHEET_STYLE.tracking}
       auroraColor={colors.primary}
-      solidBackground={colors.background}
+      // Uber-flat (2026-10-30): no aurora wash, and the same fill as the
+      // Configure sheet so the hand-off between them has no seam.
+      solidBackground={colors.backgroundDeep}
       stageOrder={TRIP_STAGE_ORDER}
       liveStages={LIVE_STAGES}
     />

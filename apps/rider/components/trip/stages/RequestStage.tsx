@@ -24,7 +24,7 @@ import { useTripFlow } from '../../../stores/tripFlow.store';
 import { useShallow } from 'zustand/react/shallow';
 import { useRideStore } from '../../../stores/ride.store';
 import { useTripStore, isTerminal } from '../../../stores/trip.store';
-import { useRideEnded } from '../../../stores/rideEnded.store';
+import { useRideEnded, noteSelfCancel } from '../../../stores/rideEnded.store';
 import { shareSearchingTrip } from '../../../utils/safety';
 import { consumePickedPlace } from '../../../utils/placePickerResult';
 import { byDeparture, departureLabel, seatsLeft } from '../../../utils/tripGroups';
@@ -977,8 +977,17 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
       return;
     }
     setCancelling(true);
+    /**
+     * OPTIMISTIC, LIKE UBER (device recording 2026-10-30: the button spun for
+     * ~2 s on the Frankfurt round-trip, and the cancel's own socket echo landed
+     * first and was announced as "Your driver cancelled"). Mark it ours before
+     * anything can echo, clear what Home reads, leave now, confirm in the
+     * background. A refusal (a driver accepted in that instant) is reported and
+     * Home's refetch brings the live ride back.
+     */
+    noteSelfCancel(tripId);
+    const cancelled = ridesApi.cancel(tripId);
     try {
-      await ridesApi.cancel(tripId);
       setPendingTripRequest(null);
       useTripStore.getState().unwatch();
       // The home screen's live-ride card reads a CACHED `['bookings','active']`.
@@ -1010,12 +1019,14 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
       queryClient.setQueryData(['rides', 'active'], (old: any) =>
         old ? { ...old, trip: null, dispatch: null } : old,
       );
-      queryClient.invalidateQueries({ queryKey: ['rides', 'active'] });
       goOut('/(tabs)/home');
+      await cancelled;
     } catch (err: any) {
       const msg = err?.response?.data?.message;
       notify('Could not cancel', msg ?? 'A driver may have already accepted — check your Activity tab.');
     } finally {
+      // After the server answered, so the refetch cannot resurrect the trip.
+      queryClient.invalidateQueries({ queryKey: ['rides', 'active'] });
       setCancelling(false);
     }
   };
@@ -1515,7 +1526,10 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
           <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ textDecorationLine: 'underline' }}>Back to home</Text>
         </Pressable>
       </View>
-    ) : conflict ? null : (
+    ) : conflict || status === 'sending' ? null : (
+      // Not while sending: a big "Back to home" for the half-second before the
+      // search starts was the "Sending your request" card that popped between
+      // Review and Finding your driver (device recording 2026-10-30).
       <Button
         label="Back to home"
         onPress={() => {

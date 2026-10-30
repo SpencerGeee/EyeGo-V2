@@ -117,3 +117,8 @@ screenshots/
 # Third-party app bundles used for research — never commit
 *.xapk
 *.apkm
+
+# Device screen recordings (hundreds of MB)
+*.MP4
+*.mov
+*.MOV

@@ -50,6 +50,28 @@ export function createSheetMetrics(screenHeight = 0): SheetMetrics {
 }
 
 /**
+ * ONE SHEET, NOT TWO — the hand-off.
+ *
+ * A sheet mounting while another surface's edge is still published (the stage
+ * it replaces is still on screen, or unmounts in this same commit — its
+ * cleanup runs after our layout effect) starts AT that edge instead of below
+ * the screen. Its first spring is then a resize, which is what the rider
+ * should see when "Review" becomes "Finding your driver": the same sheet
+ * changing height, not one falling away and another rising.
+ *
+ * Call from a layout effect on mount. `minTop`/`screenH` bound a sane edge.
+ */
+export function seedFromLiveEdge(
+  metrics: SheetMetrics,
+  y: SharedValue<number>,
+  minTop: number,
+  screenH: number,
+): void {
+  const edge = metrics.top.value;
+  if (Number.isFinite(edge) && edge >= minTop - 1 && edge < screenH - 24) y.value = edge;
+}
+
+/**
  * Created lazily rather than at module scope. Module-scope `makeMutable` runs
  * during bundle evaluation, before the Reanimated native module is guaranteed
  * to be installed — the same class of startup crash the Skia runtime effects

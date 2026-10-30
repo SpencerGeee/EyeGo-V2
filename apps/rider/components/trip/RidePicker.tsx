@@ -1,6 +1,5 @@
 import React, { useMemo } from 'react';
 import { View, StyleSheet } from 'react-native';
-import Animated, { FadeIn, FadeOut, ReduceMotion } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { minibus, HeroBusSlot } from '@eyego/maps';
 import { fonts, fontSizes, spacing } from '@eyego/config';
@@ -126,7 +125,10 @@ function Row({
       haptic="none" // `pick` already ticks; two buzzes per tap felt broken
       style={({ pressed }) => [
         styles.row,
-        on ? { borderWidth: 2, borderColor: colors.primary } : { borderWidth: 1, borderColor: colors.outlineVariant },
+        // Uber-flat (2026-10-30): rows are rows, not cards. Only the chosen one
+        // gets a surface — and an edge in its own tier colour. The 2 pt border
+        // is always there (transparent when off) so selecting never shifts text.
+        on ? { borderColor: t.accent, backgroundColor: colors.surfaceCard } : null,
         unavailable && !on && { opacity: 0.55 },
         pressed && !on && { opacity: 0.85 },
       ]}
@@ -134,14 +136,6 @@ function Row({
       accessibilityState={{ selected: on }}
       accessibilityLabel={`${t.label}. ${when}${option.price != null ? `. ${formatGhs(option.price)}` : ''}`}
     >
-      {on ? (
-        <Animated.View
-          entering={FadeIn.duration(200).reduceMotion(ReduceMotion.System)}
-          exiting={FadeOut.duration(150)}
-          style={[StyleSheet.absoluteFill, { backgroundColor: `${colors.primary}14` }]}
-          pointerEvents="none"
-        />
-      ) : null}
       <View style={styles.bus}>
         {/* Always mounted, so becoming the chosen row is a CHANGE it can turn on. */}
         <HeroBusSlot id={`ride-row-${option.id}`} size={BUS} model={model} turnKey={on ? 'on' : ''} />
@@ -169,7 +163,7 @@ function Row({
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    list: { gap: spacing.sm },
+    list: { gap: 2 },
     row: {
       minHeight: ROW_H,
       borderRadius: 16,
@@ -179,7 +173,8 @@ const makeStyles = (colors: Colors) =>
       gap: spacing.md,
       paddingLeft: spacing.sm,
       paddingRight: spacing.base,
-      backgroundColor: colors.surfaceCard,
+      borderWidth: 2,
+      borderColor: 'transparent',
     },
     bus: { width: BUS, height: BUS, alignItems: 'center', justifyContent: 'center' },
     middle: { flex: 1, minWidth: 0, gap: 2 },

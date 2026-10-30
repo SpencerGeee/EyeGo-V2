@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   StyleSheet,
   View,
@@ -18,7 +18,7 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { springs } from '@eyego/config';
 import { usePanelMotion, type PanelState } from './usePanelMotion';
-import { useSheetMetrics, type SheetMetrics } from './sheetMetrics';
+import { seedFromLiveEdge, useSheetMetrics, type SheetMetrics } from './sheetMetrics';
 
 /**
  * THE ONE SHEET.
@@ -178,6 +178,13 @@ export function MorphSheet({
     spring,
     onStateChange,
   });
+
+  // Open at the edge a sheet leaving in this same commit left behind — see
+  // `seedFromLiveEdge` in sheetMetrics.
+  useLayoutEffect(() => {
+    if (animateOnMount) seedFromLiveEdge(metrics, y, minTop, screenH);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /**
    * Publish the edge. A reaction rather than a write inside the spring, because

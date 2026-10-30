@@ -154,6 +154,21 @@ function captureJourney(): RideEndedJourney | null {
   }
 }
 
+/**
+ * Trips this rider cancelled themselves, this session.
+ *
+ * BUGFIX (device recording 2026-10-30: cancelling a search showed "Your driver
+ * cancelled"). The cancel races its own echo: the socket frame and the trip
+ * surface's terminal snapshot both arrive while `ridesApi.cancel` is still in
+ * flight, and neither carries `cancelledBy` for a trip nobody accepted — so
+ * the surface fell through to its DRIVER_CANCELLED default. Whoever raises the
+ * ending, a trip noted here is the rider's own cancel and is not announced.
+ */
+const selfCancelled = new Set<string>();
+export function noteSelfCancel(tripId: string): void {
+  selfCancelled.add(tripId);
+}
+
 export const useRideEnded = create<RideEndedState>((set) => ({
   notice: null,
   queue: [],
@@ -164,6 +179,7 @@ export const useRideEnded = create<RideEndedState>((set) => ({
    */
   raise: (n) => {
     if (n.tripId) void markTripTold(n.tripId);
+    if (n.tripId && selfCancelled.has(n.tripId)) return;
     set({
       notice: {
         ...n,

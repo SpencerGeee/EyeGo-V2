@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import {
   StyleSheet,
   View,
@@ -19,7 +19,7 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { springs } from '@eyego/config';
-import { useSheetMetrics } from './sheetMetrics';
+import { seedFromLiveEdge, useSheetMetrics } from './sheetMetrics';
 
 /**
  * ── THE SNAP SHEET — ONE CARD SYSTEM FOR BOTH APPS ──────────────────────────
@@ -157,6 +157,13 @@ export function SnapSheet({
   const idx = useSharedValue(Math.min(initial, 2));
   const stopsSV = useSharedValue(stops);
   const [current, setCurrent] = useState(Math.min(initial, 2));
+
+  // Open at the edge a sheet leaving in this same commit left behind — see
+  // `seedFromLiveEdge` in sheetMetrics.
+  useLayoutEffect(() => {
+    if (animateOnMount) seedFromLiveEdge(metrics, y, minTop, screenH);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const report = useCallback(
     (i: number) => {

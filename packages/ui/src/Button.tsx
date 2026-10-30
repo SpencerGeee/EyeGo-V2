@@ -1,16 +1,10 @@
-import React, { useRef } from 'react';
+import React from 'react';
 import { StyleSheet, ViewStyle } from 'react-native';
 import { Pressable } from './Pressable';
 import { Text } from './Text';
 import { ShinyText } from './ShinyText';
 import { Loader } from './Loader';
-import {
-  GradientGlowBorder,
-  type GradientGlowBorderHandle,
-  PREMIUM_RING_COLORS,
-  PREMIUM_RING_LOCATIONS,
-  RING_PALETTES,
-} from './effects/GradientGlowBorder';
+import { RING_PALETTES } from './effects/GradientGlowBorder';
 import { radii, spacing, fonts, fontSizes, type ColorTokens } from '@eyego/config';
 import { useThemedColors } from './ColorsContext';
 
@@ -81,8 +75,7 @@ function getVariantStyles(colors: ColorTokens): Record<ButtonVariant, { containe
       textColor: '#FFFFFF',
     },
     glow: {
-      // Solid fill + glow shadow are rendered by GradientGlowBorder instead —
-      // this container stays transparent so the animated ring is visible.
+      // Filled at the call's accent below — see `isGlow`.
       container: {
         backgroundColor: 'transparent',
       },
@@ -131,7 +124,6 @@ export function Button({
   const vStyle = getVariantStyles(colors)[variant];
   const sStyle = sizeStyles[size];
   const isDisabled = disabled || loading;
-  const glowRef = useRef<GradientGlowBorderHandle>(null);
   const isGlow = variant === 'glow';
 
   const resolvedStyle: ViewStyle[] = [styles.base, vStyle.container, sStyle.container];
@@ -175,32 +167,36 @@ export function Button({
     </>
   );
 
+  /**
+   * THE HERO CTA IS SOLID (device recording 2026-10-30: "the card system is bad
+   * compared to Uber"). It used to be a dark pill inside an animated gradient
+   * ring with a coloured halo and grey text — the loudest object on every
+   * booking screen, and the one that least looked like a button. Uber, Bolt and
+   * Yango all close a flow on a flat, filled, high-contrast button. Same
+   * variant name, so every caller's accent (tier palette, explicit colours) is
+   * kept — it is now the FILL, under near-black text.
+   */
   if (isGlow) {
+    const fill = glowColors?.[0] ?? (palette ? RING_PALETTES[palette].glowColor : colors.primary);
+    const ink = '#0A0A0C';
+    const solidLabel = { ...labelStyle, color: ink };
     return (
       <Pressable
         onPress={onPress}
-        onPressIn={() => glowRef.current?.burst()}
         disabled={isDisabled}
         haptic="medium"
-        style={fullWidth ? styles.fullWidth : undefined}
+        style={[...resolvedStyle, { backgroundColor: fill, shadowColor: fill, shadowOpacity: 0.28, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 6 }]}
       >
-        <GradientGlowBorder
-          ref={glowRef}
-          // Precedence: explicit colours > named palette > the default premium
-          // sweep. `palette` handles its own glow tints, so the explicit
-          // glowColor props are only passed when there is no palette to respect.
-          palette={glowColors ? undefined : palette}
-          colors={glowColors ?? (palette ? undefined : PREMIUM_RING_COLORS)}
-          locations={glowColors || palette ? undefined : PREMIUM_RING_LOCATIONS}
-          fillColor={colors.surfaceContainerHigh}
-          borderRadius={radii.full}
-          glow
-          glowColor={glowColors ? glowColors[0] : palette ? undefined : colors.premiumBlue}
-          glowColorSecondary={glowColors || palette ? undefined : colors.premiumOrange}
-          style={resolvedStyle}
-        >
-          {content}
-        </GradientGlowBorder>
+        {loading ? (
+          <Loader size={Math.round(sStyle.fontSize * 1.15)} color={ink} />
+        ) : (
+          <>
+            {icon}
+            <Text style={solidLabel} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+              {label}
+            </Text>
+          </>
+        )}
       </Pressable>
     );
   }

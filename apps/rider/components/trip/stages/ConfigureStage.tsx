@@ -11,14 +11,14 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated, { FadeIn, LinearTransition, useAnimatedStyle, useDerivedValue, withTiming } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeInLeft, FadeInRight, FadeOutLeft, FadeOutRight, Easing, LinearTransition, useAnimatedStyle, useDerivedValue, withTiming } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { SharedBusSuggestion } from '../SharedBusSuggestion';
 import { ridesApi, tripsApi } from '@eyego/api';
 import { formatGhs, clockTime } from '@eyego/utils';
-import { fonts, fontSizes, spacing, radii, MAX_SEATS_PER_BOOKING } from '@eyego/config';
-import { Text, Button, GradientGlowBorder, getTierTheme, normalizeTier, depthEnter, depthEnterBack, depthExit, useDepthMotion, Cascade } from '@eyego/ui';
+import { fonts, fontSizes, spacing, radii, MAX_SEATS_PER_BOOKING, durations } from '@eyego/config';
+import { Text, Button, GradientGlowBorder, getTierTheme, normalizeTier, useDepthMotion, Cascade, useSheetMetrics } from '@eyego/ui';
 import { HeroBusSlot } from '@eyego/maps';
 import { useLiveBuses } from '../../../hooks/useLiveBuses';
 import { useColors, Colors } from '../../../utils/useColors';
@@ -109,6 +109,16 @@ const DOORSTEP_OFFSET_M = 40;
 function ConfigureStageImpl() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  /**
+   * THE SHEET HANDS OFF ITS EDGE (device recording 2026-10-30: Review → Finding
+   * your driver dropped the sheet and slid a new one up from nothing). This
+   * sheet is drawn here, the request sheet by the trip surface's host — two
+   * objects. Publishing where this one's top edge is lets the host's sheet open
+   * AT that edge and spring to its own height, so the rider sees one sheet
+   * changing size. Cleared on unmount so a later sheet cannot inherit it.
+   */
+  const sheetMetrics = useSheetMetrics();
+  useEffect(() => () => { sheetMetrics.top.value = sheetMetrics.screenHeight.value; }, [sheetMetrics]);
   const { height: screenHeight } = useWindowDimensions();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
@@ -165,8 +175,13 @@ function ConfigureStageImpl() {
    */
   const [stepDir, setStepDir] = useState<1 | -1>(1);
   const depthOn = useDepthMotion();
-  const stepEnter = depthOn ? (stepDir < 0 ? depthEnterBack : depthEnter) : FadeIn.duration(200);
-  const stepExit = depthOn ? depthExit : undefined;
+  // Shared axis, overlapping (device recording 2026-10-30): the depth keyframes
+  // held the new step invisible for the first 30 %, so every Continue blinked.
+  const OUT = Easing.bezier(0.22, 1, 0.36, 1);
+  const stepEnter = depthOn
+    ? (stepDir < 0 ? FadeInLeft : FadeInRight).duration(durations.reveal).easing(OUT)
+    : FadeIn.duration(200);
+  const stepExit = depthOn ? (stepDir < 0 ? FadeOutRight : FadeOutLeft).duration(durations.micro) : undefined;
 
   /**
    * What the quote said about the pickup pin — see the doorstep block in the
@@ -550,7 +565,7 @@ const [doorstepInfo, setDoorstepInfo] = useState<{ offsetMeters: number; offRoad
           <MapGestureHint height={mapWindow} />
         </View>
 
-        <View style={styles.sheet}>
+        <View style={styles.sheet} onLayout={(e) => { sheetMetrics.top.value = e.nativeEvent.layout.y; }}>
         <ScrollView
           contentContainerStyle={styles.scroll}
           showsVerticalScrollIndicator={false}
