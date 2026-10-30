@@ -9,7 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii, springs, withOpacity } from '@eyego/config';
 import {
   Text, Button, GlassSurface, MorphTarget, AppBackground, GradientGlowBorder,
-  goDeeper, goBack, notify, goOut, goFresh, Pressable as HapticPressable, getTierTheme, SheetSections,
+  goDeeper, goBack, notify, goOut, goFresh, Pressable as HapticPressable, getTierTheme, SheetSections, Reveal,
 } from '@eyego/ui';
 import * as Haptics from 'expo-haptics';
 import { formatGhs, shortDateTime } from '@eyego/utils';
@@ -1318,7 +1318,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                   style={{ width: '100%' }}
                 />
                 {nextBus && (
-                  <>
+                  <Reveal style={{ gap: spacing.sm }}>
                     <Button
                       label="Book a seat on a group bus"
                       variant="secondary"
@@ -1334,7 +1334,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                         .filter(Boolean)
                         .join(' · ')}
                     </Text>
-                  </>
+                  </Reveal>
                 )}
               </>
             )}
@@ -1493,7 +1493,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
           <>
             <Button label="Schedule this ride" variant="secondary" onPress={scheduleInstead} style={{ width: '100%' }} />
             {nextBus && (
-              <>
+              <Reveal style={{ gap: spacing.sm }}>
                 <Button label="Book a seat on a group bus" variant="secondary" onPress={takeGroupBus} style={{ width: '100%' }} />
                 <Text style={styles.hint}>
                   {[
@@ -1504,7 +1504,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                     .filter(Boolean)
                     .join(' · ')}
                 </Text>
-              </>
+              </Reveal>
             )}
           </>
         )}

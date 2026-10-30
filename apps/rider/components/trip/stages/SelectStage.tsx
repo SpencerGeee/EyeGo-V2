@@ -5,6 +5,7 @@ import {
   ScrollView,
   Modal,
   BackHandler,
+  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -19,7 +20,7 @@ import Animated, {
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { tripsApi, bookingsApi } from '@eyego/api';
+import { tripsApi, bookingsApi, queryKeys } from '@eyego/api';
 import { useShallow } from 'zustand/react/shallow';
 import { useRideStore } from '../../../stores/ride.store';
 import { useTripFlow } from '../../../stores/tripFlow.store';
@@ -29,7 +30,7 @@ import { useThemeStore } from '../../../stores/theme.store';
 // `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
 // drops the `({ pressed }) => style` function form on RN's Pressable, which
 // silently deletes the whole style. See the note in SearchStage.tsx.
-import { Text, Button, Pressable, EmptyState, Avatar, AppBackground, MorphSource, MorphCTA, useMorph, Entrance, getTierTheme, normalizeTier, goDeeper, goBack } from '@eyego/ui';
+import { Text, Button, Pressable, EmptyState, Avatar, AppBackground, MorphSource, MorphCTA, Entrance, getTierTheme, normalizeTier, goDeeper, goBack, Reveal } from '@eyego/ui';
 import { formatGhs, clockTime } from '@eyego/utils';
 import type { TripTier, Trip } from '@eyego/types';
 import { captureException } from '../../../lib/sentry';
@@ -134,6 +135,69 @@ function getTierInfo(colors: Colors): TierInfoMap {
  * for the old /ride/select deep link; `mode='stage'` (default) navigates via
  * the tripFlow stage machine instead of router pushes.
  */
+/**
+ * THE CARD OPENS IN PLACE (Yango `InlineRideCardTransitionPhase`, spec v2 §7).
+ *
+ * COMPACT → LOADING → DETAILS → CLOSING, inside the one card. Data first, then
+ * motion: the details only grow in once the trip's detail query has answered
+ * (the same query ride/[id] reads, so "Book" lands on a warm screen). Until
+ * then a single spinner line holds the place. Closing is the Reveal reversed.
+ */
+function InlineRideDetails({
+  tripId,
+  board,
+  alight,
+  when,
+  seatsLeft,
+  fare,
+  colors,
+  onBook,
+}: {
+  tripId: string;
+  board: string;
+  alight: string;
+  when: string;
+  seatsLeft: number | null;
+  fare: number;
+  colors: Colors;
+  onBook: () => void;
+}) {
+  const { data, isLoading } = useQuery({
+    queryKey: queryKeys.rides.detail(tripId),
+    queryFn: () => tripsApi.getById(tripId),
+    enabled: !!tripId,
+    staleTime: 30_000,
+  });
+  if (isLoading) {
+    return (
+      <Reveal style={{ paddingTop: spacing.sm, alignItems: 'center' }}>
+        <ActivityIndicator size="small" color={colors.onSurfaceVariant} />
+      </Reveal>
+    );
+  }
+  const trip = (data as any)?.data ?? data;
+  const plate: string | undefined = trip?.vehicle?.plateNumber;
+  const rows: [keyof typeof Ionicons.glyphMap, string, string][] = [
+    ['radio-button-on', 'Board', board],
+    ['location', 'Get off', alight],
+    ['time-outline', 'When', when],
+  ];
+  if (plate) rows.push(['bus-outline', 'Bus', plate]);
+  if (seatsLeft != null) rows.push(['people-outline', 'Seats left', String(seatsLeft)]);
+  return (
+    <Reveal style={{ gap: spacing.sm, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.outlineVariant }}>
+      {rows.map(([icon, label, value]) => (
+        <View key={label} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+          <Ionicons name={icon} size={14} color={colors.onSurfaceVariant} />
+          <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ width: 72 }}>{label}</Text>
+          <Text variant="bodyMedium" style={{ flex: 1 }} numberOfLines={1}>{value}</Text>
+        </View>
+      ))}
+      <Button label={`Book seats · ${formatGhs(fare)}`} onPress={onBook} style={{ width: '100%' }} />
+    </Reveal>
+  );
+}
+
 function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
   const colors = useColors();
   const isDark = useThemeStore((s) => s.isDark);
@@ -175,7 +239,6 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
   const flowType = useTripFlow((s) => s.type);
   const { type: rideType } = useLocalSearchParams<{ type?: string }>();
   const isGroupFlow = (rideType ?? flowType) === 'group';
-  const { morphTo } = useMorph();
   const { origin, destination, setOrigin, setDestination, guestInfo, scheduledTime, setRequestSeats } = useRideStore(useShallow((s) => ({ origin: s.origin, destination: s.destination, setOrigin: s.setOrigin, setDestination: s.setDestination, guestInfo: s.guestInfo, scheduledTime: s.scheduledTime, setRequestSeats: s.setRequestSeats })));
   const [requestSeats, setRequestSeatsLocal] = useState(1);
   const [requestPayForAll, setRequestPayForAll] = useState(true);
@@ -189,6 +252,9 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
   const [enRoutePickerTripId, setEnRoutePickerTripId] = useState<string | null>(null);
   const [selectedStopByTrip, setSelectedStopByTrip] = useState<Record<string, { id: string; name: string; fare: number }>>({});
   const [fareModalTrip, setFareModalTrip] = useState<TripWithRoute | null>(null);
+  // Yango InlineRideCard: the card opens IN PLACE (COMPACT → LOADING →
+  // DETAILS → CLOSING) instead of flying to a new screen. One open at a time.
+  const [expandedTripId, setExpandedTripId] = useState<string | null>(null);
   const [filtersVisible, setFiltersVisible] = useState(false);
   const [sortBy, setSortBy] = useState<'time' | 'priceAsc' | 'priceDesc' | 'seats'>('time');
   const [minSeats, setMinSeats] = useState(1);
@@ -639,6 +705,26 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                     : trip.departureTime
                       ? clockTime(trip.departureTime)
                       : 'Departing soon';
+                const book = () => {
+                  if (!trip.id) return;
+                  // A running bus is booked for the rider's own stretch:
+                  // carry the stops the server placed them at.
+                  const pickupId = selectedStop?.id ?? trip.suggestedPickupStop?.id;
+                  const dropoffId = trip.suggestedDropoffStop?.id;
+                  const query = [
+                    pickupId ? `pickupStopId=${pickupId}` : '',
+                    dropoffId ? `dropoffStopId=${dropoffId}` : '',
+                    isGroupFlow ? 'group=1' : '',
+                  ].filter(Boolean).join('&');
+                  const path = `/ride/${trip.id}${query ? `?${query}` : ''}`;
+                  // Backing out of a trip's detail belongs on the list of
+                  // trips it came from, not on the home screen — the
+                  // rider is still choosing. See utils/tripSurfaceReturn.
+                  expectTripSurfaceReturn();
+                  // The card already opened in place, and its detail query is the
+                  // one ride/[id] reads — so the push lands on a warm screen.
+                  goDeeper(path as any);
+                };
                 return (
                   <Animated.View
                     key={trip.id ?? i}
@@ -676,26 +762,11 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                       ]}
                       onPress={() => {
                         if (!trip.id) return;
-                        // A running bus is booked for the rider's own stretch:
-                        // carry the stops the server placed them at.
-                        const pickupId = selectedStop?.id ?? trip.suggestedPickupStop?.id;
-                        const dropoffId = trip.suggestedDropoffStop?.id;
-                        const query = [
-                          pickupId ? `pickupStopId=${pickupId}` : '',
-                          dropoffId ? `dropoffStopId=${dropoffId}` : '',
-                          isGroupFlow ? 'group=1' : '',
-                        ].filter(Boolean).join('&');
-                        const path = `/ride/${trip.id}${query ? `?${query}` : ''}`;
-                        // Backing out of a trip's detail belongs on the list of
-                        // trips it came from, not on the home screen — the
-                        // rider is still choosing. See utils/tripSurfaceReturn.
-                        expectTripSurfaceReturn();
-                        // Container-transform: card grows into the ride detail
-                        // screen (route uses animation 'fade', see root _layout).
-                        morphTo(`ride-card-${trip.id}`, () => goDeeper(path as any));
+                        setExpandedTripId((cur) => (cur === trip.id ? null : trip.id ?? null));
                       }}
                       accessibilityRole="button"
-                      accessibilityLabel={`Book ${tier} ride`}
+                      accessibilityState={{ expanded: expandedTripId === trip.id }}
+                      accessibilityLabel={`${tier} bus. ${expandedTripId === trip.id ? 'Hide' : 'Show'} details`}
                     >
                       <View style={[styles.tripCardGlow, { backgroundColor: withOpacity(info.color, 0.08) }]} pointerEvents="none" />
 
@@ -787,6 +858,19 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                         <Ionicons name="information-circle-outline" size={13} color={colors.onSurfaceVariant} />
                         <Text style={styles.fareInfoText}>Fare breakdown</Text>
                       </Pressable>
+
+                      {expandedTripId === trip.id && (
+                        <InlineRideDetails
+                          tripId={trip.id ?? ''}
+                          board={selectedStop?.name ?? trip.suggestedPickupStop?.name ?? (trip.origin?.address ?? originText).split(',')[0]}
+                          alight={trip.suggestedDropoffStop?.name ?? (trip.destination?.address ?? destText).split(',')[0]}
+                          when={timeStr}
+                          seatsLeft={seatsLeft}
+                          fare={displayFare}
+                          colors={colors}
+                          onBook={book}
+                        />
+                      )}
                     </Pressable>
                     </MorphSource>
 
@@ -803,7 +887,7 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                           </Pressable>
                         </View>
                         {selectedStop && (
-                          <Pressable
+                          <Reveal><Pressable
                             style={[styles.stopRow, { borderColor: colors.outlineVariant }]}
                             onPress={() => {
                               const updated = { ...selectedStopByTrip };
@@ -815,7 +899,7 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                             <Ionicons name="navigate-circle-outline" size={16} color={colors.onSurfaceVariant} />
                             <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={{ flex: 1 }}>Full route (from origin)</Text>
                             <Text variant="labelLarge">{formatGhs(fullFare)}</Text>
-                          </Pressable>
+                          </Pressable></Reveal>
                         )}
                         {activeStops.map(stop => (
                           <StopRow

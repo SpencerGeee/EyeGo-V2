@@ -114,8 +114,12 @@ function Row({
 }) {
   const t = getTierTheme(colors, option.id);
   const model = useMemo(() => minibus({ accent: t.accent, body: LIVERY[option.id].body }), [t.accent, option.id]);
+  // Bolt/Uber `noneAvailableString`: a class with no bus nearby stays in its
+  // place (the thumb learns the order) but dims and says why. Still pickable —
+  // dispatch widens to the cold pool, so "none nearby" is slower, not impossible.
+  const unavailable = option.etaMin == null && nearbyKnown;
   const when =
-    option.etaMin != null ? `${option.etaMin} min away` : nearbyKnown ? 'None nearby' : 'Finding buses';
+    option.etaMin != null ? `${option.etaMin} min away` : unavailable ? 'No bus nearby · may take longer' : 'Finding buses';
   return (
     <Pressable
       onPress={onPress}
@@ -123,6 +127,7 @@ function Row({
       style={({ pressed }) => [
         styles.row,
         on ? { borderWidth: 2, borderColor: colors.primary } : { borderWidth: 1, borderColor: colors.outlineVariant },
+        unavailable && !on && { opacity: 0.55 },
         pressed && !on && { opacity: 0.85 },
       ]}
       accessibilityRole="radio"

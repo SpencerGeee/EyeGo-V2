@@ -3,7 +3,7 @@ import { View, StyleSheet, Pressable, Linking } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, GlassSurface, RollingDigits, WaitingMeter, SheetSections, goDeeper } from '@eyego/ui';
+import { Text, GlassSurface, RollingDigits, WaitingMeter, SheetSections, goDeeper, Reveal } from '@eyego/ui';
 import { DriverStrip } from './DriverStrip';
 import { usePlatformConfig } from '../../../hooks/usePlatformConfig';
 import { useRouteChange } from '../../../hooks/useRouteChange';
@@ -183,13 +183,13 @@ function AssignedStageImpl() {
                       : copy.sub}
                   </Text>
                   {arrived && !boarded && (snapshot as any)?.isOnDemand && (
-                    <WaitingMeter
+                    <Reveal><WaitingMeter
                       who="rider"
                       arrivedAt={(snapshot as any)?.timestamps?.arrivedAt ?? null}
                       freeMinutes={platform.waitFreeMinutes}
                       perMinPesewas={platform.tiers[(snapshot?.tier ?? 'ECO') as 'ECO']?.waitPerMinPesewas ?? 0}
                       capPesewas={platform.waitFeeCapPesewas}
-                    />
+                    /></Reveal>
                   )}
                 </View>
                 {etaMinutes != null && !arrived ? (

@@ -75,9 +75,27 @@ const STAGE_TRANSITION_CFG = springs.morph;
  */
 type StageSpring = { stiffness: number; damping: number; mass: number };
 const STAGE_TRANSITIONS: Partial<Record<string, StageSpring>> = {
+  // Forward through the Where-To pages: the panel's own spring (paged flow).
+  'search>configure': springs.morph,
+  'configure>select': springs.morph,
+  'search>select': springs.morph, // Book-a-seat skips configure
+  // Committing: quick and decisive.
+  'select>request': springs.standard, // seat booked → finding
+  'configure>request': springs.standard, // private bus requested → finding
   'request>assigned': springs.accent, // bus found: the one overshoot
-  'select>request': springs.standard, // seat booked → finding: quick
   'assigned>tracking': springs.standard, // on board: no fuss
+  // Setbacks: slower, never bouncy — bad news should not spring.
+  'request>select': springs.emphasized, // no bus → pick another
+  'request>configure': springs.emphasized, // no bus → change the ride
+  'assigned>request': springs.emphasized, // driver dropped out → searching again
+  // Leaving the trip (completed / cancelled → home search): the long settle.
+  'request>search': springs.system,
+  'assigned>search': springs.system,
+  'tracking>search': springs.system,
+  // Back through the Where-To pages.
+  'select>configure': springs.morph,
+  'configure>search': springs.morph,
+  'select>search': springs.morph,
 };
 const transitionFor = (from: TripStage, to: TripStage): StageSpring => STAGE_TRANSITIONS[`${from}>${to}`] ?? STAGE_TRANSITION_CFG;
 

@@ -306,6 +306,21 @@ export const durations = {
   standard: 350,
   /** Large surfaces, full-screen crossfades. */
   slow: 400,
+  // ── Spec v2 ladder (visual teardown §7, from Yango/Uber resources) ──
+  /** Press-down feedback. */
+  press: 100,
+  /** Chips, tooltips, icon swaps. */
+  micro: 150,
+  /** Sheet nudges, small content swaps. */
+  sheet: 200,
+  /** A card expanding in place (Yango inline ride card). */
+  expand: 240,
+  /** A section growing into place: height + opacity together. */
+  reveal: 300,
+  /** Status tracker / progress switches (Yango progress bar 500 linear). */
+  tracker: 500,
+  /** The slowest thing on screen. */
+  slowest: 600,
 } as const;
 
 /**

@@ -115,6 +115,7 @@ export {
   contentEnter,
   contentExit,
 } from './motion/layoutTransitions';
+export { Reveal, revealEnter, revealExit } from './motion/Reveal';
 export { depthIncoming, depthOutgoing, depthEnter, depthEnterAfter, depthEnterBack, depthExit, useDepthMotion } from './motion/depth';
 export type { DepthDirection } from './motion/depth';
 export { Cascade, type CascadeStrength } from './motion/Cascade';
