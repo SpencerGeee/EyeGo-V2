@@ -2,6 +2,7 @@ import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
 import { View, StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { formatGhs, clockTime } from '@eyego/utils';
@@ -9,6 +10,7 @@ import {
   Text,
   Pressable,
   SheetContent,
+  SheetSections,
   SwipeToConfirm,
   GlassSurface,
   RollingDigits,
@@ -91,6 +93,7 @@ export function TripStages({
 }: TripStagesProps) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const insets = useSafeAreaInsets();
 
   /**
    * Every hook runs before any early return — the exact rule the manage
@@ -179,8 +182,21 @@ export function TripStages({
   const shownPassengers = onPassenger ? passengers : passengers.slice(0, 2);
   const morePassengers = passengers.length - shownPassengers.length;
 
-  return (
-    <SheetContent stage={stage}>
+  /**
+   * THE SAME SHEET AS THE RIDER'S (device recording 2026-10-30: "when you're
+   * scrolling on that card it can swipe down but at some point it enlarges the
+   * card — it's not as stable as the rider trip card").
+   *
+   * This published a plain body, so the host gave it the old MorphSheet: a
+   * scroll view inside a draggable panel with a scroll/drag handoff, which is
+   * what grew the card mid-scroll. Publishing SheetSections puts it on the
+   * rider's SnapSheet — three measured detents that track the finger, and a
+   * scroll that only exists at full:
+   *   peek — what is happening now
+   *   half — the journey, the people, the money, Navigate / Chat
+   *   full — Manage trip
+   */
+  const peek = (
       <View style={styles.body}>
         <View style={styles.headline}>
           <View style={{ flex: 1 }}>
@@ -217,10 +233,26 @@ export function TripStages({
         {(stage === 'enroute' || stage === 'arrived') && isHailed && (
           <RiderAsks note={(trip as any)?.bookings?.[0]?.pickupNote} prefs={(trip as any)?.bookings?.[0]?.ridePrefs} />
         )}
+        {canAdvance && label && !hideAdvance ? (
+          <SwipeToConfirm
+            key={status}
+            label={label}
+            loadingLabel="Updating…"
+            onConfirm={advance}
+            loading={busy}
+            color={colors.primary}
+            onColor={colors.onPrimary ?? '#0A0D14'}
+            trackColor={colors.surfaceContainer}
+            borderColor={colors.outline}
+          />
+        ) : null}
+      </View>
+  );
 
+  const half = (
+      <View style={styles.body}>
         {/* The journey, both ends of it — the rider's dot → connector → pin. */}
         <View style={styles.journey}>
-          <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii.xl} intensity="low" />
           <View style={styles.journeyTimeline}>
             <View
               style={[
@@ -308,36 +340,22 @@ export function TripStages({
             <Action icon="people-outline" label="Manage" onPress={onManage} colors={colors} styles={styles} />
           ) : null}
         </View>
-
-        {/*
-          A SWIPE, NOT A TAP. Every action here is one-way and legal exactly
-          once; a cradled phone on a rough road taps itself.
-
-          KEYED ON THE STATUS. BUGFIX ("I swiped that I was at the pickup point
-          and the animation on the swiping thing is frozen"). The control holds
-          at the end of its track while the action is in flight and then reset
-          only when `loading` flipped back — which the surface never told it,
-          so the thumb sat at the end of the track over a label for the NEXT
-          step. A status change is a different action, so it is a different
-          control: the old one unmounts full, the new one mounts at rest.
-        */}
-        {canAdvance && label && !hideAdvance ? (
-          <SwipeToConfirm
-            key={status}
-            label={label}
-            loadingLabel="Updating…"
-            onConfirm={advance}
-            loading={busy}
-            color={colors.primary}
-            onColor={colors.onPrimary ?? '#0A0D14'}
-            trackColor={colors.surfaceContainer}
-            borderColor={colors.outline}
-          />
-        ) : null}
-
-        {children}
-        {bottomInset > 0 ? <View style={{ height: bottomInset }} /> : null}
       </View>
+  );
+
+  return (
+    <SheetContent stage={stage}>
+      <SheetSections
+        peek={peek}
+        half={half}
+        // The pinned action bar (when the screen draws one) sits over the
+        // sheet's bottom; a footer of its height keeps every detent above it.
+        // The footer already adds its 10 pt top pad and the home-indicator
+        // inset, so the spacer is only what is left of the bar's height.
+        footer={bottomInset > 0 ? <View style={{ height: Math.max(0, bottomInset - 10 - Math.max(insets.bottom, 12)) }} /> : undefined}
+      >
+        {children ? <View style={styles.body}>{children}</View> : undefined}
+      </SheetSections>
     </SheetContent>
   );
 }
