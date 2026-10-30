@@ -29,10 +29,10 @@ async function getDemand(req, res) {
       FROM "DemandSignal" WHERE "createdAt" >= ${since}
       GROUP BY 1, 2, 3, 4, 5 ORDER BY searches DESC LIMIT 200`,
     prisma.$queryRaw`
-      SELECT vs.id, vs.name, vs.lat, vs.lng, COUNT(b.id)::int AS bookings, COALESCE(SUM(b.seats), 0)::int AS seats
+      SELECT vs.id, vs.name, vs.landmark, vs.lat, vs.lng, COUNT(b.id)::int AS bookings, COALESCE(SUM(b.seats), 0)::int AS seats
       FROM "Booking" b JOIN "VirtualStop" vs ON vs.id = b."pickupStopId"
       WHERE b."createdAt" >= ${since} AND b.status IN ('CONFIRMED','PAID','BOARDED','COMPLETED')
-      GROUP BY vs.id, vs.name, vs.lat, vs.lng ORDER BY seats DESC LIMIT 100`,
+      GROUP BY vs.id, vs.name, vs.landmark, vs.lat, vs.lng ORDER BY seats DESC LIMIT 100`,
     prisma.$queryRaw`
       SELECT c.id, c.name, c."seatPricePesewas", COUNT(DISTINCT t.id)::int AS trips, COALESCE(SUM(b.seats), 0)::int AS seats
       FROM "Corridor" c
@@ -84,4 +84,11 @@ async function updateCorridor(req, res) {
   ok(res, { corridor }, 'Corridor updated — new trips use it; published trips keep their price');
 }
 
-module.exports = { getDemand, listCorridors, createCorridor, updateCorridor };
+/** Y2: an operator names a stop's landmark ("after the footbridge"). */
+async function updateStop(req, res) {
+  const { updateVirtualStop } = require('./admin.service');
+  const stop = await updateVirtualStop(req.params.id, { name: req.body?.name, landmark: req.body?.landmark });
+  ok(res, { stop }, 'Stop updated');
+}
+
+module.exports = { getDemand, listCorridors, createCorridor, updateCorridor, updateStop };

@@ -479,6 +479,9 @@ model VirtualStop {
   lng             Float
   sequence        Int
   isActive        Boolean   @default(true)
+  /// Yango landmark guidance: "after the footbridge", "opposite the Shell".
+  /// Free text an operator writes once; the rider sees it wherever the stop is named.
+  landmark        String?
   /// Bookings that BOARD here, and bookings that ALIGHT here. Two relations
   /// because one stop is both things to different passengers on the same trip.
   enRouteBookings   Booking[] @relation("BoardingStop")

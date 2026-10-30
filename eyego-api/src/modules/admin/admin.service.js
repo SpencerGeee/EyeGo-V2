@@ -243,8 +243,29 @@ async function addVirtualStops(routeId, stops) {
 
   let nextSeq = (maxSeq._max.sequence || 0) + 1;
   return prisma.virtualStop.createMany({
-    data: stops.map((s) => ({ routeId, name: s.name, lat: s.lat, lng: s.lng, sequence: nextSeq++ })),
+    data: stops.map((s) => ({ routeId, name: s.name, lat: s.lat, lng: s.lng, landmark: landmarkText(s.landmark), sequence: nextSeq++ })),
   });
+}
+
+/** Trimmed, capped, or null — a landmark is a short phrase, never markup. */
+function landmarkText(v) {
+  if (v == null) return null;
+  const t = String(v).replace(/[<>]/g, '').trim().slice(0, 80);
+  return t || null;
+}
+
+/** Y2: set (or clear) one stop's name / landmark. */
+async function updateVirtualStop(stopId, { name, landmark } = {}) {
+  const stop = await prisma.virtualStop.findUnique({ where: { id: String(stopId) }, select: { id: true } });
+  if (!stop) throw new NotFoundError('Stop');
+  const data = {};
+  if (name !== undefined) {
+    const n = String(name).trim().slice(0, 80);
+    if (!n) throw new ValidationError('name cannot be empty');
+    data.name = n;
+  }
+  if (landmark !== undefined) data.landmark = landmarkText(landmark);
+  return prisma.virtualStop.update({ where: { id: stop.id }, data });
 }
 
 async function getAllPulseSchedules() {
@@ -2598,7 +2619,7 @@ module.exports = {
   globalSearch, bulkDriverAction,
   adjustRiderWallet, adjustDriverWallet,
   getMetrics, getActiveTrips, setSurgeMultiplier, getSurgeZones, expireUnansweredDispatchOffers,
-  getRoutes, createRoute, updateRoute, deleteRoute, addVirtualStops,
+  getRoutes, createRoute, updateRoute, deleteRoute, addVirtualStops, updateVirtualStop,
   getAllPulseSchedules, createPulseSchedule, deletePulseSchedule,
   getAllTrips, getAllBookings, getPendingDrivers, getAllDrivers, getAllUsers,
   getDriverDetail, getDriverTrips, getTripDetail,

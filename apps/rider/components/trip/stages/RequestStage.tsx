@@ -1,5 +1,5 @@
 ﻿import React, { useCallback, useMemo, useEffect, useRef, useState } from 'react';
-import { View, StyleSheet, Pressable, ScrollView, useWindowDimensions, type LayoutChangeEvent } from 'react-native';
+import { View, StyleSheet, Pressable, ScrollView, useWindowDimensions, type LayoutChangeEvent, Linking } from 'react-native';
 import Animated, { FadeInDown, LinearTransition, ReduceMotion } from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
@@ -19,6 +19,7 @@ import { SheetContent } from '../sheetSlot';
 import { BoostPill, BoostTray, type BoostStep } from '../FareBoostRow';
 import { tripsApi, ridesApi, queryKeys, secondsRemaining } from '@eyego/api';
 import { useColors, Colors } from '../../../utils/useColors';
+import { usePlatformConfig } from '../../../hooks/usePlatformConfig';
 import { useTripFlow } from '../../../stores/tripFlow.store';
 import { useShallow } from 'zustand/react/shallow';
 import { useRideStore } from '../../../stores/ride.store';
@@ -1309,6 +1310,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
              to Home and a sheet about it. */
           <View style={styles.endActions}>
             <Button label="Try again" onPress={tryAgain} style={{ width: '100%' }} />
+            <BookByPhone />
             {status === 'timeout' && (
               <>
                 <Button
@@ -1489,6 +1491,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
     ) : (status === 'timeout' || (status === 'error' && !conflict)) && journeyRef.current ? (
       <View style={styles.endActions}>
         <Button label="Try again" onPress={tryAgain} style={{ width: '100%' }} />
+            <BookByPhone />
         {status === 'timeout' && (
           <>
             <Button label="Schedule this ride" variant="secondary" onPress={scheduleInstead} style={{ width: '100%' }} />
@@ -1837,3 +1840,22 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   /** Try again · Schedule · group bus, stacked full-width. */
   endActions: { gap: spacing.sm, marginTop: spacing.sm },
 });
+
+/**
+ * BOOK BY PHONE (Yango `call_order_fallback`). When the app cannot find a bus
+ * — no coverage, no data, a timeout — the operator can still take the booking
+ * by voice. Drawn only when the operator has set SUPPORT_PHONE.
+ */
+function BookByPhone() {
+  const { supportPhone } = usePlatformConfig();
+  const digits = (supportPhone ?? '').replace(/\D/g, '');
+  if (!digits) return null;
+  return (
+    <Button
+      label="Book by phone"
+      variant="secondary"
+      onPress={() => Linking.openURL(`tel:+${digits}`)}
+      style={{ width: '100%' }}
+    />
+  );
+}

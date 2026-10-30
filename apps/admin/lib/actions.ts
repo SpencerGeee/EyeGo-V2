@@ -290,6 +290,12 @@ export async function updateCorridor(id: string, payload: { seatPriceGhs?: numbe
   return result;
 }
 
+export async function updateStopLandmark(id: string, landmark: string): Promise<ActionResult> {
+  const result = await run('Landmark saved — riders see it wherever the stop is named', () => apiPatch(`/stops/${id}`, { landmark }));
+  revalidatePath('/demand');
+  return result;
+}
+
 // ─── Platform: releases ───────────────────────────────────────────
 
 export async function publishOta(payload: {

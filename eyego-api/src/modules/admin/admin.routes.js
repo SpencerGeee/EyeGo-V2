@@ -126,6 +126,7 @@ router.get('/demand', demandAdmin.getDemand);
 router.get('/corridors', demandAdmin.listCorridors);
 router.post('/corridors', requireRole(ROLE.OPS), audit('corridor.create', { targetType: 'Corridor' }), demandAdmin.createCorridor);
 router.patch('/corridors/:id', requireRole(ROLE.OPS), adminActionLimiter, audit('corridor.update', { targetType: 'Corridor' }), demandAdmin.updateCorridor);
+router.patch('/stops/:id', requireRole(ROLE.OPS), adminActionLimiter, audit('stop.update', { targetType: 'VirtualStop' }), demandAdmin.updateStop);
 router.get('/pulse-schedules', controller.getPulseSchedules);
 router.post('/pulse-schedules', requireRole(ROLE.OPS), audit('pulse_schedule.create', { targetType: 'PulseSchedule' }), controller.createPulseSchedule);
 router.delete('/pulse-schedules/:id', requireRole(ROLE.OPS), adminActionLimiter, audit('pulse_schedule.delete', { targetType: 'PulseSchedule' }), controller.deletePulseSchedule);

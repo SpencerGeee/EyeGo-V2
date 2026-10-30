@@ -16,7 +16,7 @@ function chainFor(route) {
   const stops = [...(route.virtualStops ?? [])].sort((a, b) => a.sequence - b.sequence);
   const points = [
     { id: null, name: route.originName, lat: route.originLat, lng: route.originLng },
-    ...stops.map((s) => ({ id: s.id, name: s.name, lat: s.lat, lng: s.lng })),
+    ...stops.map((s) => ({ id: s.id, name: s.name, landmark: s.landmark ?? null, lat: s.lat, lng: s.lng })),
     { id: null, name: route.destinationName, lat: route.destLat, lng: route.destLng },
   ].filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng));
   if (points.length < 2) return null;
@@ -43,7 +43,7 @@ function nearestStop(chain, ratio, { after = -1 } = {}) {
     const d = Math.abs(r - ratio);
     if (!best || d < best.d) best = { stop: pt, ratio: r, d };
   });
-  return best ? { id: best.stop.id, name: best.stop.name, ratio: best.ratio } : null;
+  return best ? { id: best.stop.id, name: best.stop.name, landmark: best.stop.landmark ?? null, ratio: best.ratio } : null;
 }
 
 module.exports = { chainFor, placeOnChain, nearestStop };

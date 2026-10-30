@@ -111,6 +111,8 @@ export interface VirtualStop {
   lng: number;
   sequence: number;
   isActive: boolean;
+  /** Operator landmark guidance ("after the footbridge"); null until set. */
+  landmark?: string | null;
 }
 
 /**

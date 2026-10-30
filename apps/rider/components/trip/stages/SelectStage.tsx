@@ -50,7 +50,7 @@ type TripWithRoute = Trip & {
   etaToPickupSec?: number | null;
   riderFarePesewas?: number;
   walkToPickupKm?: number;
-  suggestedPickupStop?: { id: string; name: string } | null;
+  suggestedPickupStop?: { id: string; name: string; landmark?: string | null } | null;
   suggestedDropoffStop?: { id: string; name: string } | null;
   farePerSeatPesewas?: number;
   fare?: number;
@@ -88,7 +88,7 @@ function StopRow({
   onPick,
 }: {
   tripId: string;
-  stop: { id: string; name: string };
+  stop: { id: string; name: string; landmark?: string | null };
   selected: boolean;
   colors: Colors;
   rowStyle: object;
@@ -109,7 +109,7 @@ function StopRow({
     >
       <Ionicons name="location-outline" size={16} color={selected ? colors.primary : colors.onSurfaceVariant} />
       <Text variant="bodyMedium" style={{ flex: 1 }} color={selected ? colors.primary : colors.onSurface}>
-        {stop.name}
+        {stop.landmark ? `${stop.name} · ${stop.landmark}` : stop.name}
       </Text>
       <Text variant="labelLarge" color={selected ? colors.primary : colors.onSurface}>
         {fare != null ? formatGhs(fare) : '…'}
@@ -862,7 +862,7 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                       {expandedTripId === trip.id && (
                         <InlineRideDetails
                           tripId={trip.id ?? ''}
-                          board={selectedStop?.name ?? trip.suggestedPickupStop?.name ?? (trip.origin?.address ?? originText).split(',')[0]}
+                          board={selectedStop?.name ?? ([trip.suggestedPickupStop?.name, trip.suggestedPickupStop?.landmark].filter(Boolean).join(' · ') || (trip.origin?.address ?? originText).split(',')[0])}
                           alight={trip.suggestedDropoffStop?.name ?? (trip.destination?.address ?? destText).split(',')[0]}
                           when={timeStr}
                           seatsLeft={seatsLeft}
