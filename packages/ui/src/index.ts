@@ -116,6 +116,7 @@ export {
   contentExit,
 } from './motion/layoutTransitions';
 export { Reveal, revealEnter, revealExit } from './motion/Reveal';
+export { Celebrate, WalkDots } from './motion/SignatureMoments';
 export { depthIncoming, depthOutgoing, depthEnter, depthEnterAfter, depthEnterBack, depthExit, useDepthMotion } from './motion/depth';
 export type { DepthDirection } from './motion/depth';
 export { Cascade, type CascadeStrength } from './motion/Cascade';

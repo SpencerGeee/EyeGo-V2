@@ -1,9 +1,10 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, StyleSheet, Pressable, Linking } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, GlassSurface, RollingDigits, WaitingMeter, SheetSections, goDeeper, Reveal } from '@eyego/ui';
+import { Text, GlassSurface, RollingDigits, WaitingMeter, SheetSections, goDeeper, Reveal, Celebrate, WalkDots } from '@eyego/ui';
+import { useRideStore } from '../../../stores/ride.store';
 import { DriverStrip } from './DriverStrip';
 import { usePlatformConfig } from '../../../hooks/usePlatformConfig';
 import { useRouteChange } from '../../../hooks/useRouteChange';
@@ -47,6 +48,17 @@ import { shareLiveTracking } from '../../../utils/safety';
  * The pre-departure states now say what they are. `default` is deliberately no
  * longer a catch-all for them.
  */
+/** Trip ids already celebrated this session — the burst plays once, not on every re-hydrate. */
+const CELEBRATED = new Set<string>();
+
+function metres(aLat: number, aLng: number, bLat: number, bLng: number): number {
+  const r = Math.PI / 180;
+  const dLat = (bLat - aLat) * r;
+  const dLng = (bLng - aLng) * r;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(aLat * r) * Math.cos(bLat * r) * Math.sin(dLng / 2) ** 2;
+  return 2 * 6_371_000 * Math.asin(Math.sqrt(h));
+}
+
 function phaseCopy(
   status: string | null,
   etaMinutes: number | null,
@@ -118,6 +130,24 @@ function AssignedStageImpl() {
 
   const arrived = status === 'ARRIVED_AT_PICKUP';
   const platform = usePlatformConfig();
+
+  // SIGNATURE MOMENT: bus found / seat booked — one burst, once per trip per session.
+  const [burst, setBurst] = useState<string | null>(null);
+  useEffect(() => {
+    if (!tripId || CELEBRATED.has(tripId) || snapshot?.booking?.status === 'BOARDED') return;
+    CELEBRATED.add(tripId);
+    setBurst(tripId);
+    const t = setTimeout(() => setBurst(null), 1400);
+    return () => clearTimeout(t);
+  }, [tripId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // SIGNATURE MOMENT: the walk to the stop (Yango "walk to pickup"), measured
+  // from where the rider searched to the pickup this ride will stop at.
+  const from = useRideStore((s) => s.origin);
+  const pickup = (snapshot as any)?.pickup as { lat: number | null; lng: number | null; address: string | null } | undefined;
+  const walkM =
+    from && pickup?.lat != null && pickup?.lng != null ? metres(from.latitude, from.longitude, pickup.lat, pickup.lng) : null;
+  const walkMin = walkM != null && walkM >= 50 && walkM <= 2500 ? Math.max(1, Math.round(walkM / 80)) : null;
   /**
    * The driver has put this rider in the vehicle. See the row below for why
    * this cannot be derived from `status`: boarding leaves the TRIP where it is
@@ -175,6 +205,7 @@ function AssignedStageImpl() {
           peek={
             <>
               <View style={styles.headline}>
+                {burst ? <Celebrate key={burst} color={colors.primary} /> : null}
                 <View style={{ flex: 1 }}>
                   <Text style={styles.title}>{boarded ? 'On board' : copy.title}</Text>
                   <Text variant="bodySmall" color={colors.onSurfaceVariant} numberOfLines={2}>
@@ -182,6 +213,17 @@ function AssignedStageImpl() {
                       ? seatNumber != null ? `Seat ${seatNumber} · the trip starts when the driver sets off.` : 'The trip starts when the driver sets off.'
                       : copy.sub}
                   </Text>
+                  {walkMin != null && !arrived && !boarded && (
+                    <Reveal>
+                      <View style={styles.walkRow}>
+                        <Ionicons name="walk" size={14} color={colors.primary} />
+                        <WalkDots color={colors.primary} />
+                        <Text variant="caption" color={colors.onSurfaceVariant} numberOfLines={1} style={{ flex: 1 }}>
+                          {walkMin} min walk{pickup?.address ? ` to ${pickup.address.split(',')[0]}` : ''}
+                        </Text>
+                      </View>
+                    </Reveal>
+                  )}
                   {arrived && !boarded && (snapshot as any)?.isOnDemand && (
                     <Reveal><WaitingMeter
                       who="rider"
@@ -370,6 +412,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   headline: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  walkRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 },
   title: {
     fontFamily: fonts.displayBold,
     fontSize: fontSizes.titleLarge,
