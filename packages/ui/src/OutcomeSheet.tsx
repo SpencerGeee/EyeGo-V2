@@ -132,9 +132,12 @@ export function OutcomeSheet({
     };
   }, [visible, title, reducedMotion, rise, ring, glyph, tone]);
 
+  // A sheet rising from the bottom edge, opaque almost at once. Fading in over
+  // a 34 pt lift left the copy half-transparent on top of Home's own text for
+  // most of the entrance — the "ghost" in the device recording (2026-10-30).
   const sheetStyle = useAnimatedStyle(() => ({
-    opacity: rise.value,
-    transform: [{ translateY: (1 - rise.value) * 34 }],
+    opacity: Math.min(1, rise.value * 4),
+    transform: [{ translateY: (1 - rise.value) * 440 }],
   }));
   const scrimStyle = useAnimatedStyle(() => ({ opacity: rise.value }));
   const ringStyle = useAnimatedStyle(() => ({

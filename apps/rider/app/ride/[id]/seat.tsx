@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, type Href } from 'expo-router';
-import Animated, { FadeIn, FadeInDown, FadeOut } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeInDown, FadeOut, ZoomIn, ZoomOut, LinearTransition } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
@@ -27,6 +27,7 @@ import {
   notify,
 } from '@eyego/ui';
 import { LIVERY } from '../../../components/trip/RidePicker';
+import { minibus, HeroBusSlot } from '@eyego/maps';
 import type { Seat } from '@eyego/types';
 
 /**
@@ -127,6 +128,7 @@ export default function SeatPickerScreen() {
 
   const busTier = String((selectedTrip as any)?.tier ?? 'ECO').toUpperCase() as keyof typeof LIVERY;
   const tierTheme = getTierTheme(colors as any, busTier);
+  const busModel = useMemo(() => minibus({ accent: tierTheme.accent, body: (LIVERY[busTier] ?? LIVERY.ECO).body }), [tierTheme.accent, busTier]);
   const shortPlace = (v: unknown): string | null =>
     typeof v === 'string' && v.trim() ? v.split(',')[0].trim() : null;
   const fromName = shortPlace((selectedTrip as any)?.origin?.address);
@@ -333,6 +335,17 @@ export default function SeatPickerScreen() {
 
       {/* How many — the whole question now (D1). */}
       <View style={styles.stage}>
+        {/* The bus you are booking, and one seat per traveller under it — the
+            screen was a stepper floating in empty black (device recording
+            2026-10-30). */}
+        <HeroBusSlot id="seat-picker-bus" size={150} model={busModel} turnKey={String(count)} />
+        <Animated.View layout={LinearTransition.duration(220)} style={styles.pips}>
+          {Array.from({ length: Math.min(count, 12) }, (_, i) => (
+            <Animated.View key={i} entering={ZoomIn.duration(200)} exiting={ZoomOut.duration(140)}>
+              <Ionicons name="person" size={18} color={tierTheme.accent} />
+            </Animated.View>
+          ))}
+        </Animated.View>
         <Text style={styles.sectionLabel}>HOW MANY SEATS?</Text>
         <View style={styles.stepper}>
           <Pressable onPress={() => step(-1)} disabled={count <= 1} hitSlop={8} accessibilityRole="button" accessibilityLabel="Fewer seats" style={[styles.stepBtn, count <= 1 && { opacity: 0.35 }]}>
@@ -522,6 +535,7 @@ const makeStyles = (colors: Colors) =>
     liveDot: { width: 7, height: 7, borderRadius: 3.5 },
     // Centred in what the header leaves, lifted clear of the sheet's peek.
     stage: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 170, gap: spacing.sm },
+    pips: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 6, minHeight: 22, maxWidth: 260, marginBottom: spacing.sm },
     stepper: { flexDirection: 'row', alignItems: 'center', gap: spacing.xl, marginVertical: spacing.md },
     stepBtn: {
       width: 56,
