@@ -1,3 +1,17 @@
+# State — 2026-10-30 PM — teardown proposals pass DONE (10 local commits 62716c4…b0d5ce9, NOT pushed, NOT device-tested)
+Source: docs/research/2026-10-29-visual-teardown.md §6–7 + 2026-10-29-uber-bolt-teardown.md §3 + §2g (Yango ideas).
+Yango feel: 62716c4 inline ride card (SelectStage InlineRideDetails) + Reveal (packages/ui motion/Reveal.tsx) + full
+ STAGE_TRANSITIONS + durations ladder + RidePicker unavailable rows · af6cb1f Celebrate/WalkDots (motion/SignatureMoments)
+ · b0d5ce9 skeletons on the booking path. Radar = existing SearchingIndicator. Sheet height→map = existing SheetMetrics.
+Yango ideas: 83e93ea Y3 BookByPhone (SUPPORT_PHONE) + Y2 VirtualStop.landmark (admin Demand page edits it) ·
+ 55e22d7 Y4 useLiveBuses + Y1 walkM on suggestedPickupStop + doorstep saving in cedis.
+Uber/Bolt logic: 96c932b L1 offer-ack (+DISPATCH_OFFER_ACK_GRACE_SECONDS, old apps exempt, offer-ack.test.js) ·
+ edd78b5 L3 offerChips → driver card chips + server button words · 8ed638c L9 auto stop-arrival in driver.socket
+ (15 s gate) + PICK UP n / DROP OFF n. L6 = already built (driverLinkLostSinceMs).
+NOT done (deliberate): Yango fullscreen-at-90% snap (sheet caps at 88%); per-stop radius is ONE knob (ARRIVAL_RADIUS_M).
+Verify: tsc x3 0 · jest 245 · maps 37 · invariants 6 · static e2e 87 · prisma valid. Live e2e not run.
+USER MUST: prisma generate + migrate deploy — THREE pending: 20261029120000, 20261029130000, 20261030120000_stop_landmark.
+
 # State — 2026-10-30 (client meeting full build — DONE except the deferred detour variant; 21 local commits, NOT pushed)
 
 All tracker phases 0/A/O/P/B/C/D/E/F/G built (286ee70 … c325ee8 + ParticleHero loop gate). Deferred, not built: Phase C

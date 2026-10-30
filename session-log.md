@@ -1,5 +1,14 @@
 # EyeGo V2 Session Log
 
+## 2026-10-30 PM [saved] — every Uber/Bolt/Yango teardown proposal
+Built (62716c4 → b0d5ce9, NOT pushed): inline ride card, Reveal, full stage-transition matrix, duration ladder,
+ unavailable ride rows, bus-found/seat-booked burst + walk-to-stop dots, skeletons; book by phone, stop landmarks,
+ live buses from the first screen, walk-to-stop minutes + doorstep saving; offer ACK with 12 s undelivered move-on,
+ server offer chips, auto "bus at this stop" + PICK UP n / DROP OFF n.
+Already existed (no work): driver GPS-lost flag, searching radar, sheet→map live height, per-row CTA label.
+Skipped: fullscreen-at-90% sheet snap (88% cap is equivalent); one arrival radius knob, not per stop.
+Needs: 3 pending migrations; new store build for native bits. Nothing device-tested.
+
 ## 2026-10-29/30 [saved] — client meeting full build ("premium trotro")
 Goal: build every gap from the 2026-10-29 client meeting (tracker docs/superpowers/plans/2026-10-29-BUILD-TRACKER.md).
 Done (21 local commits 286ee70 → c325ee8, NOT pushed): per-segment seat capacity + book a seat on a running bus;
