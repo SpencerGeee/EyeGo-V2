@@ -50,7 +50,7 @@ type TripWithRoute = Trip & {
   etaToPickupSec?: number | null;
   riderFarePesewas?: number;
   walkToPickupKm?: number;
-  suggestedPickupStop?: { id: string; name: string; landmark?: string | null } | null;
+  suggestedPickupStop?: { id: string; name: string; landmark?: string | null; walkM?: number } | null;
   suggestedDropoffStop?: { id: string; name: string } | null;
   farePerSeatPesewas?: number;
   fare?: number;
@@ -862,7 +862,14 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                       {expandedTripId === trip.id && (
                         <InlineRideDetails
                           tripId={trip.id ?? ''}
-                          board={selectedStop?.name ?? ([trip.suggestedPickupStop?.name, trip.suggestedPickupStop?.landmark].filter(Boolean).join(' · ') || (trip.origin?.address ?? originText).split(',')[0])}
+                          board={selectedStop?.name ?? ([
+                            trip.suggestedPickupStop?.name,
+                            trip.suggestedPickupStop?.landmark,
+                            // ~80 m a minute on foot; under 50 m is "you're there".
+                            trip.suggestedPickupStop?.walkM != null && trip.suggestedPickupStop.walkM >= 50
+                              ? `${Math.max(1, Math.round(trip.suggestedPickupStop.walkM / 80))} min walk`
+                              : null,
+                          ].filter(Boolean).join(' · ') || (trip.origin?.address ?? originText).split(',')[0])}
                           alight={trip.suggestedDropoffStop?.name ?? (trip.destination?.address ?? destText).split(',')[0]}
                           when={timeStr}
                           seatsLeft={seatsLeft}

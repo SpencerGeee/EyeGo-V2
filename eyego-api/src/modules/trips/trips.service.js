@@ -828,6 +828,10 @@ async function searchTrips(query) {
       trip.riderSpan = { from: a.ratio, to: b.ratio };
       trip.availableSeats = freeSeatsOnSpan(trip.bookings, trip.maxSeats, a.ratio, b.ratio);
       trip.isRunning = running;
+      // Yango altpins, seat edition: how far the rider walks to that stop.
+      if (pickupStop && Number.isFinite(pickupStop.lat)) {
+        pickupStop.walkM = Math.round(haversineKm(oLat, oLng, pickupStop.lat, pickupStop.lng) * 1000);
+      }
       trip.suggestedPickupStop = pickupStop;
       trip.suggestedDropoffStop = dropoffStop;
       // Km of road from the bus to the rider's stop, for the ETA below.

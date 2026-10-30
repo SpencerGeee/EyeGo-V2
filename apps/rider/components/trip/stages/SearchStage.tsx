@@ -39,6 +39,7 @@ import { haptic } from '../../../utils/haptics';
 import { consumePickedPlace } from '../../../utils/placePickerResult';
 import { expectTripSurfaceReturn } from '../../../utils/tripSurfaceReturn';
 import { slotOfPlace } from '../../../utils/savedPlaceSlots';
+import { useLiveBuses } from '../../../hooks/useLiveBuses';
 import { goDeeper, goBack } from '@eyego/ui';
 import { HeroBusSlot } from '@eyego/maps';
 
@@ -157,6 +158,8 @@ function SearchStageImpl() {
   const fieldTextWidth = Math.max(60, fieldColWidth - FIELD_CHROME_W);
 
   const { origin, setOrigin, setDestination } = useRideStore(useShallow((s) => ({ origin: s.origin, setOrigin: s.setOrigin, setDestination: s.setDestination })));
+  // Yango live vehicles: buses moving on the map while the rider decides.
+  useLiveBuses(origin?.latitude, origin?.longitude);
   const morphId = useTripFlow((s) => s.morphId);
   const selectedPlace = useTripFlow((s) => s.searchPlace);
   const setSearchPlace = useTripFlow((s) => s.setSearchPlace);

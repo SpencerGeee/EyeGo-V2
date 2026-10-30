@@ -43,7 +43,9 @@ function nearestStop(chain, ratio, { after = -1 } = {}) {
     const d = Math.abs(r - ratio);
     if (!best || d < best.d) best = { stop: pt, ratio: r, d };
   });
-  return best ? { id: best.stop.id, name: best.stop.name, landmark: best.stop.landmark ?? null, ratio: best.ratio } : null;
+  return best
+    ? { id: best.stop.id, name: best.stop.name, landmark: best.stop.landmark ?? null, lat: best.stop.lat, lng: best.stop.lng, ratio: best.ratio }
+    : null;
 }
 
 module.exports = { chainFor, placeOnChain, nearestStop };

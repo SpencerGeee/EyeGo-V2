@@ -20,6 +20,7 @@ import { formatGhs, clockTime } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii, MAX_SEATS_PER_BOOKING } from '@eyego/config';
 import { Text, Button, GradientGlowBorder, getTierTheme, normalizeTier, depthEnter, depthEnterBack, depthExit, useDepthMotion, Cascade } from '@eyego/ui';
 import { HeroBusSlot } from '@eyego/maps';
+import { useLiveBuses } from '../../../hooks/useLiveBuses';
 import { useColors, Colors } from '../../../utils/useColors';
 import { MapGestureHint } from '../MapGestureHint';
 import { RidePicker, type RideOption } from '../RidePicker';
@@ -172,7 +173,9 @@ function ConfigureStageImpl() {
    * extras step. Null until the first quote lands, which is why that row reads
    * "Checking your pickup point…" rather than asserting either answer.
    */
-  const [doorstepInfo, setDoorstepInfo] = useState<{ offsetMeters: number; offRoad: boolean } | null>(null);
+  // feePesewas: the doorstep detour's price, remembered once seen so the "walk
+// to the road" choice can say what it saves (Yango altpins price comparison).
+const [doorstepInfo, setDoorstepInfo] = useState<{ offsetMeters: number; offRoad: boolean; feePesewas?: number } | null>(null);
 
   /**
    * What will ACTUALLY happen, which is what the toggle has to show.
@@ -266,6 +269,8 @@ function ConfigureStageImpl() {
    */
   const [nearestKm, setNearestKm] = useState<Partial<Record<Tier, number>>>({});
   const [nearbyKnown, setNearbyKnown] = useState(false);
+  // Keep the map's buses live while the rider picks a class (Yango LiveVehiclesPoller).
+  useLiveBuses(origin?.latitude, origin?.longitude);
   useEffect(() => {
     if (origin?.latitude == null || origin?.longitude == null) return;
     let cancelled = false;
@@ -374,10 +379,12 @@ function ConfigureStageImpl() {
              * same pin, so the three answers are identical; the first one wins.
              */
             if (q?.doorstepOffsetMeters != null) {
-              setDoorstepInfo({
-                offsetMeters: Math.round(q.doorstepOffsetMeters),
-                offRoad: q.doorstepOffsetMeters >= DOORSTEP_OFFSET_M,
-              });
+              const fee = Number(q.breakdown?.doorstepSurchargePesewas) || 0;
+              setDoorstepInfo((prev) => ({
+                offsetMeters: Math.round(q.doorstepOffsetMeters as number),
+                offRoad: (q.doorstepOffsetMeters as number) >= DOORSTEP_OFFSET_M,
+                feePesewas: fee > 0 ? fee : prev?.feePesewas,
+              }));
             } else if (q) {
               setDoorstepInfo({ offsetMeters: 0, offRoad: false });
             }
@@ -738,8 +745,8 @@ function ConfigureStageImpl() {
                   label="Doorstep pickup"
                   blurb={
                     doorstepEffective
-                      ? `Your pickup pin is about ${doorstepInfo.offsetMeters} m off the road, so the driver comes in to you. The detour is in the fare below.`
-                      : `We'll meet you on the nearest road instead — about a ${doorstepInfo.offsetMeters} m walk, and no doorstep fee.`
+                      ? `Your pickup pin is about ${doorstepInfo.offsetMeters} m off the road, so the driver comes in to you${doorstepInfo.feePesewas ? ` (+${formatGhs(doorstepInfo.feePesewas)})` : ''}. Walk ${doorstepInfo.offsetMeters} m to the road to skip it.`
+                      : `We'll meet you on the nearest road instead — about a ${doorstepInfo.offsetMeters} m walk${doorstepInfo.feePesewas ? `, saving ${formatGhs(doorstepInfo.feePesewas)}` : ', and no doorstep fee'}.`
                   }
                   value={doorstepEffective}
                   onChange={(v) => setRideOptions({ doorstepPickup: v })}
