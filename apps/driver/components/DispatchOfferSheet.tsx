@@ -156,6 +156,10 @@ export default function DispatchOfferSheet() {
     if (!tripId || announced.current === tripId) return;
     announced.current = tripId;
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    // L1: tell dispatch the card is actually on screen. Only a HELD offer has a
+    // live offerId to confirm; a tapped board row is not an offer.
+    const offerId = (held as { offerId?: string } | null)?.offerId;
+    if (offerId) void ridesApi.offerAck(tripId, offerId).catch(() => {});
   }, [tripId]);
 
   /**

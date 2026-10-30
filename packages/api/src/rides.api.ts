@@ -381,6 +381,9 @@ export const ridesApi = {
    */
   accept: (tripId: string, body?: { offerId?: string; lat?: number; lng?: number }) =>
     apiClient.post(`/rides/${tripId}/accept`, body ?? {}).then(unwrap),
+  /** L1: the offer card is on screen (Uber offer ACK). Fire-and-forget. */
+  offerAck: (tripId: string, offerId?: string) =>
+    apiClient.post(`/rides/${tripId}/offer-ack`, { offerId }).then(unwrap),
   decline: (tripId: string) => apiClient.post(`/rides/${tripId}/decline`).then(unwrap),
   enRoute: (tripId: string) => apiClient.post(`/rides/${tripId}/en-route`).then(unwrap),
   arrived: (tripId: string) => apiClient.post(`/rides/${tripId}/arrived`).then(unwrap),

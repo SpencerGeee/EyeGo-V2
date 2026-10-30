@@ -283,6 +283,16 @@ router.post(
   }),
 );
 
+// L1: the driver app has drawn the offer card (Uber offer ACK).
+router.post(
+  '/:id/offer-ack',
+  authenticateDriver,
+  h(async (req, res) => {
+    const cascade = require('../../services/dispatch-cascade.service');
+    res.json({ success: true, data: await cascade.ackOffer(req.params.id, actorId(req), req.body?.offerId ?? null) });
+  }),
+);
+
 router.post(
   '/:id/accept',
   authenticateDriver,

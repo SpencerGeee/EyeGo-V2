@@ -344,6 +344,12 @@ const REGISTRY = [
     min: 5, max: 120,
   },
   {
+    key: 'DISPATCH_OFFER_ACK_GRACE_SECONDS', group: 'dispatch', type: TYPES.INT,
+    label: 'Offer delivery grace', envDefault: 12, unit: 'seconds',
+    help: 'A driver app that confirms offers must confirm this one within this many seconds, or the offer is treated as never delivered and moves to the next driver straight away (not counted as a missed offer). Older apps that never confirm are not held to it.',
+    min: 5, max: 60,
+  },
+  {
     key: 'DISPATCH_DECLINE_COOLDOWN_SECONDS', group: 'dispatch', type: TYPES.INT,
     label: 'Missed-offer cooldown', envDefault: 90, unit: 'seconds',
     help: 'A driver who lets an offer lapse is not offered the SAME trip again for this long (a deliberate Pass is permanent). It was read but never registered, so it resolved to NaN and the cooldown never applied — a driver who missed an offer was handed it straight back.',

@@ -85,6 +85,8 @@ const settings = require('../config/settings');
  * rider hostage.
  */
 const offerTtlSeconds = () => settings.get('DISPATCH_OFFER_TTL_SECONDS') ?? 45;
+/** L1: how long a phone has to say "I'm showing it" before the offer moves on. */
+const offerAckGraceSeconds = () => settings.get('DISPATCH_OFFER_ACK_GRACE_SECONDS') ?? 12;
 
 /**
  * ── WHAT A DRIVER MAY KNOW ABOUT THE DESTINATION BEFORE THEY ACCEPT ─────────
@@ -301,6 +303,9 @@ function releaseHold(state) {
 }
 
 const TASK_OFFER_TIMEOUT = 'DISPATCH_OFFER_TIMEOUT';
+const TASK_OFFER_ACK_CHECK = 'DISPATCH_OFFER_ACK_CHECK';
+/** Set once a driver's app has acked any offer: only those apps are held to the ack deadline. */
+const ackCapableKey = (driverId) => `dispatch:ackcap:${driverId}`;
 const TASK_RESWEEP = 'DISPATCH_RESWEEP';
 /**
  * "Start the search for this trip" as a durable row.
@@ -686,6 +691,7 @@ async function offerNext(tripId) {
       // own id, so an accept for a lapsed or re-offered card is told apart from
       // an accept for the live one, even on the same trip.
       state.offerId = require('crypto').randomUUID();
+      state.ackedAtMs = null;
       await writeState(state);
 
       // The timer is a ROW, not a setTimeout. It survives this process dying.
@@ -696,6 +702,20 @@ async function offerNext(tripId) {
         runAt: new Date(expiresAtMs),
         payload: { tripId, driverId: candidate.id, attempt: state.index },
       });
+
+      // L1 (Uber offer ACK): an app that acks offers and does not ack THIS one
+      // within the grace never showed it — push lost, socket dead. Move on in
+      // ~12 s instead of making the rider wait the full countdown on a phone
+      // that never rang. Apps that have never acked (older builds) are exempt.
+      if (await redis.get(ackCapableKey(candidate.id)).catch(() => null)) {
+        await scheduledTasks.enqueue({
+          type: TASK_OFFER_ACK_CHECK,
+          dedupeKey: tripId,
+          tripId,
+          runAt: new Date(Date.now() + offerAckGraceSeconds() * 1000),
+          payload: { tripId, driverId: candidate.id, offerId: state.offerId },
+        });
+      }
 
       // What the driver nets if they take it — see `offerMoney`.
       const money = offerMoney(trip, boosts.get(tripId) ?? 0);
@@ -1831,6 +1851,26 @@ async function currentHolder(tripId) {
   return state.currentDriverId;
 }
 
+/**
+ * L1: the driver's app reports it has RENDERED the offer. Records the receipt
+ * on the live offer and marks the app as ack-capable. A stale offerId (an
+ * offer that already moved on) is a no-op, never an error — the card is gone.
+ */
+async function ackOffer(tripId, driverId, offerId) {
+  const res = await withLock(tripId, async () => {
+    const state = await readState(tripId);
+    if (!state || state.done || state.currentDriverId !== driverId) return { acked: false };
+    if (offerId && state.offerId && offerId !== state.offerId) return { acked: false };
+    if (!state.ackedAtMs) {
+      state.ackedAtMs = Date.now();
+      await writeState(state);
+    }
+    return { acked: true };
+  });
+  await redis.set(ackCapableKey(driverId), '1', 'EX', 7 * 24 * 3600).catch(() => {});
+  return res ?? { acked: false };
+}
+
 /** The id of the live offer on this trip, or null (Q7). */
 async function currentOfferId(tripId) {
   const state = await readState(tripId);
@@ -1910,6 +1950,28 @@ scheduledTasks.registerHandler(TASK_OFFER_TIMEOUT, async (task) => {
     publisher.publishOfferRevoked(driverId, tripId, 'TIMEOUT');
     await noteMissedOffer(driverId);
   }
+  await offerNext(tripId);
+});
+
+/**
+ * L1: no receipt from an ack-capable app inside the grace → the offer never
+ * reached the screen. Same release path as a timeout, but NOT counted as a
+ * missed offer toward auto-pause: the driver never saw it, so it says nothing
+ * about whether they are paying attention.
+ */
+scheduledTasks.registerHandler(TASK_OFFER_ACK_CHECK, async (task) => {
+  const { tripId, driverId, offerId } = task.payload || {};
+  if (!tripId) return;
+  const state = await readState(tripId);
+  if (!state || state.done || state.currentDriverId !== driverId || state.offerId !== offerId) return;
+  if (state.ackedAtMs) return;
+  logger.info('Dispatch offer undelivered (no ack)', { tripId, driverId });
+  noteDecline(state, driverId, { deliberate: false });
+  releaseHold(state);
+  await writeState(state);
+  await scheduledTasks.cancel(TASK_OFFER_TIMEOUT, tripId).catch(() => {});
+  await forgetOffer(driverId);
+  publisher.publishOfferRevoked(driverId, tripId, 'UNDELIVERED');
   await offerNext(tripId);
 });
 
@@ -1995,6 +2057,7 @@ module.exports = {
   getCascadeState,
   currentHolder,
   currentOfferId,
+  ackOffer,
   getOfferForDriver,
   forgetOffer,
   // Exported as functions, not values: a caller that captured a number would be
@@ -2004,6 +2067,7 @@ module.exports = {
   dispatchExtendedRadiusKm,
   searchTimeoutSeconds,
   TASK_OFFER_TIMEOUT,
+  TASK_OFFER_ACK_CHECK,
   TASK_RESWEEP,
   TASK_DISPATCH_START,
 };
