@@ -14,7 +14,7 @@ import { fonts, fontSizes, spacing, radii, shadows, withOpacity, springs, routeL
 import { useColors, Colors } from '../../utils/useColors';
 import { eyegoDarkStyle, eyegoLightStyle } from '@eyego/map-styles';
 import { useThemeStore } from '../../stores/theme.store';
-import { Text, Button, Card, DriverInfoCard, SeatBar, AnimatedFareText, Skeleton, Loader, MorphTarget, MorphBackSwipeDetector, useMorph, InlayPanel, getTierTheme, normalizeTier, RIDER_TIERS, SmoothScreen, SmoothDefer, type TierId } from '@eyego/ui';
+import { Text, Button, Card, DriverInfoCard, SeatBar, AnimatedFareText, Skeleton, MorphTarget, MorphBackSwipeDetector, useMorph, InlayPanel, getTierTheme, normalizeTier, RIDER_TIERS, SmoothScreen, SmoothDefer, type TierId } from '@eyego/ui';
 import { HeroBusSlot, minibus, useShowcaseCamera } from '@eyego/maps';
 import { LIVERY } from '../../components/trip/RidePicker';
 
@@ -305,8 +305,13 @@ export default function RideDetailScreen() {
   if (isLoading && !trip) {
     return (
       <MorphTarget id={`ride-card-${id}`} borderRadius={0} style={{ flex: 1 }}>
-        <View style={{ flex: 1, backgroundColor: 'transparent', alignItems: 'center', justifyContent: 'center' }}>
-          <Loader label="Loading your ride…" />
+        {/* The page's shape while it loads, not a centred spinner. */}
+        <View style={{ flex: 1, backgroundColor: 'transparent', padding: 20, paddingTop: 96, gap: 14 }} accessibilityLabel="Loading your ride">
+          <Skeleton height={28} width="60%" />
+          <Skeleton height={16} width="40%" />
+          <Skeleton height={180} borderRadius={20} />
+          <Skeleton height={64} borderRadius={16} />
+          <Skeleton height={64} borderRadius={16} />
         </View>
       </MorphTarget>
     );

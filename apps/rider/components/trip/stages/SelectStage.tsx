@@ -5,7 +5,6 @@ import {
   ScrollView,
   Modal,
   BackHandler,
-  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -30,7 +29,7 @@ import { useThemeStore } from '../../../stores/theme.store';
 // `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
 // drops the `({ pressed }) => style` function form on RN's Pressable, which
 // silently deletes the whole style. See the note in SearchStage.tsx.
-import { Text, Button, Pressable, EmptyState, Avatar, AppBackground, MorphSource, MorphCTA, Entrance, getTierTheme, normalizeTier, goDeeper, goBack, Reveal } from '@eyego/ui';
+import { Text, Button, Pressable, EmptyState, Avatar, AppBackground, MorphSource, MorphCTA, Entrance, Skeleton, getTierTheme, normalizeTier, goDeeper, goBack, Reveal } from '@eyego/ui';
 import { formatGhs, clockTime } from '@eyego/utils';
 import type { TripTier, Trip } from '@eyego/types';
 import { captureException } from '../../../lib/sentry';
@@ -170,8 +169,11 @@ function InlineRideDetails({
   });
   if (isLoading) {
     return (
-      <Reveal style={{ paddingTop: spacing.sm, alignItems: 'center' }}>
-        <ActivityIndicator size="small" color={colors.onSurfaceVariant} />
+      <Reveal style={{ paddingTop: spacing.sm, gap: spacing.sm }}>
+        {/* LOADING phase: the shape of what is coming, not a spinner. */}
+        <Skeleton height={14} width="70%" />
+        <Skeleton height={14} width="55%" />
+        <Skeleton height={44} borderRadius={12} />
       </Reveal>
     );
   }
@@ -528,6 +530,14 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
               style={styles.searchCta}
             />
           </Entrance>
+        )}
+        {/* Skeleton bus cards while the search runs (Bolt/Uber/Yango all do). */}
+        {searchTrips.isPending && (
+          <View style={{ gap: spacing.sm, marginTop: spacing.sm }} accessibilityLabel="Finding buses">
+            {[0, 1, 2].map((k) => (
+              <Skeleton key={k} height={132} borderRadius={20} />
+            ))}
+          </View>
         )}
 
         {/* Results */}
