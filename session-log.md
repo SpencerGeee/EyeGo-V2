@@ -1,5 +1,17 @@
 # EyeGo V2 Session Log
 
+## 2026-10-29/30 [saved] — client meeting full build ("premium trotro")
+Goal: build every gap from the 2026-10-29 client meeting (tracker docs/superpowers/plans/2026-10-29-BUILD-TRACKER.md).
+Done (21 local commits 286ee70 → c325ee8, NOT pushed): per-segment seat capacity + book a seat on a running bus;
+ next bus at your stop; 3-min no-show grace from stopArrivedAt; seat-passing pushes; walk-up boarding by bus code;
+ home asks Book a seat / whole bus / ride; shared-bus suggestion before private; offer protocol v2 + auto-pause after
+ 3 lapses; rider polling floor; N seats, no seat map; PulseSchedules publish real trips; repeat last run; book the
+ return; admin demand map + corridor prices; one Skia-free launch intro; flat card system; tier turn in place;
+ named stage transitions; driver stop timeline follows the bus; ParticleHero idle loop gated on useLoopsActive.
+Deferred: detour shared-seat variant (needs driver consent design).
+Verify: tsc x3 0 · jest 242 · maps 37 · invariants 6 · static e2e 87. Live e2e + device: NOT run.
+Needs: prisma generate + migrate deploy (2 migrations), new store build for the splash.
+
 ## 2026-07-22 [saved]
 Goal: Fix 25-item stress-test bug list across both apps + backend (pricing, payments, maps, morph, disputes, dispatch).
 Decisions:

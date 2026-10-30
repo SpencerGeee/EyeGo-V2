@@ -66,4 +66,4 @@ Verify gate per phase: `node node_modules/typescript/lib/tsc.js -p apps/rider|dr
 - [x] DemandSignal (searches with 0 results) + admin /demand (unmet cells × hour-of-week, busiest boarding stops, corridor usage) + corridor create/toggle (OPS, audited)
 
 ## Final
-- [ ] state.md + session-log.md + memory; full verify; report what is NOT device-verified
+- [x] state.md + session-log.md + memory; full verify (tsc x3 0, jest 242, maps 37, invariants 6, static e2e 87); live e2e + device NOT run

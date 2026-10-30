@@ -1,3 +1,4 @@
+import { useLoopsActive } from '@eyego/ui';
 import React, { useEffect, useMemo } from 'react';
 import { Canvas, Points, Oval, Circle, BlurMask, Group, vec } from '@shopify/react-native-skia';
 import {
@@ -72,10 +73,13 @@ export function ParticleHero({
 
   // The idle clock: float, tilt and shimmer. One loop, cancelled on unmount.
   const clock = useSharedValue(0);
+  // Gated like every other loop (RN perf rules): paused while backgrounded.
+  const loopsActive = useLoopsActive();
   useEffect(() => {
+    if (!loopsActive) return;
     clock.value = withRepeat(withTiming(1, { duration: 12000, easing: Easing.linear }), -1, false);
     return () => cancelAnimation(clock);
-  }, [clock]);
+  }, [clock, loopsActive]);
 
   const size = Math.min(width * 0.86, height * 0.92);
   const cx = width / 2;

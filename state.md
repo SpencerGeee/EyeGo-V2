@@ -1,3 +1,13 @@
+# State — 2026-10-30 (client meeting full build — DONE except the deferred detour variant; 21 local commits, NOT pushed)
+
+All tracker phases 0/A/O/P/B/C/D/E/F/G built (286ee70 … c325ee8 + ParticleHero loop gate). Deferred, not built: Phase C
+ detour version (SHARED_SEAT cascade kind, needs driver consent).
+Final verify 2026-10-30: tsc rider/driver/admin 0 · API jest 242 pass/7 skipped · test:maps 37/37 · invariants 6/6 ·
+ static e2e 87/87 (ui/conditional-hooks/motion/ux/maestro/button-wiring/prisma-fields/shader/h3/formatters).
+ Live e2e suites NOT run (need the local stack up). NOTHING device-tested.
+USER MUST: stop the local API, `npx prisma generate`, `npx prisma migrate deploy` — TWO migrations:
+ 20261029120000_client_meeting_build + 20261029130000_pulse_schedule_driver. Splash/native changes need a new store build.
+
 # State — 2026-10-29 (client meeting full build — IN PROGRESS; tracker = docs/superpowers/plans/2026-10-29-BUILD-TRACKER.md)
 
 Specs: review-pack + client-meeting-gaps (docs/superpowers/plans/2026-10-29-*), visual teardown §7 (Motion & Card Spec v2).
