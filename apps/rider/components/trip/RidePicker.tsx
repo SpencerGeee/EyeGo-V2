@@ -1,10 +1,11 @@
 import React, { useMemo } from 'react';
 import { View, StyleSheet } from 'react-native';
+import Animated, { FadeIn, FadeOut, ReduceMotion } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { minibus, HeroBusSlot } from '@eyego/maps';
 import { fonts, fontSizes, spacing } from '@eyego/config';
 // Pressable from @eyego/ui: NativeWind drops a FUNCTION style on RN's own (the tile drew unstyled).
-import { Text, getTierTheme, Pressable } from '@eyego/ui';
+import { Text, getTierTheme, Pressable, RollingDigits } from '@eyego/ui';
 import { formatGhs } from '@eyego/utils';
 import { useColors, type Colors } from '../../utils/useColors';
 
@@ -43,6 +44,7 @@ export const LIVERY: Record<RideTierId, { body: string }> = {
 
 const ROW_H = 76;
 const BUS = 60;
+const SPOT_BUS = 148;
 
 export function RidePicker({
   options,
@@ -73,8 +75,12 @@ export function RidePicker({
     onSelect(id);
   };
 
+  const chosen = options.find((o) => o.id === selected) ?? options[0];
   return (
     <View style={styles.list} accessibilityRole="radiogroup">
+      {chosen ? (
+        <Spotlight option={chosen} badge={badgeOf(chosen.id)} quoting={quoting} colors={colors} styles={styles} />
+      ) : null}
       {options.map((o) => (
         <Row
           key={o.id}
@@ -88,6 +94,70 @@ export function RidePicker({
           styles={styles}
         />
       ))}
+    </View>
+  );
+}
+
+/**
+ * THE BIG BUS IS BACK (device recording 2026-10-30: "previously it used to be a
+ * big bus that morphs when you select a ride type, bring it back").
+ *
+ * One showroom bus above the flat list, in the CHOSEN class's paint. Picking a
+ * class re-paints it and turns it once (HeroBusSlot's turnKey), while the
+ * name, blurb and price roll to the new class — the list below stays the
+ * Uber-flat product list, so the thumb still learns where each class lives.
+ */
+function Spotlight({
+  option,
+  badge,
+  quoting,
+  colors,
+  styles,
+}: {
+  option: RideOption;
+  badge: string | null;
+  quoting: boolean;
+  colors: Colors;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  const t = getTierTheme(colors, option.id);
+  const model = useMemo(() => minibus({ accent: t.accent, body: LIVERY[option.id].body }), [t.accent, option.id]);
+  return (
+    <View style={styles.spot} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+      <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
+        <Animated.View
+          key={`spot-${option.id}`}
+          entering={FadeIn.duration(260).reduceMotion(ReduceMotion.System)}
+          exiting={FadeOut.duration(120)}
+        >
+          <View style={styles.spotEyebrowRow}>
+            <View style={[styles.spotDot, { backgroundColor: t.accent }]} />
+            <Text style={[styles.spotEyebrow, { color: t.accent }]}>{badge ?? 'Your ride'}</Text>
+          </View>
+          <Text style={styles.spotTitle} numberOfLines={1}>{t.label}</Text>
+          <Text style={styles.spotBlurb} numberOfLines={2}>{t.blurb}</Text>
+        </Animated.View>
+        {option.price != null ? (
+          <RollingDigits
+            text={formatGhs(option.price)}
+            value={option.price}
+            fontSize={28}
+            fontFamily={fonts.displayBold}
+            color={colors.onSurface}
+          />
+        ) : (
+          <Text style={styles.spotPending}>{quoting ? 'Pricing…' : '—'}</Text>
+        )}
+      </View>
+      <View style={styles.spotStage}>
+        {/* A soft pool of the class colour under the bus, re-tinted per pick. */}
+        <Animated.View
+          key={`pool-${option.id}`}
+          entering={FadeIn.duration(320).reduceMotion(ReduceMotion.System)}
+          style={[styles.spotPool, { backgroundColor: `${t.accent}26` }]}
+        />
+        <HeroBusSlot id="ride-spotlight" size={SPOT_BUS} model={model} turnKey={option.id} />
+      </View>
     </View>
   );
 }
@@ -164,6 +234,33 @@ function Row({
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     list: { gap: 2 },
+    spot: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.md,
+      paddingVertical: spacing.sm,
+      marginBottom: spacing.sm,
+    },
+    spotStage: { width: SPOT_BUS, height: SPOT_BUS * 0.82, alignItems: 'center', justifyContent: 'center' },
+    spotPool: {
+      position: 'absolute',
+      bottom: 6,
+      width: SPOT_BUS * 0.86,
+      height: SPOT_BUS * 0.3,
+      borderRadius: SPOT_BUS,
+    },
+    spotEyebrowRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    spotDot: { width: 6, height: 6, borderRadius: 3 },
+    spotEyebrow: { fontFamily: fonts.semiBold, fontSize: 12, lineHeight: 16, letterSpacing: 0.3 },
+    spotTitle: {
+      fontFamily: fonts.displayBold,
+      fontSize: fontSizes.headlineSmall,
+      lineHeight: Math.round(fontSizes.headlineSmall * 1.2),
+      letterSpacing: -0.4,
+      color: colors.onSurface,
+    },
+    spotBlurb: { fontFamily: fonts.regular, fontSize: fontSizes.bodySmall, lineHeight: 18, color: colors.onSurfaceVariant },
+    spotPending: { fontFamily: fonts.displayBold, fontSize: 24, lineHeight: 30, color: colors.onSurfaceVariant },
     row: {
       minHeight: ROW_H,
       borderRadius: 16,
