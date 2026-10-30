@@ -554,6 +554,37 @@ module.exports = function registerDriverSocket(io, driverNamespace) {
         }
       }
 
+      /**
+       * ── EVERY STOP IS A TASK, AND ARRIVING AT ONE IS SEEN TOO (L9) ──────
+       *
+       * Uber's driver tasks live on waypoints, each with its own arrive radius.
+       * Ours: a bus stop with passengers still waiting to board is stamped
+       * "bus at this stop" (markStopArrived — starts their no-show grace and
+       * tells them to come out) the moment the bus is inside the radius, so the
+       * driver need not tap it at every stop. The manual tap still works.
+       * Checked at most every 15 s per trip: a DB read per GPS fix would be
+       * 280 ms × every second of every running bus.
+       */
+      try {
+        const gate = await redis.set(`stoparrive:chk:${trip.id}`, '1', 'EX', 15, 'NX');
+        if (gate) {
+          const waiting = await prisma.booking.findMany({
+            where: { tripId: trip.id, stopArrivedAt: null, pickupStopId: { not: null }, status: { in: ['CONFIRMED', 'SEAT_HELD', 'PAID'] } },
+            select: { id: true, pickupStop: { select: { lat: true, lng: true } } },
+            take: 50,
+          });
+          const here = waiting
+            .filter((b) => Number.isFinite(b.pickupStop?.lat) && haversineMeters(lat, lng, b.pickupStop.lat, b.pickupStop.lng) <= ARRIVAL_RADIUS_M)
+            .map((b) => b.id);
+          if (here.length > 0) {
+            await require('../modules/trips/trips.service').markStopArrived(trip.id, here, driverId);
+            logger.info(`[arrival] auto stop-arrival on trip ${trip.id}: ${here.length} waiting`);
+          }
+        }
+      } catch (err) {
+        logger.debug(`[arrival] auto stop-arrival skipped for ${trip.id}: ${err?.message ?? err}`);
+      }
+
       // On-demand rides used to fall out here: the old code read the
       // destination from `trip.route`, and an on-demand trip has no route, so
       // the rider's map never received a polyline at all for the product we

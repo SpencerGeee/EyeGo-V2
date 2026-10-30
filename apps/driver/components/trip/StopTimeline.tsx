@@ -154,7 +154,12 @@ function StopNode({
         >
           <View style={{ flex: 1 }}>
             <Text style={[styles.kind, { color: current ? colors.primary : colors.onSurfaceVariant }]}>
-              {stop.kind === 'PICKUP' ? 'PICKUP' : 'DROP-OFF'}
+              {/* L9: a stop is a task — how many to take on / let off here. */}
+              {(() => {
+                const n = stop.passengers.reduce((sum, p) => sum + (p.seatCount || 1), 0); // seats, not rows
+                const verb = stop.kind === 'PICKUP' ? 'PICK UP' : 'DROP OFF';
+                return n > 0 ? `${verb} ${n}` : stop.kind === 'PICKUP' ? 'PICKUP' : 'DROP-OFF';
+              })()}
             </Text>
             <Text style={[styles.title, done && styles.titleDone]} numberOfLines={1}>
               {stop.title}
