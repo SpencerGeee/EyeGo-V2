@@ -112,7 +112,8 @@ export default function SavedPlacesScreen() {
       return res.data?.data?.places ?? [];
     },
   });
-  const places = data ?? [];
+  // Guarded: this key is shared with three other screens.
+  const places: SavedPlace[] = Array.isArray(data) ? data : [];
 
   // One-time migration of pre-backend AsyncStorage places. Old entries have
   // no coordinates, so each is forward-geocoded once; unresolvable ones are

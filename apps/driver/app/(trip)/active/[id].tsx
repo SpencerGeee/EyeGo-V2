@@ -2345,9 +2345,11 @@ const makeStyles = (colors: DriverColors) =>
       fontSize: fontSizes.caption,
       color: colors.onSurfaceVariant,
     },
-    boardingCodeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, paddingHorizontal: 14, borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.10)', marginBottom: 10 },
-  boardingCodeLabel: { fontSize: 11, letterSpacing: 1.2, opacity: 0.7 },
-  boardingCodeValue: { fontSize: 22, letterSpacing: 6, fontWeight: '700' },
+    boardingCodeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 56, paddingVertical: 12, paddingHorizontal: 16, borderRadius: 16, backgroundColor: 'rgba(255,255,255,0.04)', marginBottom: 10 },
+  // Line heights travel with font sizes (recording 2: the code sat cramped and
+  // clipped against its row with no line box of its own).
+  boardingCodeLabel: { fontFamily: fonts.semiBold, fontSize: 11, lineHeight: 15, letterSpacing: 1.2, color: 'rgba(255,255,255,0.6)' },
+  boardingCodeValue: { fontFamily: fonts.displayBold, fontSize: 24, lineHeight: 30, letterSpacing: 5, fontVariant: ['tabular-nums'] },
   manageHeading: {
       fontFamily: fonts.semiBold,
       fontSize: 11,

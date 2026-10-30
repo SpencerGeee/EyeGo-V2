@@ -36,8 +36,10 @@ export function SaveDestinationCard({ address, lat, lng }: { address: string; la
 
   const { data: places, isSuccess } = useQuery({
     queryKey: queryKeys.user.savedPlaces,
-    queryFn: () => userApi.getSavedPlaces(),
-    select: (r): SavedPlace[] => (r.data as any)?.data?.places ?? [],
+    // The ARRAY, like every other reader of this key. Caching the raw response
+    // here (with a `select` to unwrap it) put an object where Saved places
+    // expects a list — `places.filter` threw, the crash after every completed trip.
+    queryFn: async (): Promise<SavedPlace[]> => ((await userApi.getSavedPlaces()).data as any)?.data?.places ?? [],
     staleTime: 60_000,
   });
 

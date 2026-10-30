@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated, { FadeIn, FadeInLeft, FadeInRight, FadeOutLeft, FadeOutRight, Easing, LinearTransition, useAnimatedStyle, useDerivedValue, withTiming } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeInLeft, FadeInRight, FadeOut, Easing, LinearTransition, useAnimatedStyle, useDerivedValue, withTiming } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { SharedBusSuggestion } from '../SharedBusSuggestion';
@@ -179,9 +179,11 @@ function ConfigureStageImpl() {
   // held the new step invisible for the first 30 %, so every Continue blinked.
   const OUT = Easing.bezier(0.22, 1, 0.36, 1);
   const stepEnter = depthOn
-    ? (stepDir < 0 ? FadeInLeft : FadeInRight).duration(durations.reveal).easing(OUT)
+    ? (stepDir < 0 ? FadeInLeft : FadeInRight).delay(80).duration(durations.reveal).easing(OUT)
     : FadeIn.duration(200);
-  const stepExit = depthOn ? (stepDir < 0 ? FadeOutRight : FadeOutLeft).duration(durations.micro) : undefined;
+  // Out fast and in place, THEN the next step slides in — overlapping two titles
+  // in the same spot drew one on top of the other (recording 2, 2:52).
+  const stepExit = depthOn ? FadeOut.duration(90) : undefined;
 
   /**
    * What the quote said about the pickup pin — see the doorstep block in the
