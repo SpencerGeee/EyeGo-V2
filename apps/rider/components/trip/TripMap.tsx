@@ -21,7 +21,7 @@ import {
   type Coord,
 } from '@eyego/maps';
 import { routeLine, fonts } from '@eyego/config';
-import { useSheetMetrics, PulseRing, Text } from '@eyego/ui';
+import { useSheetMetrics, PulseRing, Text, LottieMoment } from '@eyego/ui';
 import { socketEvents, type TripSnapshot, type TripStatus } from '@eyego/api';
 import { useThemeStore } from '../../stores/theme.store';
 import { useTripFlow } from '../../stores/tripFlow.store';
@@ -1294,8 +1294,10 @@ function TripMapImpl() {
             stopped by `useLoopsActive` when this surface is covered. */}
         {dispatchIsSearching && pickup && (
           <MapboxGL.MarkerView id="search-radar" coordinate={pickup} anchor="center">
+            {/* Yango's searching radar (Lottie): three rings, a sweep, a
+                breathing centre — re-tinted to the brand colour. */}
             <View pointerEvents="none">
-              <PulseRing size={220} color={colors.primary} ringCount={2} duration={2000} />
+              <LottieMoment name="searching_radar" size={240} color={colors.primary} />
             </View>
           </MapboxGL.MarkerView>
         )}

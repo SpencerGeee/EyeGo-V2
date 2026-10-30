@@ -8,7 +8,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button, Entrance, AnimatedCheckmark, AnimatedFareText, Skeleton, GradientGlowBorder, GlassSurface, AppBackground, bookingStatusLabel, goDeeper, goBack, goOut } from '@eyego/ui';
+import { Text, Button, Entrance, AnimatedCheckmark, LottieMoment, AnimatedFareText, Skeleton, GradientGlowBorder, GlassSurface, AppBackground, bookingStatusLabel, goDeeper, goBack, goOut } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { useDriverStore } from '../../../stores/driver.store';
@@ -409,11 +409,10 @@ export default function TripCompleteScreen() {
     <SafeAreaView style={styles.safe}>
       <AppBackground isDark={theme !== 'light'} />
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        {/* Animated checkmark — draws in on the UI thread */}
-        <Entrance animation="scaleIn" delay={100} style={styles.checkCircle}>
-          <View style={styles.checkGlow} />
-          <AnimatedCheckmark size={52} color="#fff" strokeWidth={3.5} />
-        </Entrance>
+        {/* Trip complete (Lottie): the disc pops, the tick draws, one ripple. */}
+        <View style={{ alignSelf: 'center' }}>
+          <LottieMoment name="trip_complete" size={150} color={colors.primary} />
+        </View>
 
         {/* Title */}
         <Entrance animation="slideDown" delay={300} style={styles.titleContainer}>

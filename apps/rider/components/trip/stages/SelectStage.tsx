@@ -29,7 +29,7 @@ import { useThemeStore } from '../../../stores/theme.store';
 // `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
 // drops the `({ pressed }) => style` function form on RN's Pressable, which
 // silently deletes the whole style. See the note in SearchStage.tsx.
-import { Text, Button, Pressable, EmptyState, Avatar, AppBackground, MorphSource, MorphCTA, Entrance, Skeleton, getTierTheme, normalizeTier, goDeeper, goBack, Reveal } from '@eyego/ui';
+import { Text, Button, Pressable, EmptyState, Avatar, AppBackground, MorphSource, MorphCTA, Entrance, Skeleton, getTierTheme, normalizeTier, goDeeper, goBack, Reveal, LottieMoment } from '@eyego/ui';
 import { formatGhs, clockTime } from '@eyego/utils';
 import type { TripTier, Trip } from '@eyego/types';
 import { captureException } from '../../../lib/sentry';
@@ -553,7 +553,8 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
               />
             ) : (
               <View style={styles.noDriversCard}>
-                <Ionicons name="bus-outline" size={48} color={colors.onSurfaceVariant} style={{ marginBottom: spacing.md }} />
+                {/* A minibus cruising an empty road (Lottie) — the wait is alive. */}
+                <LottieMoment name="ride_card_empty" size={200} color={colors.primary} style={{ marginBottom: spacing.sm }} />
                 <Text variant="titleSmall" style={{ textAlign: 'center' }}>No rides available right now</Text>
                 <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ textAlign: 'center', marginTop: spacing.xs }}>
                   No {selectedTier ? `${selectedTier.toLowerCase()} ` : ''}trips match this route. Try a different tier or destination.

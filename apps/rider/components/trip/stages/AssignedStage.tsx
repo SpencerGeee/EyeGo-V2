@@ -3,7 +3,8 @@ import { View, StyleSheet, Pressable, Linking } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, GlassSurface, RollingDigits, WaitingMeter, SheetSections, goDeeper, Reveal, Celebrate, WalkDots } from '@eyego/ui';
+import { Text, GlassSurface, RollingDigits, WaitingMeter, SheetSections, goDeeper, Reveal, LottieMoment } from '@eyego/ui';
+import Animated, { FadeOut } from 'react-native-reanimated';
 import { useRideStore } from '../../../stores/ride.store';
 import { DriverStrip } from './DriverStrip';
 import { usePlatformConfig } from '../../../hooks/usePlatformConfig';
@@ -137,7 +138,7 @@ function AssignedStageImpl() {
     if (!tripId || CELEBRATED.has(tripId) || snapshot?.booking?.status === 'BOARDED') return;
     CELEBRATED.add(tripId);
     setBurst(tripId);
-    const t = setTimeout(() => setBurst(null), 1400);
+    const t = setTimeout(() => setBurst(null), 1800);
     return () => clearTimeout(t);
   }, [tripId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -205,7 +206,21 @@ function AssignedStageImpl() {
           peek={
             <>
               <View style={styles.headline}>
-                {burst ? <Celebrate key={burst} color={colors.primary} /> : null}
+                {/* SIGNATURE MOMENT (Lottie): the tick for a car on its way, confetti
+                    for a seat on a bus. Holds its last frame, then fades. */}
+                {burst ? (
+                  <Animated.View
+                    key={burst}
+                    exiting={FadeOut.duration(260)}
+                    pointerEvents="none"
+                    style={(snapshot as any)?.isOnDemand ? styles.burstTick : styles.burstConfetti}
+                  >
+                    <LottieMoment
+                      name={(snapshot as any)?.isOnDemand ? 'bus_found' : 'seat_booked_confetti'}
+                      size={(snapshot as any)?.isOnDemand ? 112 : 300}
+                    />
+                  </Animated.View>
+                ) : null}
                 <View style={{ flex: 1 }}>
                   <Text style={styles.title}>{boarded ? 'On board' : copy.title}</Text>
                   <Text variant="bodySmall" color={colors.onSurfaceVariant} numberOfLines={2}>
@@ -217,7 +232,7 @@ function AssignedStageImpl() {
                     <Reveal>
                       <View style={styles.walkRow}>
                         <Ionicons name="walk" size={14} color={colors.primary} />
-                        <WalkDots color={colors.primary} />
+                        <LottieMoment name="walk_to_stop" size={66} />
                         <Text variant="caption" color={colors.onSurfaceVariant} numberOfLines={1} style={{ flex: 1 }}>
                           {walkMin} min walk{pickup?.address ? ` to ${pickup.address.split(',')[0]}` : ''}
                         </Text>
@@ -415,6 +430,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   headline: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  burstTick: { position: 'absolute', right: -20, top: -34, zIndex: 5 },
+  burstConfetti: { position: 'absolute', left: 0, right: 0, top: -96, alignItems: 'center', zIndex: 5 },
   walkRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 },
   title: {
     fontFamily: fonts.displayBold,

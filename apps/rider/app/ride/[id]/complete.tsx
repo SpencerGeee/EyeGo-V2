@@ -20,7 +20,7 @@ import { useColors, Colors } from '../../../utils/useColors';
 import { formatGhs, formatDistance, formatDuration, originLabel, destinationLabel, dayMonthTime, dayMonthYear, clockTime } from '@eyego/utils';
 import { useQuery } from '@tanstack/react-query';
 import { bookingsApi, ridesApi } from '@eyego/api';
-import { Text, GlassSurface, GradientGlowBorder, AnimatedCheckmark, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS } from '@eyego/ui';
+import { Text, GlassSurface, GradientGlowBorder, AnimatedCheckmark, LottieMoment, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS } from '@eyego/ui';
 
 export default function TripCompleteScreen() {
   const colors = useColors();
@@ -515,9 +515,8 @@ export default function TripCompleteScreen() {
           transition={{ type: 'spring', ...springs.standard, delay: 100 }}
           style={styles.iconWrap}
         >
-          <View style={styles.checkSquare}>
-            <AnimatedCheckmark size={52} color={colors.primary} strokeWidth={3.5} />
-          </View>
+          {/* Arrived (Lottie): the disc pops, the tick draws, one ripple. */}
+          <LottieMoment name="trip_complete" size={130} color={colors.primary} />
         </MotiView>
 
         {/* Headline */}

@@ -117,6 +117,8 @@ export {
 } from './motion/layoutTransitions';
 export { Reveal, revealEnter, revealExit } from './motion/Reveal';
 export { Celebrate, WalkDots } from './motion/SignatureMoments';
+export { LottieMoment } from './motion/LottieMoment';
+export type { LottieMomentName, LottieMomentProps } from './motion/LottieMoment';
 export { depthIncoming, depthOutgoing, depthEnter, depthEnterAfter, depthEnterBack, depthExit, useDepthMotion } from './motion/depth';
 export type { DepthDirection } from './motion/depth';
 export { Cascade, type CascadeStrength } from './motion/Cascade';

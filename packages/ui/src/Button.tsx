@@ -3,7 +3,7 @@ import { StyleSheet, ViewStyle } from 'react-native';
 import { Pressable } from './Pressable';
 import { Text } from './Text';
 import { ShinyText } from './ShinyText';
-import { Loader } from './Loader';
+import { LottieMoment } from './motion/LottieMoment';
 import { RING_PALETTES } from './effects/GradientGlowBorder';
 import { radii, spacing, fonts, fontSizes, type ColorTokens } from '@eyego/config';
 import { useThemedColors } from './ColorsContext';
@@ -142,9 +142,9 @@ export function Button({
   };
 
   const content = loading ? (
-    // The app's own loader, at a size that fits inside the button's line box —
-    // so a pending button and a pending screen are visibly the same product.
-    <Loader size={Math.round(sStyle.fontSize * 1.15)} color={vStyle.textColor} />
+    // Three dots rising in a wave (Lottie "loading"), sized to the label's line
+    // box so a busy button keeps its height.
+    <LottieMoment name="loading" size={sStyle.lineHeight * 2} color={vStyle.textColor} style={{ marginVertical: -sStyle.lineHeight / 2 }} />
   ) : (
     <>
       {icon}
@@ -188,7 +188,7 @@ export function Button({
         style={[...resolvedStyle, { backgroundColor: fill, shadowColor: fill, shadowOpacity: 0.28, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 6 }]}
       >
         {loading ? (
-          <Loader size={Math.round(sStyle.fontSize * 1.15)} color={ink} />
+          <LottieMoment name="loading" size={sStyle.lineHeight * 2} color={ink} style={{ marginVertical: -sStyle.lineHeight / 2 }} />
         ) : (
           <>
             {icon}

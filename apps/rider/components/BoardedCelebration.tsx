@@ -14,7 +14,7 @@ import Animated, {
   useReducedMotion,
 } from 'react-native-reanimated';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, GlassSurface } from '@eyego/ui';
+import { Text, GlassSurface, LottieMoment } from '@eyego/ui';
 import { useColors, Colors } from '../utils/useColors';
 import { useTripStore } from '../stores/trip.store';
 
@@ -134,8 +134,9 @@ export function BoardedCelebration() {
     <View style={styles.host} pointerEvents="box-none">
       <Animated.View style={[styles.card, cardStyle]} pointerEvents="none">
         <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii['2xl']} intensity="high" />
-        <Animated.View style={[styles.ring, ringStyle]}>
-          <Ionicons name="checkmark" size={22} color={colors.primary} />
+        {/* The seat settles and its badge ticks in (Lottie "boarded"). */}
+        <Animated.View style={ringStyle}>
+          <LottieMoment name="boarded" size={56} color={colors.primary} />
         </Animated.View>
         <View style={{ flex: 1 }}>
           <Text style={styles.title}>You&apos;re on board</Text>
