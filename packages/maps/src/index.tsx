@@ -14,7 +14,7 @@
  * native (dev-client/EAS) build after this lands.
  */
 import React, { useEffect, useImperativeHandle, useRef, useState, useCallback } from 'react';
-import { View, Text, Pressable, Dimensions, Image, PixelRatio } from 'react-native';
+import { View, Text, Pressable, Dimensions, Image, PixelRatio, Animated } from 'react-native';
 import { modelDataUri, quantPitch, quantYaw, type Model } from './three/engine';
 import { Model3D } from './three/Model3D';
 import { riderPuck } from './three/models';
@@ -422,25 +422,11 @@ export const MapView = React.forwardRef<any, MapViewProps>(function MapView(
       >
         {children}
       </NativeMap>
-      {/* Branded loading veil — replaces the raw black frame while the style/
-          tiles are still fetching, so a slow network reads as "loading"
-          instead of "broken". */}
-      {!loaded && !loadError && (
-        <View
-          pointerEvents="none"
-          style={{
-            position: 'absolute',
-            top: 0, left: 0, right: 0, bottom: 0,
-            backgroundColor: 'rgba(10,10,15,0.55)',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, fontWeight: '600', letterSpacing: 0.4 }}>
-            Loading map…
-          </Text>
-        </View>
-      )}
+      {/* The map's own ground colour until the first frame is drawn, then it
+          fades away (device recording 2026-10-30: a "Loading map…" caption
+          flashed on every freshly mounted map, the driver's offer included).
+          Premium apps never caption a map that is a few hundred ms from ready. */}
+      {!loadError && <LoadVeil loaded={loaded} />}
       {loadError && (
         <View
           style={{
@@ -1494,3 +1480,26 @@ export { cabin, cabinPlan, seatTop, type CabinPlan, type CabinSeatState, type Ca
 export { projectPoint, frameXY, quantYaw, quantPitch } from './three/engine';
 export { modelDataUri, modelPicture, projectModel, type Model } from './three/engine';
 export { useShowcaseCamera, SHOWCASE_PITCH, SHOWCASE_BEARING, type ShowcaseOptions } from './useShowcaseCamera';
+
+/** Fades the map ground away once the map has drawn. RN Animated: no worklets here. */
+function LoadVeil({ loaded }: { loaded: boolean }) {
+  const opacity = useRef(new Animated.Value(1)).current;
+  const [gone, setGone] = useState(false);
+  useEffect(() => {
+    if (!loaded) {
+      opacity.setValue(1);
+      setGone(false);
+      return;
+    }
+    Animated.timing(opacity, { toValue: 0, duration: 280, useNativeDriver: true }).start(({ finished }) => {
+      if (finished) setGone(true);
+    });
+  }, [loaded, opacity]);
+  if (gone) return null;
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(10,10,15,0.55)', opacity }}
+    />
+  );
+}

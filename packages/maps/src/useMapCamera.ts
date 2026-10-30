@@ -442,6 +442,10 @@ interface Tilt {
 const TILT_SETTLE_MS = 180;
 /** One unhurried move: tilt, fly and frame together. */
 const TILT_MS = 1100;
+/** The sheet's edge must hold still this long before the map re-frames to it. */
+const PAD_SETTLE_MS = 140;
+/** The one glide to the new framing once it has. */
+const REFRAME_MS = 520;
 
 function applyPlan(
   cameraRef: any,
@@ -474,6 +478,16 @@ function applyPlan(
 
     const stageChanged = paddingKey !== lastPaddingKeyRef.current;
     if (!tiltDue && !stageChanged && now < fitSettlesAtRef.current) return;
+    const firstFit = lastPaddingKeyRef.current === '';
+    /**
+     * THE MAP WAITS FOR THE SHEET (device recording 2026-10-30: every animation
+     * over the map dropped about half its frames). Tracking the sheet's
+     * springing edge meant ~25 native `fitBounds` per transition, each a full
+     * map re-render on the same main thread the sheet spring runs on — the
+     * two fought and both stuttered. Uber's order instead: the sheet moves, and
+     * once it has come to rest the map glides once to the new framing.
+     */
+    if (stageChanged && !firstFit && !tiltDue && now - tilt.stableSince < PAD_SETTLE_MS) return;
 
     /**
      * A padding change used to mean "the sheet snapped to a new stage height",
@@ -490,8 +504,7 @@ function applyPlan(
      * to be animating. The first fit of a surface keeps its ease: there is no
      * sheet motion to track yet, only an empty map arriving at its subject.
      */
-    const firstFit = lastPaddingKeyRef.current === '';
-    const duration = tiltDue ? TILT_MS : stageChanged && !firstFit ? 0 : plan.animationDuration ?? 0;
+    const duration = tiltDue ? TILT_MS : stageChanged && !firstFit ? REFRAME_MS : plan.animationDuration ?? 0;
     if (tiltDue) tilt.applied = tilt.want;
 
     lastOverviewKeyRef.current = key;

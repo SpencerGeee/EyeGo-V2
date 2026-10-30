@@ -230,12 +230,16 @@ export function SwipeToConfirm({
     ],
   }));
 
+  // While the action runs the knob sits at the far end, which is exactly where
+  // the drag fade had taken the label to 0 — so the driver saw a lone "…" for
+  // the whole wait (device recording 2026-10-30). Busy shows the busy label.
   const labelStyle = useAnimatedStyle(() => {
+    if (loading) return { opacity: 1 };
     const max = Math.max(1, trackWidth.value - thumbSize - THUMB_INSET * 2);
     return {
       opacity: interpolate(x.value, [0, max * 0.55], [1, 0], Extrapolation.CLAMP),
     };
-  });
+  }, [loading]);
 
   return (
     <Animated.View
@@ -286,7 +290,7 @@ export function SwipeToConfirm({
         and held to one line — never shrunk to fit (Fabric collapses fit-text).
       */}
       <Animated.View
-        style={[styles.labelWrap, { paddingLeft: thumbSize + THUMB_INSET * 2 + 4, paddingRight: 14 }, labelStyle]}
+        style={[styles.labelWrap, loading ? { paddingLeft: 18, paddingRight: thumbSize + THUMB_INSET * 2 + 4 } : { paddingLeft: thumbSize + THUMB_INSET * 2 + 4, paddingRight: 14 }, labelStyle]}
         pointerEvents="none"
       >
         {!confirmed && (

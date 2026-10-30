@@ -11,7 +11,6 @@ import {
   SheetContent,
   SwipeToConfirm,
   GlassSurface,
-  GradientGlowBorder,
   RollingDigits,
   WaitingMeter,
   Avatar,
@@ -264,16 +263,7 @@ export function TripStages({
         ) : null}
 
         {farePesewas > 0 ? (
-          <GradientGlowBorder
-            palette="driver"
-            fillColor={colors.surfaceContainerHigh}
-            borderRadius={radii.xl}
-            thickness="thin"
-            glow
-            glowIntensity={0.55}
-            maxGlowRadius={16}
-            style={styles.fareRow}
-          >
+          <View style={[styles.fareRow, { backgroundColor: colors.surfaceContainerHigh, borderRadius: radii.xl }]}>
             <Text variant="bodySmall" color={colors.onSurfaceVariant}>Trip fare</Text>
             <Text style={styles.fareValue}>{formatGhs(farePesewas)}</Text>
             {seatsTaken > 1 ? (
@@ -282,7 +272,7 @@ export function TripStages({
             {cashOwed > 0 ? (
               <Text variant="caption" color={colors.statusWarning}>· {formatGhs(cashOwed)} cash to collect</Text>
             ) : null}
-          </GradientGlowBorder>
+          </View>
         ) : null}
 
         {/* A stop the rider added: drop them here, then carry on. */}
@@ -370,16 +360,7 @@ function PassengerRow({
   const seatsLabel =
     p.seats.length > 1 ? `Seats ${p.seats.join(', ')}` : p.seatNumber != null ? `Seat ${p.seatNumber}` : null;
   return (
-    <GradientGlowBorder
-      palette="driver"
-      fillColor={colors.surfaceContainerHigh}
-      borderRadius={radii.xl}
-      thickness="thin"
-      glow
-      glowIntensity={0.7}
-      maxGlowRadius={16}
-      style={styles.passengerRow}
-    >
+    <View style={[styles.passengerRow, { backgroundColor: colors.surfaceContainerHigh, borderRadius: radii.xl }]}>
       <Pressable
         onPress={onPress}
         disabled={!onPress}
@@ -434,7 +415,7 @@ function PassengerRow({
       >
         <Ionicons name="chatbubble-outline" size={17} color={colors.onSurface} />
       </Pressable>
-    </GradientGlowBorder>
+    </View>
   );
 }
 
