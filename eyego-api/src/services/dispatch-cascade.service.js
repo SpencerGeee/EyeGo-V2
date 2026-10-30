@@ -388,6 +388,19 @@ async function boostsFor(tripIds) {
 }
 
 /** Park an offer where `GET /rides/driver/state` can find it. */
+/** L3: short facts for the offer card, most decision-changing first. */
+function offerChips(trip) {
+  const chips = [];
+  const seats = (trip.bookings || []).reduce((n, b) => n + (Number.isFinite(b?.seats) && b.seats > 0 ? b.seats : 1), 0);
+  if (seats > 1) chips.push(`${seats} passengers`);
+  if (cashFloatPesewas(trip) > 0) chips.push('Cash');
+  const onward = Array.isArray(trip.onwardStops) ? trip.onwardStops.length : 0;
+  if (onward > 0) chips.push(`${onward} extra stop${onward === 1 ? '' : 's'}`);
+  if (trip.doorstepPickup) chips.push('Doorstep pickup');
+  if (trip.heavyLoad) chips.push('Heavy load');
+  return chips;
+}
+
 /**
  * What the rider asked of the driver — their pickup note and ride switches
  * (quiet / AC / luggage) — on the card, so the driver decides knowing them and
@@ -767,6 +780,9 @@ async function offerNext(tripId) {
           subtitle: trip.pickupAddress ?? trip.route?.originName ?? null,
           acceptLabel: 'Swipe to accept',
           passLabel: 'Pass',
+          // L3 (Uber UpfrontOfferViewV2 info chips): the facts that change a
+          // driver's answer, worded here so new ones ship without a release.
+          chips: offerChips(trip),
         },
       };
 

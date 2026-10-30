@@ -512,6 +512,9 @@ export function DispatchOfferCard({
 
   const isReassignment = offer.kind === 'REASSIGNMENT';
   const isRequest = offer.kind === 'REQUEST';
+  // L3: server-written copy (title, chips, button words); native layout, native fallbacks.
+  const card = (offer as { card?: { title?: string; acceptLabel?: string; passLabel?: string; chips?: string[] } }).card;
+  const chips = Array.isArray(card?.chips) ? card.chips.filter((c) => typeof c === 'string' && c.length > 0).slice(0, 4) : [];
 
   const pickupKm = kmBetween(driverAt, offer.pickup);
   const rideKm = kmBetween(offer.pickup, offer.dropoff);
@@ -600,6 +603,15 @@ export function DispatchOfferCard({
                     {offer.tier ? `${kindLabel} · ${tier.label.toUpperCase()}` : kindLabel}
                   </Text>
                 </View>
+                {chips.length > 0 ? (
+                  <View style={styles.offerChipRow}>
+                    {chips.map((c) => (
+                      <View key={c} style={[styles.infoChip, { borderColor: accent + '44' }]}>
+                        <Text style={[styles.infoChipText, { color: colors.onSurface }]} numberOfLines={1}>{c}</Text>
+                      </View>
+                    ))}
+                  </View>
+                ) : null}
                 <Text
                   style={[styles.earnings, { color: colors.onSurface }]}
                   accessibilityLabel={earnings != null ? `You earn ${formatGhs(earnings)}` : 'Earnings unknown'}
@@ -756,7 +768,7 @@ export function DispatchOfferCard({
               <View style={isSheet ? styles.actionPair : styles.actions}>
               <View style={isSheet ? { flex: 1 } : undefined}>
               <SwipeToConfirm
-                label={accepted ? 'Accepted' : 'Swipe to accept'}
+                label={accepted ? 'Accepted' : card?.acceptLabel ?? 'Swipe to accept'}
                 loadingLabel="Claiming…"
                 confirmedLabel="Yours"
                 onConfirm={onAccept}
@@ -817,7 +829,7 @@ export function DispatchOfferCard({
                       ? 'Passing…'
                       : declineArmed
                         ? isSheet ? `Sure? ${armSeconds}` : `Tap again to pass · ${armSeconds}`
-                        : 'Pass'}
+                        : card?.passLabel ?? 'Pass'}
                   </Text>
                 </View>
               </Pressable>
@@ -989,6 +1001,15 @@ export function DispatchOfferCard({
                 {offer.tier ? `${kindLabel} · ${tier.label.toUpperCase()}` : kindLabel}
               </Text>
             </View>
+            {chips.length > 0 ? (
+              <View style={styles.offerChipRow}>
+                {chips.map((c) => (
+                  <View key={c} style={[styles.infoChip, { borderColor: accent + '44' }]}>
+                    <Text style={[styles.infoChipText, { color: colors.onSurface }]} numberOfLines={1}>{c}</Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
             <Text
               style={[styles.earnings, { color: colors.onSurface }]}
               accessibilityLabel={earnings != null ? `You earn ${formatGhs(earnings)}` : 'Earnings unknown'}
@@ -1177,7 +1198,7 @@ export function DispatchOfferCard({
           <View style={isSheet ? styles.actionPair : styles.actions}>
           <View style={isSheet ? { flex: 1 } : undefined}>
           <SwipeToConfirm
-            label={accepted ? 'Accepted' : 'Swipe to accept'}
+            label={accepted ? 'Accepted' : card?.acceptLabel ?? 'Swipe to accept'}
             loadingLabel="Claiming…"
             confirmedLabel="Yours"
             onConfirm={onAccept}
@@ -1238,7 +1259,7 @@ export function DispatchOfferCard({
                   ? 'Passing…'
                   : declineArmed
                     ? isSheet ? `Sure? ${armSeconds}` : `Tap again to pass · ${armSeconds}`
-                    : 'Pass'}
+                    : card?.passLabel ?? 'Pass'}
               </Text>
             </View>
           </Pressable>
@@ -1463,6 +1484,9 @@ const makeStyles = (colors: DriverColors) =>
     },
     /** "● NEW OFFER · ECONOMY" — the card's kind and class in one accent line. */
     eyebrowRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 },
+    offerChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 4 },
+    infoChip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 },
+    infoChipText: { fontFamily: fonts.semiBold, fontSize: 11 },
     eyebrow: { fontFamily: fonts.bold, fontSize: 10.5, letterSpacing: 1.1, flexShrink: 1 },
     /** "₵2.10/km · 3 passengers · +₵5 rider boost" — one quiet line, no capsules. */
     meta: { fontFamily: fonts.medium, fontSize: 13, lineHeight: 17, marginTop: 2, fontVariant: ['tabular-nums'] },
