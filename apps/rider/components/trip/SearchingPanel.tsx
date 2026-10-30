@@ -357,13 +357,13 @@ export function SearchingPanel({
           </View>
           <View style={styles2.itineraryText}>
             <View style={styles2.itineraryRow}>
-              <Text style={styles2.itineraryLabel}>PICKUP</Text>
+              <Text style={styles2.itineraryLabel}>Pickup</Text>
               <Text style={styles2.itineraryValue} numberOfLines={1}>
                 {originText ?? 'Your pickup'}
               </Text>
             </View>
             <View style={styles2.itineraryRow}>
-              <Text style={styles2.itineraryLabel}>DROP-OFF</Text>
+              <Text style={styles2.itineraryLabel}>Drop-off</Text>
               <Text style={styles2.itineraryValue} numberOfLines={1}>
                 {destinationText ?? 'Your destination'}
               </Text>
@@ -411,12 +411,13 @@ const styles = StyleSheet.create({
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    root: { gap: spacing.lg },
-    rootCompact: { gap: spacing.md },
+    root: { gap: spacing.xl },
+    rootCompact: { gap: spacing.lg },
     factsLine: {
       flexShrink: 1,
       fontFamily: fonts.medium,
-      fontSize: fontSizes.bodySmall,
+      fontSize: fontSizes.bodyMedium,
+      lineHeight: 20,
       color: colors.onSurfaceVariant,
     },
     headRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
@@ -451,25 +452,32 @@ const makeStyles = (colors: Colors) =>
       fontVariant: ['tabular-nums'],
     },
 
-    itinerary: { flexDirection: 'row', gap: spacing.md },
+    // Uber's trip rows (2026-10-30): reading-size type, room to breathe, a
+    // rule above — the 9 pt caps labels were what made this sheet feel cramped.
+    itinerary: {
+      flexDirection: 'row',
+      gap: spacing.base,
+      paddingTop: spacing.sm,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.outline,
+    },
     /** The connector. One column, three elements, no absolute positioning. */
-    rail: { width: 12, alignItems: 'center', paddingTop: 15, paddingBottom: 15 },
-    railDot: { width: 9, height: 9, borderRadius: 5, borderWidth: 2 },
+    rail: { width: 12, alignItems: 'center', paddingTop: 22, paddingBottom: 22 },
+    railDot: { width: 10, height: 10, borderRadius: 5, borderWidth: 2 },
     railLine: { flex: 1, width: 1.5, marginVertical: 4, borderRadius: 1 },
-    railPin: { width: 9, height: 9, borderRadius: 2 },
+    railPin: { width: 10, height: 10, borderRadius: 2 },
     itineraryText: { flex: 1 },
-    itineraryRow: { height: 44, justifyContent: 'center', gap: 1 },
+    itineraryRow: { minHeight: 56, justifyContent: 'center', gap: 2 },
     itineraryLabel: {
-      fontFamily: fonts.labelCaps,
-      fontSize: 9,
-      lineHeight: 11,
-      letterSpacing: 1.1,
+      fontFamily: fonts.regular,
+      fontSize: fontSizes.bodySmall,
+      lineHeight: 17,
       color: colors.onSurfaceVariant,
     },
     itineraryValue: {
-      fontFamily: fonts.semiBold,
-      fontSize: fontSizes.bodyMedium,
-      lineHeight: Math.round(fontSizes.bodyMedium * 1.25),
+      fontFamily: fonts.medium,
+      fontSize: fontSizes.bodyLarge,
+      lineHeight: 22,
       color: colors.onSurface,
     },
 
@@ -513,9 +521,9 @@ const makeStyles = (colors: Colors) =>
       paddingTop: spacing.md,
       gap: spacing.sm,
     },
-    detailRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    detailKey: { fontFamily: fonts.regular, fontSize: fontSizes.bodySmall, color: colors.onSurfaceVariant },
-    detailValue: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodySmall, color: colors.onSurface, fontVariant: ['tabular-nums'] },
+    detailRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', minHeight: 32 },
+    detailKey: { fontFamily: fonts.regular, fontSize: fontSizes.bodyMedium, lineHeight: 20, color: colors.onSurfaceVariant },
+    detailValue: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodyMedium, lineHeight: 20, color: colors.onSurface, fontVariant: ['tabular-nums'] },
   });
 
 export default SearchingPanel;

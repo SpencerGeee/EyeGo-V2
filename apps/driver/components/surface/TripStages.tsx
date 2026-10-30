@@ -232,13 +232,13 @@ export function TripStages({
             <Ionicons name="location" size={12} color={colors.primary} />
           </View>
           <View style={styles.journeyText}>
-            <View>
-              <Text style={styles.journeyLabel}>PICKUP</Text>
-              <Text variant="bodySmall" numberOfLines={1}>{pickupStop?.title ?? 'Pickup point'}</Text>
+            <View style={styles.journeyRow}>
+              <Text style={styles.journeyLabel}>Pickup</Text>
+              <Text style={styles.journeyValue} numberOfLines={1}>{pickupStop?.title ?? 'Pickup point'}</Text>
             </View>
-            <View>
-              <Text style={styles.journeyLabel}>DROP-OFF</Text>
-              <Text variant="bodySmall" numberOfLines={1}>{dropStop?.title ?? 'Destination'}</Text>
+            <View style={styles.journeyRow}>
+              <Text style={styles.journeyLabel}>Drop-off</Text>
+              <Text style={styles.journeyValue} numberOfLines={1}>{dropStop?.title ?? 'Destination'}</Text>
             </View>
           </View>
         </View>
@@ -284,7 +284,7 @@ export function TripStages({
             <Pressable
               onPress={nextStop}
               disabled={stopBusy}
-              style={[styles.action, { backgroundColor: colors.primary, opacity: stopBusy ? 0.6 : 1 }]}
+              style={[styles.stopBtn, { backgroundColor: colors.primary, opacity: stopBusy ? 0.6 : 1 }]}
               accessibilityRole="button"
               accessibilityLabel="At the stop — continue to the next place"
             >
@@ -436,10 +436,13 @@ function Action({
 }) {
   return (
     <Pressable onPress={onPress} style={styles.action} accessibilityRole="button" accessibilityLabel={label}>
-      <Ionicons name={icon} size={18} color={colors.onSurface} />
+      {/* Uber's sheet actions: a round icon over its word, no outlined tile. */}
+      <View style={styles.actionIcon}>
+        <Ionicons name={icon} size={22} color={colors.onSurface} />
+      </View>
       <Text style={[styles.actionLabel, { color: colors.onSurface }]}>{label}</Text>
       {badge > 0 ? (
-        <View style={[styles.actionBadge, { backgroundColor: colors.primary }]}>
+        <View style={[styles.actionBadge, { backgroundColor: colors.primary, position: 'absolute', top: 0, right: '28%' }]}>
           <Text style={[styles.actionBadgeText, { color: colors.onPrimary ?? '#0A0D14' }]}>{badge > 9 ? '9+' : badge}</Text>
         </View>
       ) : null}
@@ -462,8 +465,8 @@ const makeStyles = (colors: DriverColors) =>
     headline: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
     title: {
       fontFamily: fonts.displayBold,
-      fontSize: fontSizes.titleLarge,
-      lineHeight: Math.round(fontSizes.titleLarge * 1.3),
+      fontSize: fontSizes.headlineSmall,
+      lineHeight: Math.round(fontSizes.headlineSmall * 1.2),
       color: colors.onSurface,
       letterSpacing: -0.4,
     },
@@ -476,27 +479,26 @@ const makeStyles = (colors: DriverColors) =>
       borderRadius: radii.lg,
       backgroundColor: colors.primary,
     },
+    // Uber's trip rows (2026-10-30): no box, reading-size type, a rule above.
     journey: {
       flexDirection: 'row',
-      gap: spacing.md,
-      paddingHorizontal: spacing.md,
-      paddingVertical: spacing.md,
-      borderRadius: radii.xl,
-      borderWidth: 1,
-      borderColor: colors.outlineVariant,
-      overflow: 'hidden',
+      gap: spacing.base,
+      paddingTop: spacing.sm,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.outline,
     },
-    journeyTimeline: { alignItems: 'center', paddingTop: 5, width: 12 },
-    journeyDot: { width: 8, height: 8, borderRadius: 4 },
-    journeyConnector: { width: 2, height: 26, marginVertical: 3 },
-    journeyText: { flex: 1, gap: spacing.md },
+    journeyTimeline: { alignItems: 'center', paddingTop: 20, width: 12 },
+    journeyDot: { width: 10, height: 10, borderRadius: 5 },
+    journeyConnector: { width: 2, height: 40, marginVertical: 3 },
+    journeyText: { flex: 1 },
+    journeyRow: { minHeight: 56, justifyContent: 'center', gap: 2 },
     journeyLabel: {
-      fontFamily: fonts.medium,
-      fontSize: 10,
-      lineHeight: 13,
-      letterSpacing: 0.7,
+      fontFamily: fonts.regular,
+      fontSize: fontSizes.bodySmall,
+      lineHeight: 17,
       color: colors.onSurfaceVariant,
     },
+    journeyValue: { fontFamily: fonts.medium, fontSize: fontSizes.bodyLarge, lineHeight: 22, color: colors.onSurface },
     passengerRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -538,13 +540,23 @@ const makeStyles = (colors: DriverColors) =>
     fareRow: {
       flexDirection: 'row',
       alignItems: 'center',
+      flexWrap: 'wrap',
       gap: spacing.sm,
-      paddingHorizontal: spacing.md,
-      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.base,
+      paddingVertical: spacing.base,
     },
-    fareValue: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodyLarge, color: colors.onSurface },
-    actions: { flexDirection: 'row', gap: spacing.md },
-    action: {
+    fareValue: { fontFamily: fonts.displayBold, fontSize: fontSizes.titleMedium, color: colors.onSurface },
+    actions: { flexDirection: 'row', gap: spacing.md, paddingVertical: spacing.sm },
+    action: { flex: 1, alignItems: 'center', gap: spacing.sm },
+    actionIcon: {
+      width: 56,
+      height: 56,
+      borderRadius: 28,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.surfaceContainerHigh,
+    },
+    stopBtn: {
       flex: 1,
       flexDirection: 'row',
       alignItems: 'center',
@@ -557,5 +569,5 @@ const makeStyles = (colors: DriverColors) =>
       borderColor: colors.outlineVariant,
       backgroundColor: colors.surfaceContainer,
     },
-    actionLabel: { fontFamily: fonts.medium, fontSize: fontSizes.bodySmall },
+    actionLabel: { fontFamily: fonts.medium, fontSize: fontSizes.bodySmall, lineHeight: 18 },
   });

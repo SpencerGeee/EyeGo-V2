@@ -1720,12 +1720,12 @@ export default function ActiveTripScreen() {
         onNavigate={() => openNavigation(false)}
         chatBadge={unreadChats}
       >
-        <Text style={styles.manageHeading}>MANAGE TRIP</Text>
+        <Text style={styles.manageHeading}>Manage trip</Text>
         <CabinStrip seatsTotal={total} seatsTaken={passengers} boarded={boardedSeats} />
         {/* Walk-up boarding (Q10): riders at a stop type this to buy a seat. */}
         {typeof (trip as any)?.boardingCode === 'string' && (
           <View style={styles.boardingCodeRow} accessibilityLabel={`Boarding code ${(trip as any).boardingCode}`}>
-            <Text style={styles.boardingCodeLabel}>BOARDING CODE</Text>
+            <Text style={styles.boardingCodeLabel}>Boarding code</Text>
             <Text style={[styles.boardingCodeValue, { color: colors.primary }]}>{(trip as any).boardingCode}</Text>
           </View>
         )}
@@ -1770,7 +1770,6 @@ export default function ActiveTripScreen() {
           accessibilityState={{ checked: requestsPaused }}
           accessibilityLabel="Pause incoming trip requests"
         >
-          <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii.xl} intensity="low" />
           <Ionicons
             name={requestsPaused ? 'pause-circle' : 'play-circle-outline'}
             size={20}
@@ -2141,23 +2140,24 @@ function QuickAction({
 }) {
   return (
     <Pressable
-      style={{
-        flex: 1,
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 4,
-        backgroundColor: colors.surfaceContainer,
-        borderRadius: radii.xl,
-        borderWidth: 1,
-        borderColor: colors.outline,
-        paddingVertical: spacing.base,
-      }}
+      // Uber's sheet actions: a round icon over its word, no outlined tile.
+      style={{ flex: 1, alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xs }}
       onPress={onPress}
       onLongPress={onLongPress}
       delayLongPress={450}
      accessibilityRole="button">
-      <Ionicons name={icon} size={20} color={color} />
-      <Text style={{ fontFamily: fonts.medium, fontSize: 10, lineHeight: 13, color, letterSpacing: 0.2 }}>{label}</Text>
+      <View
+        style={{
+          width: 56, height: 56, borderRadius: 28,
+          alignItems: 'center', justifyContent: 'center',
+          backgroundColor: colors.surfaceContainerHigh,
+        }}
+      >
+        <Ionicons name={icon} size={22} color={color} />
+      </View>
+      <Text style={{ fontFamily: fonts.medium, fontSize: fontSizes.bodySmall, lineHeight: 18, color: colors.onSurface }} numberOfLines={1}>
+        {label}
+      </Text>
       {badge > 0 && (
         <View
           style={{
@@ -2348,14 +2348,14 @@ const makeStyles = (colors: DriverColors) =>
     boardingCodeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 56, paddingVertical: 12, paddingHorizontal: 16, borderRadius: 16, backgroundColor: 'rgba(255,255,255,0.04)', marginBottom: 10 },
   // Line heights travel with font sizes (recording 2: the code sat cramped and
   // clipped against its row with no line box of its own).
-  boardingCodeLabel: { fontFamily: fonts.semiBold, fontSize: 11, lineHeight: 15, letterSpacing: 1.2, color: 'rgba(255,255,255,0.6)' },
+  boardingCodeLabel: { fontFamily: fonts.medium, fontSize: fontSizes.bodyMedium, lineHeight: 20, color: 'rgba(255,255,255,0.7)' },
   boardingCodeValue: { fontFamily: fonts.displayBold, fontSize: 24, lineHeight: 30, letterSpacing: 5, fontVariant: ['tabular-nums'] },
   manageHeading: {
-      fontFamily: fonts.semiBold,
-      fontSize: 11,
-      letterSpacing: 1.2,
-      color: colors.onSurfaceVariant,
-      marginTop: spacing.lg,
+      fontFamily: fonts.displaySemiBold,
+      fontSize: fontSizes.titleMedium,
+      lineHeight: Math.round(fontSizes.titleMedium * 1.3),
+      color: colors.onSurface,
+      marginTop: spacing.xl,
     },
     /**
      * Opaque, the sheet's own colour, so the sheet's content scrolls UNDER it
@@ -2381,39 +2381,43 @@ const makeStyles = (colors: DriverColors) =>
     /** The secondary verbs, under the timeline, evenly weighted. */
     quickRow: {
       flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: spacing.sm,
-      marginTop: spacing.base,
+      justifyContent: 'space-around',
+      gap: spacing.md,
+      paddingVertical: spacing.sm,
     },
     pauseLabel: {
       fontFamily: fonts.medium,
-      fontSize: fontSizes.bodyMedium,
+      fontSize: fontSizes.bodyLarge,
+      lineHeight: 22,
       color: colors.onSurface,
     },
     pauseHint: {
       fontFamily: fonts.regular,
-      fontSize: fontSizes.caption,
+      fontSize: fontSizes.bodySmall,
+      lineHeight: 18,
       color: colors.onSurfaceVariant,
-      marginTop: 1,
+      marginTop: 2,
     },
     /**
      * The two ways a trip ends badly. Quiet, last, and side by side rather than
      * stacked as full-width buttons — a destructive action that looks like the
      * primary one gets tapped by mistake, and both of these are irreversible.
      */
-    endRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg },
+    endRow: {
+      flexDirection: 'row',
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.outline,
+    },
     endBtn: {
       flex: 1,
-      minHeight: 44,
+      minHeight: 56,
       alignItems: 'center',
       justifyContent: 'center',
-      borderRadius: radii.lg,
-      borderWidth: 1,
-      borderColor: colors.outlineVariant,
     },
     endBtnText: {
-      fontFamily: fonts.medium,
-      fontSize: fontSizes.bodySmall,
+      fontFamily: fonts.semiBold,
+      fontSize: fontSizes.bodyMedium,
+      lineHeight: 20,
     },
 
     sheetInner: {
@@ -2424,11 +2428,10 @@ const makeStyles = (colors: DriverColors) =>
     pauseRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: spacing.md,
-      borderRadius: radii.xl,
-      paddingHorizontal: spacing.base,
-      paddingVertical: spacing.md,
-      overflow: 'hidden',
+      gap: spacing.base,
+      minHeight: 64,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.outline,
     },
     pausePill: {
       width: 40,

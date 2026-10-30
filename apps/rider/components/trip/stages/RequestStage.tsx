@@ -94,7 +94,10 @@ function ActionTile({
       accessibilityRole="button"
       accessibilityLabel={label}
     >
-      <Ionicons name={icon} size={17} color={tone} />
+      {/* Uber's sheet actions: a round icon over its word, no box around it. */}
+      <View style={styles.tileIcon}>
+        <Ionicons name={icon} size={22} color={tone} />
+      </View>
       <Text style={[styles.tileLabel, { color: tone }]} numberOfLines={1}>
         {label}
       </Text>
@@ -1799,20 +1802,17 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   infoCard: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: spacing.sm,
-    borderRadius: radii.lg,
-    padding: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.outlineVariant,
-    marginTop: spacing.sm,
-    overflow: 'hidden',
+    gap: spacing.md,
+    paddingTop: spacing.lg,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.outline,
   },
   infoText: {
     flex: 1,
     fontFamily: fonts.regular,
-    fontSize: fontSizes.caption,
+    fontSize: fontSizes.bodySmall,
     color: colors.onSurfaceVariant,
-    lineHeight: 18,
+    lineHeight: 20,
   },
   activityBtn: {
     paddingVertical: spacing.md,
@@ -1820,23 +1820,25 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
 
   /** Edit pickup · Share · Cancel — equal thirds, one row. */
-  actionRow: { flexDirection: 'row', gap: spacing.sm },
-  tile: {
-    flex: 1,
+  actionRow: {
     flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingVertical: spacing.lg,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.outline,
+  },
+  tile: { alignItems: 'center', gap: spacing.sm, minWidth: 76 },
+  tileDisabled: { opacity: 0.45 },
+  tileIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
-    minHeight: 44,
-    paddingHorizontal: spacing.sm,
-    borderRadius: radii.full,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.outline,
-    backgroundColor: colors.surfaceContainer,
+    backgroundColor: colors.surfaceContainerHigh,
   },
-  tileDisabled: { opacity: 0.45 },
-  tileIcon: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
-  tileLabel: { fontFamily: fonts.semiBold, fontSize: 12.5 },
+  tileLabel: { fontFamily: fonts.medium, fontSize: fontSizes.bodySmall, lineHeight: 18 },
 
   /** The inline "cancel?" — sits where the actions were. */
   confirmBox: {

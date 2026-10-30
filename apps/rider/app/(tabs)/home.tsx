@@ -1492,17 +1492,20 @@ export default function HomeScreen() {
             />
             {boardingTrips.slice(0, RAIL_PREVIEW).map((trip: any, idx: number) => (
               <SmoothIn key={trip.id ?? `b${idx}`} index={idx}>
+                {/* The card grows into the ride page (the same morph Activity's cards use). */}
+                <MorphSource id={`ride-card-${trip.id}`} borderRadius={20} backgroundColor={colors.surfaceCard}>
                 <SuggestedTripCard
                   trip={trip}
                   group="boarding"
                   featured={idx === 0}
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    goDeeper(`/ride/${trip.id}`);
+                    morphTo(`ride-card-${trip.id}`, () => goDeeper(`/ride/${trip.id}`));
                   }}
                   colors={colors}
                   styles={styles}
                 />
+                </MorphSource>
               </SmoothIn>
             ))}
             <SeeAllRow
@@ -1527,17 +1530,20 @@ export default function HomeScreen() {
             />
             {scheduledTrips.slice(0, RAIL_PREVIEW).map((trip: any, idx: number) => (
               <SmoothIn key={trip.id ?? `s${idx}`} index={idx}>
+                {/* The card grows into the ride page (the same morph Activity's cards use). */}
+                <MorphSource id={`ride-card-${trip.id}`} borderRadius={20} backgroundColor={colors.surfaceCard}>
                 {/* A boarding pass, not another suggestion row — see
                     `ScheduledTripCard` for why this rail has its own layout. */}
                 <ScheduledTripCard
                   trip={trip}
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    goDeeper(`/ride/${trip.id}`);
+                    morphTo(`ride-card-${trip.id}`, () => goDeeper(`/ride/${trip.id}`));
                   }}
                   colors={colors}
                   styles={styles}
                 />
+                </MorphSource>
               </SmoothIn>
             ))}
             <SeeAllRow
@@ -1563,17 +1569,20 @@ export default function HomeScreen() {
             />
             {suggestedTrips.slice(0, RAIL_PREVIEW).map((trip: any, idx: number) => (
               <SmoothIn key={trip.id ?? `g${idx}`} index={idx}>
+                {/* The card grows into the ride page (the same morph Activity's cards use). */}
+                <MorphSource id={`ride-card-${trip.id}`} borderRadius={20} backgroundColor={colors.surfaceCard}>
                 <SuggestedTripCard
                   trip={trip}
                   group={groupOf(trip)}
                   featured={boardingTrips.length === 0 && idx === 0}
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    goDeeper(`/ride/${trip.id}`);
+                    morphTo(`ride-card-${trip.id}`, () => goDeeper(`/ride/${trip.id}`));
                   }}
                   colors={colors}
                   styles={styles}
                 />
+                </MorphSource>
               </SmoothIn>
             ))}
             <SeeAllRow

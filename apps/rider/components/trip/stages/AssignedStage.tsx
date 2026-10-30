@@ -252,7 +252,7 @@ function AssignedStageImpl() {
 
               {/* "Verify My Ride": read at the kerb, so it lives in the peek. */}
               {boardingPin ? (
-                <View style={[styles.pinCard, { borderColor: colors.primary + '55', backgroundColor: colors.primary + '12' }]}>
+                <View style={[styles.pinCard, { backgroundColor: colors.surfaceContainerHigh }]}>
                   <View style={{ flex: 1 }}>
                     <Text variant="caption" color={colors.onSurfaceVariant}>VERIFY YOUR RIDE</Text>
                     <Text variant="bodySmall" color={colors.onSurfaceVariant}>Read this code to your driver</Text>
@@ -283,22 +283,22 @@ function AssignedStageImpl() {
               <View style={styles.stops}>
                 <View style={styles.stopRow}>
                   <View style={[styles.stopDot, { backgroundColor: colors.onSurface }]} />
-                  <Text variant="bodySmall" numberOfLines={1} style={{ flex: 1 }}>
+                  <Text style={styles.stopText} numberOfLines={1}>
                     {snapshot?.pickup?.address ?? 'Pickup'}
                   </Text>
                 </View>
-                <View style={styles.stopLine} />
+                <View style={styles.stopRule} />
                 <View style={styles.stopRow}>
                   <View style={[styles.stopDot, { backgroundColor: colors.primary, borderRadius: 3 }]} />
-                  <Text variant="bodySmall" numberOfLines={1} style={{ flex: 1 }}>
+                  <Text style={styles.stopText} numberOfLines={1}>
                     {snapshot?.dropoff?.address ?? 'Destination'}
                   </Text>
                 </View>
               </View>
               {snapshot?.fare.amountPesewas != null ? (
                 <View style={styles.fareRow}>
-                  <Ionicons name={snapshot.fare.paymentMethod === 'CASH' ? 'cash-outline' : 'card-outline'} size={16} color={colors.onSurfaceVariant} />
-                  <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ flex: 1 }}>
+                  <Ionicons name={snapshot.fare.paymentMethod === 'CASH' ? 'cash-outline' : 'card-outline'} size={20} color={colors.onSurface} />
+                  <Text style={[styles.stopText, { flex: 1 }]}>
                     {snapshot.fare.paymentMethod === 'CASH' ? 'Cash' : 'Card'}
                   </Text>
                   <Text style={styles.fareValue}>{formatGhs(snapshot.fare.amountPesewas)}</Text>
@@ -347,16 +347,21 @@ function Action({
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={label}
-      style={{
-        flex: 1, alignItems: 'center', gap: 4,
-        paddingVertical: spacing.md,
-        borderRadius: radii.lg,
-        borderWidth: 1, borderColor: colors.outlineVariant,
-        backgroundColor: colors.surfaceContainer,
-      }}
+      // Uber's sheet actions: a round icon over its word, no box around it.
+      style={{ flex: 1, alignItems: 'center', gap: spacing.sm }}
     >
-      <Ionicons name={icon} size={19} color={color} />
-      <Text style={{ fontFamily: fonts.medium, fontSize: 10, color }}>{label}</Text>
+      <View
+        style={{
+          width: 56, height: 56, borderRadius: 28,
+          alignItems: 'center', justifyContent: 'center',
+          backgroundColor: colors.surfaceContainerHigh,
+        }}
+      >
+        <Ionicons name={icon} size={22} color={color} />
+      </View>
+      <Text style={{ fontFamily: fonts.medium, fontSize: fontSizes.bodySmall, lineHeight: 18, color }} numberOfLines={1}>
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -379,17 +384,15 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
-    paddingHorizontal: spacing.base,
-    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.base,
     borderRadius: radii.xl,
-    borderWidth: 1,
   },
   divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.outlineVariant },
   cancelRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm,
-    paddingVertical: spacing.md,
-    borderRadius: radii.lg,
-    borderWidth: 1, borderColor: colors.outlineVariant,
+    paddingVertical: spacing.lg,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.outline,
   },
   cancelText: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodyMedium },
   /** Sized to be read out loud at a kerb, at night, at arm's length. Tabular
@@ -415,8 +418,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   walkRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 },
   title: {
     fontFamily: fonts.displayBold,
-    fontSize: fontSizes.titleLarge,
-    lineHeight: Math.round(fontSizes.titleLarge * 1.3),
+    fontSize: fontSizes.headlineSmall,
+    lineHeight: Math.round(fontSizes.headlineSmall * 1.2),
     color: colors.onSurface,
     letterSpacing: -0.4,
   },
@@ -426,14 +429,17 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderRadius: radii.lg,
     backgroundColor: colors.primary,
   },
-  stops: { gap: 2 },
-  stopRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  stopDot: { width: 8, height: 8, borderRadius: 4 },
-  stopLine: {
-    width: 1, height: 14, marginLeft: 3.5,
-    backgroundColor: colors.outlineVariant,
+  // Uber's trip rows: full-width, 56 pt, one line of 16 pt type, a hairline
+  // between them — not a stack of small grey captions.
+  stops: {},
+  stopRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.base, minHeight: 56 },
+  stopDot: { width: 10, height: 10, borderRadius: 5 },
+  stopText: { flex: 1, fontFamily: fonts.medium, fontSize: fontSizes.bodyLarge, lineHeight: 22, color: colors.onSurface },
+  stopRule: { height: StyleSheet.hairlineWidth, marginLeft: 26, backgroundColor: colors.outline },
+  fareRow: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.base, minHeight: 56,
+    borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.outline,
   },
-  fareRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  fareValue: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodyLarge, color: colors.onSurface },
-  actions: { flexDirection: 'row', gap: spacing.md },
+  fareValue: { fontFamily: fonts.displayBold, fontSize: fontSizes.titleMedium, color: colors.onSurface },
+  actions: { flexDirection: 'row', gap: spacing.md, paddingVertical: spacing.sm },
 });

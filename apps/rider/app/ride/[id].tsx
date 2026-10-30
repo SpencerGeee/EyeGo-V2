@@ -600,7 +600,7 @@ export default function RideDetailScreen() {
                   driver={trip?.driver}
                   vehicle={trip?.vehicle}
                   showActions={false}
-                  premium
+                  // Flat (Uber, 2026-10-30): no rotating ring and sheen on a card.
                 />
               </MotiView>
 

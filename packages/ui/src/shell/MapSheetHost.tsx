@@ -7,6 +7,7 @@ import { GlassSurface } from '../effects/GlassSurface';
 import { MorphSheet } from '../panel/MorphSheet';
 import { useSheetSlots, SheetSections, type SheetSectionsProps } from './sheetSlot';
 import { SnapSheet } from '../panel/SnapSheet';
+import { Cascade } from '../motion/Cascade';
 import { depthIncoming, depthOutgoing, useDepthMotion, type DepthDirection } from '../motion/depth';
 
 
@@ -101,7 +102,9 @@ export function MapSheetHost<TStage extends string = string>({
     const b = stageOrder?.indexOf(current) ?? -1;
     dir.value = a >= 0 && b >= 0 && b < a ? -1 : 1;
     swap.value = 0;
-    swap.value = withTiming(1, { duration: 320, easing: Easing.linear });
+    // Yango's emphasized-decelerate, not linear: the new rows arrive quickly
+    // and settle, instead of crawling in at constant speed.
+    swap.value = withTiming(1, { duration: 380, easing: Easing.bezier(0.22, 1, 0.36, 1) });
   }, [current, previous, swap, dir, stageOrder]);
 
   /**
@@ -166,16 +169,21 @@ export function MapSheetHost<TStage extends string = string>({
     return (
       <SnapSheet
         resetKey={String(current)}
-        peek={<Animated.View style={incomingStyle}>{sec.peek}</Animated.View>}
-        half={sec.half ? <Animated.View style={incomingStyle}>{sec.half}</Animated.View> : undefined}
+        // Rows flow in on a stage change (Cascade animates on mount only, so a
+        // live ETA re-render never replays it).
+        peek={<Animated.View style={incomingStyle}><Cascade strength="live">{sec.peek}</Cascade></Animated.View>}
+        half={sec.half ? <Animated.View style={incomingStyle}><Cascade strength="live">{sec.half}</Cascade></Animated.View> : undefined}
         footer={sec.footer}
         background={background}
         backgroundColor={chrome.glass ? undefined : solidBackground}
         radius={chrome.radius}
         grabberColor={grabberColor}
-        gutter={spacing['2xl']}
+        // Uber's sheet: ~20 pt edges and real space between sections. 32 pt
+        // edges with a 14 pt gap squeezed every row into a narrow column.
+        gutter={spacing.lg}
+        gap={spacing.xl}
       >
-        {sec.children ? <Animated.View style={incomingStyle}>{sec.children}</Animated.View> : undefined}
+        {sec.children ? <Animated.View style={incomingStyle}><Cascade strength="live">{sec.children}</Cascade></Animated.View> : undefined}
       </SnapSheet>
     );
   }
@@ -203,7 +211,7 @@ const styles = StyleSheet.create({
   // Vertical safe area is MorphSheet's job — see its inner wrapper. This is
   // only the design gutter.
   body: {
-    paddingHorizontal: spacing['2xl'],
+    paddingHorizontal: spacing.lg,
     paddingBottom: spacing.md,
   },
   glassBody: { backgroundColor: 'transparent' },

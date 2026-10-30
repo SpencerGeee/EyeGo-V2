@@ -162,13 +162,13 @@ function TrackingStageImpl() {
                   <Ionicons name="location" size={12} color={colors.primary} />
                 </View>
                 <View style={styles.journeyText}>
-                  <View>
-                    <Text style={styles.journeyLabel}>PICKUP</Text>
-                    <Text variant="bodySmall" numberOfLines={1}>{snapshot?.pickup?.address ?? 'Your pickup point'}</Text>
+                  <View style={styles.journeyRow}>
+                    <Text style={styles.journeyLabel}>Pickup</Text>
+                    <Text style={styles.journeyValue} numberOfLines={1}>{snapshot?.pickup?.address ?? 'Your pickup point'}</Text>
                   </View>
-                  <View>
-                    <Text style={styles.journeyLabel}>DROP-OFF</Text>
-                    <Text variant="bodySmall" numberOfLines={1}>{snapshot?.dropoff?.address ?? 'Your destination'}</Text>
+                  <View style={styles.journeyRow}>
+                    <Text style={styles.journeyLabel}>Drop-off</Text>
+                    <Text style={styles.journeyValue} numberOfLines={1}>{snapshot?.dropoff?.address ?? 'Your destination'}</Text>
                   </View>
                 </View>
               </View>
@@ -182,8 +182,8 @@ function TrackingStageImpl() {
               )}
               {snapshot?.fare.amountPesewas != null && (
                 <View style={styles.fareRow}>
-                  <Ionicons name={snapshot.fare.paymentMethod === 'CASH' ? 'cash-outline' : 'card-outline'} size={16} color={colors.onSurfaceVariant} />
-                  <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ flex: 1 }}>
+                  <Ionicons name={snapshot.fare.paymentMethod === 'CASH' ? 'cash-outline' : 'card-outline'} size={20} color={colors.onSurface} />
+                  <Text style={[styles.journeyValue, { flex: 1 }]}>
                     {snapshot.fare.paymentStatus === 'PAID'
                       ? 'Paid'
                       : snapshot.fare.paymentMethod === 'CASH' ? 'Pay cash on arrival' : 'Fare'}
@@ -196,16 +196,16 @@ function TrackingStageImpl() {
               )}
               <View style={styles.actions}>
                 <Pressable onPress={handleShare} style={styles.action} accessibilityRole="button" accessibilityLabel="Share trip">
-                  <Ionicons name="share-outline" size={18} color={colors.onSurface} />
+                  <View style={styles.actionIcon}><Ionicons name="share-outline" size={22} color={colors.onSurface} /></View>
                   <Text style={[styles.actionLabel, { color: colors.onSurface }]}>Share trip</Text>
                 </Pressable>
                 <Pressable
                   onPress={() => tripId && goDeeper(`/ride/${tripId}/sos` as Href)}
-                  style={[styles.action, { borderColor: colors.error }]}
+                  style={styles.action}
                   accessibilityRole="button"
                   accessibilityLabel="Emergency and safety"
                 >
-                  <Ionicons name="shield-checkmark-outline" size={18} color={colors.error} />
+                  <View style={styles.actionIcon}><Ionicons name="shield-checkmark-outline" size={22} color={colors.error} /></View>
                   <Text style={[styles.actionLabel, { color: colors.error }]}>Safety</Text>
                 </Pressable>
               </View>
@@ -215,11 +215,11 @@ function TrackingStageImpl() {
           {isHailed ? (
             <View style={styles.actions}>
               <Pressable onPress={routeChange.changeDestination} style={styles.action} accessibilityRole="button" accessibilityLabel="Change destination">
-                <Ionicons name="navigate-outline" size={18} color={colors.onSurface} />
+                <View style={styles.actionIcon}><Ionicons name="navigate-outline" size={22} color={colors.onSurface} /></View>
                 <Text style={[styles.actionLabel, { color: colors.onSurface }]}>Change destination</Text>
               </Pressable>
               <Pressable onPress={routeChange.addStop} style={styles.action} accessibilityRole="button" accessibilityLabel="Add a stop">
-                <Ionicons name="add-circle-outline" size={18} color={colors.onSurface} />
+                <View style={styles.actionIcon}><Ionicons name="add-circle-outline" size={22} color={colors.onSurface} /></View>
                 <Text style={[styles.actionLabel, { color: colors.onSurface }]}>Add a stop</Text>
               </Pressable>
             </View>
@@ -250,8 +250,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   headline: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   title: {
     fontFamily: fonts.displayBold,
-    fontSize: fontSizes.titleLarge,
-    lineHeight: Math.round(fontSizes.titleLarge * 1.3),
+    fontSize: fontSizes.headlineSmall,
+    lineHeight: Math.round(fontSizes.headlineSmall * 1.2),
     color: colors.onSurface,
     letterSpacing: -0.4,
   },
@@ -264,28 +264,27 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   /* No border or background of its own any more: GradientGlowBorder paints
      both, and a second flat border under the ring reads as a doubled edge. */
   /** Pickup → drop-off. See the render site. */
+  // Uber's trip rows (2026-10-30): no box, reading-size type, a rule above.
   journey: {
     flexDirection: 'row',
-    gap: spacing.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-    borderRadius: radii.xl,
-    borderWidth: 1,
-    borderColor: colors.outlineVariant,
-    overflow: 'hidden',
+    gap: spacing.base,
+    paddingTop: spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.outline,
   },
+  journeyRow: { minHeight: 52, justifyContent: 'center', gap: 2 },
+  journeyValue: { fontFamily: fonts.medium, fontSize: fontSizes.bodyLarge, lineHeight: 22, color: colors.onSurface },
   /** The dot/line/pin rail, sized so each end lines up with its own text block. */
   journeyTimeline: { alignItems: 'center', paddingTop: 5, width: 12 },
   journeyDot: { width: 8, height: 8, borderRadius: 4 },
   /** Explicit height rather than `flex: 1` — this is a cross-axis child of a row
    *  whose height is intrinsic, and a flex here resolves to zero. */
-  journeyConnector: { width: 2, height: 26, marginVertical: 3 },
-  journeyText: { flex: 1, gap: spacing.md },
+  journeyConnector: { width: 2, height: 40, marginVertical: 3 },
+  journeyText: { flex: 1 },
   journeyLabel: {
-    fontFamily: fonts.medium,
-    fontSize: 10,
-    lineHeight: 13,
-    letterSpacing: 0.7,
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.bodySmall,
+    lineHeight: 17,
     color: colors.onSurfaceVariant,
   },
   driverRow: {
@@ -310,18 +309,18 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     lineHeight: Math.round(9 * 1.3),
   },
   fareRow: {
-    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
-    paddingHorizontal: spacing.md, paddingVertical: spacing.md,
+    flexDirection: 'row', alignItems: 'center', gap: spacing.base, minHeight: 56,
+    borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.outline,
   },
-  fareValue: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodyLarge, color: colors.onSurface },
-  actions: { flexDirection: 'row', gap: spacing.md },
-  action: {
-    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm,
-    paddingVertical: spacing.md,
-    borderRadius: radii.lg,
-    borderWidth: 1, borderColor: colors.outlineVariant,
-    backgroundColor: colors.surfaceContainer,
+  fareValue: { fontFamily: fonts.displayBold, fontSize: fontSizes.titleMedium, color: colors.onSurface },
+  actions: { flexDirection: 'row', gap: spacing.md, paddingVertical: spacing.sm },
+  // Round icon over its word — Uber's sheet actions. No outlined boxes.
+  action: { flex: 1, alignItems: 'center', gap: spacing.sm },
+  actionIcon: {
+    width: 56, height: 56, borderRadius: 28,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: colors.surfaceContainerHigh,
   },
-  actionLabel: { fontFamily: fonts.medium, fontSize: fontSizes.bodySmall },
+  actionLabel: { fontFamily: fonts.medium, fontSize: fontSizes.bodySmall, lineHeight: 18 },
   stopsRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
 });

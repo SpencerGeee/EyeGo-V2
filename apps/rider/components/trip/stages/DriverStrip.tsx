@@ -37,8 +37,8 @@ export function DriverStrip({
   const s = makeStyles(colors);
   return (
     <View style={s.row}>
-      <Avatar uri={photo ?? undefined} name={name} size={48} />
-      <View style={{ flex: 1, gap: 2 }}>
+      <Avatar uri={photo ?? undefined} name={name} size={56} />
+      <View style={{ flex: 1, gap: 3 }}>
         {emphasisePlate && plate ? (
           <View style={s.plate}>
             <Text style={s.plateText} numberOfLines={1}>{plate}</Text>
@@ -71,23 +71,29 @@ export function DriverStrip({
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    row: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+    // Uber's driver block: a big face, the PLATE as the loudest line, then name
+    // and car at reading size — room around it, not a squeezed caption stack.
+    row: { flexDirection: 'row', alignItems: 'center', gap: spacing.base, paddingVertical: spacing.sm },
     plate: {
       alignSelf: 'flex-start',
-      paddingHorizontal: spacing.sm,
-      paddingVertical: 2,
-      borderRadius: radii.sm,
+      paddingHorizontal: spacing.md,
+      paddingVertical: 4,
+      borderRadius: radii.md,
       backgroundColor: colors.surfaceContainerHigh,
-      borderWidth: 1,
-      borderColor: colors.outline,
     },
-    plateText: { fontFamily: fonts.displayBold, fontSize: fontSizes.titleSmall, letterSpacing: 1, color: colors.onSurface },
-    name: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodyMedium, color: colors.onSurface },
-    sub: { fontFamily: fonts.regular, fontSize: fontSizes.caption, color: colors.onSurfaceVariant },
+    plateText: {
+      fontFamily: fonts.displayBold,
+      fontSize: fontSizes.titleLarge,
+      lineHeight: Math.round(fontSizes.titleLarge * 1.2),
+      letterSpacing: 1.2,
+      color: colors.onSurface,
+    },
+    name: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodyLarge, lineHeight: 22, color: colors.onSurface },
+    sub: { fontFamily: fonts.regular, fontSize: fontSizes.bodySmall, lineHeight: 18, color: colors.onSurfaceVariant },
     btn: {
-      width: 44,
-      height: 44,
-      borderRadius: 22,
+      width: 48,
+      height: 48,
+      borderRadius: 24,
       alignItems: 'center',
       justifyContent: 'center',
       backgroundColor: colors.surfaceContainerHigh,
