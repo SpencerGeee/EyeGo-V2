@@ -372,7 +372,7 @@ export default function PlacePickerScreen() {
         <View style={styles.searchWrap} pointerEvents="box-none">
           <View style={styles.searchBar}>
             <Ionicons name="search" size={18} color={colors.onSurfaceVariant} />
-            <TextInput maxFontSizeMultiplier={1.4}
+            <TextInput maxFontSizeMultiplier={1.4} autoCorrect={false} spellCheck={false}
               style={styles.searchInput}
               value={query}
               onChangeText={(t) => { setListHidden(false); handleSearch(t); }}
