@@ -519,9 +519,14 @@ async function goOnline(driverId, lat, lng) {
 
   // A driver with no vehicle could go online and then fail every accept with
   // NO_VEHICLE — online, visible, and unable to take a single trip.
-  const vehicleCount = await prisma.vehicle.count({ where: { driverId, isActive: true } });
-  if (vehicleCount === 0) {
+  const vehicles = await prisma.vehicle.findMany({ where: { driverId, isActive: true }, select: { isVerified: true } });
+  if (vehicles.length === 0) {
     throw new AppError('Add your vehicle before going online.', 403, 'NO_VEHICLE');
+  }
+  // The matcher skips unverified vehicles, so online-but-unverified was a
+  // driver who silently never got a ride. Say so instead.
+  if (!vehicles.some((v) => v.isVerified)) {
+    throw new AppError('Your vehicle is waiting for approval. You can go online once it is approved.', 403, 'VEHICLE_UNVERIFIED');
   }
 
   // Clear out trips this driver created but never ran before they start taking
@@ -838,6 +843,8 @@ async function devActivate(driverId) {
         ...(topUp > 0 && { walletBalancePesewas: { increment: topUp } }),
       },
     });
+    // Same as admin approval: the matcher only dispatches to a verified vehicle.
+    await tx.vehicle.updateMany({ where: { driverId, isActive: true }, data: { isVerified: true } });
 
     if (topUp > 0) {
       await tx.walletTransaction.create({

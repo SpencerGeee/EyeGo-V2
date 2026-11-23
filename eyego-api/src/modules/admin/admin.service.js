@@ -96,10 +96,13 @@ async function approveDriver(driverId) {
   const driver = await prisma.driver.findUnique({ where: { id: driverId } });
   if (!driver) throw new NotFoundError('Driver');
 
-  const updated = await prisma.driver.update({
-    where: { id: driverId },
-    data: { status: 'ACTIVE' },
-  });
+  // Approval reviews the vehicle too. The matcher only dispatches to an
+  // isVerified vehicle, and nothing else ever set it: an approved driver went
+  // online and was never offered a ride (eyego-testers run 45169396506).
+  const [updated] = await prisma.$transaction([
+    prisma.driver.update({ where: { id: driverId }, data: { status: 'ACTIVE' } }),
+    prisma.vehicle.updateMany({ where: { driverId, isActive: true }, data: { isVerified: true } }),
+  ]);
 
   // Audit log
   logger.info(`[ADMIN] Driver ${driverId} approved`);
