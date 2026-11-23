@@ -51,7 +51,11 @@ export function useBiometricGate(opts: { reason: string; enabled?: boolean }) {
         LocalAuth.getEnrolledLevelAsync?.() ?? Promise.resolve(1),
       ]);
       // SecurityLevel.NONE (0): nothing on the phone can vouch for the holder.
-      const canGate = level > 0 || (hasHardware && enrolled);
+      // The iOS Simulator's passcode sheet has no Cancel (a real phone's does), so
+      // the simulator test build would be locked in for good (eyego-testers run
+      // 45083125606, finding #2). EXPO_PUBLIC_SIMULATOR_BUILD is set only there.
+      const canGate =
+        process.env.EXPO_PUBLIC_SIMULATOR_BUILD !== '1' && (level > 0 || (hasHardware && enrolled));
       if (!canGate) {
         setState('unlocked');
         return;
