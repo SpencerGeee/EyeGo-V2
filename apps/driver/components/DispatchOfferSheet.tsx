@@ -156,11 +156,16 @@ export default function DispatchOfferSheet() {
     if (!tripId || announced.current === tripId) return;
     announced.current = tripId;
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-    // L1: tell dispatch the card is actually on screen. Only a HELD offer has a
-    // live offerId to confirm; a tapped board row is not an offer.
-    const offerId = (held as { offerId?: string } | null)?.offerId;
-    if (offerId) void ridesApi.offerAck(tripId, offerId).catch(() => {});
   }, [tripId]);
+
+  // L1: tell dispatch the card is actually on screen. Keyed on the OFFER, not the
+  // trip: a re-offer of the same trip carries a new offerId, and leaving it
+  // un-acked made the server withdraw it as "undelivered" ~55s in (run 45876255150).
+  // Only a HELD offer has an offerId; a tapped board row is not an offer.
+  const offerId = (held as { offerId?: string } | null)?.offerId;
+  useEffect(() => {
+    if (tripId && offerId) void ridesApi.offerAck(tripId, offerId).catch(() => {});
+  }, [tripId, offerId]);
 
   /**
    * The repeating alert is for a ride being HELD for this driver — the one

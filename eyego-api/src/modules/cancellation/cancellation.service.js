@@ -782,7 +782,10 @@ async function getReceipt(bookingId, userId) {
       ? {
           baseFarePesewas: tripFare.totalPesewas - tripFare.cargoSurchargePesewas - tripFare.deviationSurchargePesewas,
           surcharges: tripFare.cargoSurchargePesewas + tripFare.deviationSurchargePesewas,
-          platformFeePesewas: receipt?.platformFeePesewas ?? 0,
+          // Receipt.platformFeePesewas is the DRIVER's commission, not a rider
+          // charge; the rider's total already holds every fee. Showing it drew a
+          // "Service fee" row the total did not add up to (run 45876255150 #24).
+          platformFeePesewas: 0,
           discount: receipt?.discountAppliedPesewas ?? 0,
           tip: 0,
           total: tripFare.totalPesewas,

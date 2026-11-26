@@ -535,7 +535,7 @@ export default function TripCompleteScreen() {
           <View style={styles.divider} />
 
           <View style={styles.receiptRow}>
-            <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Collected (Paid)</Text>
+            <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Collected (in app + cash at boarding)</Text>
             <Text variant="bodyMedium" color={colors.online}>{formatGhs(totalPaidPesewas)}</Text>
           </View>
           <View style={styles.receiptRow}>
@@ -543,7 +543,7 @@ export default function TripCompleteScreen() {
             <Text variant="bodyMedium" color={colors.warning}>{formatGhs(totalCash)}</Text>
           </View>
           <View style={styles.receiptRow}>
-            <Text variant="bodyMedium" color={colors.onSurfaceVariant}>EyeGo Commission ({Math.round(commissionRate * 100)}%)</Text>
+            <Text variant="bodyMedium" color={colors.onSurfaceVariant}>EyeGo Commission ({Math.round(commissionRate * 100)}% of ride fare, before fees)</Text>
             <Text variant="bodyMedium" color={colors.onSurfaceVariant}>− {formatGhs(commissionTotal)}</Text>
           </View>
 

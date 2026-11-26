@@ -446,9 +446,10 @@ const [doorstepInfo, setDoorstepInfo] = useState<{ offsetMeters: number; offRoad
       // Commit the seat count the same way SearchStage's Order Ride did, then
       // hand off. RequestStage owns everything from here.
       setRequestSeats(seats, coverAll);
+      setRideOptions({ quotedPesewas: fare });
       goStage('request');
     }
-  }, [step, seats, coverAll, setRequestSeats, goStage]);
+  }, [step, seats, coverAll, setRequestSeats, goStage, setRideOptions, fare]);
 
   /** The selected tier's colours — used by the footer CTA and the review row. */
   const tierTheme = getTierTheme(colors, rideTier);

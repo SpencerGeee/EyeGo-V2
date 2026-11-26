@@ -482,6 +482,16 @@ module.exports = function registerDriverSocket(io, driverNamespace) {
         ? haversineMeters(lat, lng, cache.lastLat, cache.lastLng)
         : Infinity;
 
+      // Every fix, straight to the trip room the rider's `trip:subscribe` joined.
+      // The Redis relay in passenger.socket only runs for riders who also sent the
+      // legacy `passenger:join_trip_room` with a driverId; on-demand riders never
+      // do, so their marker sat frozen for a whole ride (run 45876255150 #9).
+      if (socket._activeTripId) {
+        io.of('/passenger')
+          .to(TRIP_ROOM(socket._activeTripId))
+          .emit('driver:location', { driverId, tripId: socket._activeTripId, lat, lng, heading, speed, timestamp: now });
+      }
+
       if (msSinceLast < ETA_INTERVAL_MS && mSinceLast < ETA_DISTANCE_M) return;
 
       // The STATUS is re-read every pass, not cached. The status decides which
@@ -513,6 +523,7 @@ module.exports = function registerDriverSocket(io, driverNamespace) {
         logger.warn(`ETA: DB lookup failed for driver ${driverId}: ${err.message}`);
         return;
       }
+      socket._activeTripId = trip?.id ?? null;
       if (!trip) return;
 
       /**

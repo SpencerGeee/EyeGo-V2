@@ -185,7 +185,7 @@ function TrackingStageImpl() {
                   <Ionicons name={snapshot.fare.paymentMethod === 'CASH' ? 'cash-outline' : 'card-outline'} size={20} color={colors.onSurface} />
                   <Text style={[styles.journeyValue, { flex: 1 }]}>
                     {snapshot.fare.paymentStatus === 'PAID'
-                      ? 'Paid'
+                      ? snapshot.fare.paymentMethod === 'CASH' ? 'Paid in cash at boarding' : 'Paid'
                       : snapshot.fare.paymentMethod === 'CASH' ? 'Pay cash on arrival' : 'Fare'}
                     {((snapshot.fare as { seatsPaidFor?: number | null }).seatsPaidFor ?? 1) > 1
                       ? ` · ${(snapshot.fare as { seatsPaidFor?: number | null }).seatsPaidFor} seats`

@@ -183,9 +183,16 @@ export default function RateTipScreen() {
 
   const submitFeedback = useMutation({
     mutationFn: async () => {
+      // The snapshot query may not have landed yet (slow network): resolve the
+      // booking now instead of failing the tap (agent run 45876255150 #16).
+      const resolvedBookingId =
+        resolvedBookingIdRef.current ||
+        ((await ridesApi.events(id, 0).catch(() => null)) as any)?.snapshot?.booking?.id ||
+        '';
       if (!resolvedBookingId) {
         throw new Error('Could not identify your booking. Please try again.');
       }
+      resolvedBookingIdRef.current = resolvedBookingId;
       const commentText = [selectedCompliments.join(', '), comment]
         .filter(Boolean)
         .join(' — ');

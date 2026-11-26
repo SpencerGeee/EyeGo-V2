@@ -97,6 +97,8 @@ interface RideState {
    */
   doorstepPickup: boolean | null;
   heavyLoad: boolean;
+  /** The fare the rider confirmed on Configure; RequestStage checks the signed quote against it. */
+  quotedPesewas: number | null;
   /** "Blue gate, opposite the pharmacy" — sent with the request, shown to the driver. */
   pickupNote: string;
 
@@ -115,7 +117,7 @@ interface RideState {
   setComputedFare: (fare: number | null) => void;
   setPendingPromoCode: (code: string | null) => void;
   setRequestSeats: (count: number, coverAll: boolean) => void;
-  setRideOptions: (o: Partial<{ rideTier: 'ECO' | 'COMFORT' | 'PREMIUM'; doorstepPickup: boolean | null; heavyLoad: boolean; pickupNote: string }>) => void;
+  setRideOptions: (o: Partial<{ rideTier: 'ECO' | 'COMFORT' | 'PREMIUM'; doorstepPickup: boolean | null; heavyLoad: boolean; pickupNote: string; quotedPesewas: number | null }>) => void;
   clearRideState: () => void;
 }
 
@@ -141,6 +143,7 @@ export const useRideStore = create<RideState>()(
       rideTier: 'ECO',
       doorstepPickup: null,
       heavyLoad: false,
+      quotedPesewas: null,
       pickupNote: '',
 
       setOrigin: (loc) => set({ origin: loc }),
@@ -181,6 +184,7 @@ export const useRideStore = create<RideState>()(
           rideTier: 'ECO',
           doorstepPickup: null,
           heavyLoad: false,
+          quotedPesewas: null,
           pickupNote: '',
         }),
     }),

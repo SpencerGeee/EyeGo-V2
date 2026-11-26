@@ -243,14 +243,16 @@ export default function HomeScreen() {
   });
 
   // Driver earnings credit types (see earnings.tsx). Filtering only 'CREDIT' showed 0.
-  const CREDIT_TYPES = ['CREDIT', 'TRIP_EARNING', 'EARNINGS_CREDIT', 'QUEST_BONUS', 'CANCELLATION_FEE'];
+  // Same set as the server EARNING_TYPES (+ tips, bonuses). CASH_EARNING was missing, so a
+  // cash-only day read GH₵0.00 / 0 trips (run 45876255150 #26).
+  const CREDIT_TYPES = ['CREDIT', 'TRIP_EARNING', 'EARNINGS_CREDIT', 'CASH_EARNING', 'PROMO_SUBSIDY', 'TIP', 'QUEST_BONUS', 'CANCELLATION_FEE'];
 
   const todayEarnings = useMemo(() => {
     if (!txData) return 0;
     const today = new Date().toDateString();
     return (txData as any[])
       .filter((t: any) => CREDIT_TYPES.includes(t.type) && new Date(t.createdAt).toDateString() === today)
-      .reduce((sum: number, t: any) => sum + (t.amount ?? 0), 0);
+      .reduce((sum: number, t: any) => sum + (t.amountPesewas ?? t.amount ?? 0), 0);
   }, [txData]);
 
   const todayTrips = useMemo(() => {

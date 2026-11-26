@@ -174,8 +174,9 @@ export default function TripCompleteScreen() {
   const receiptNumber = receiptData?.receiptNumber;
   const fareBreakdown = receiptData?.fareBreakdown ?? (receiptData?.totalPaidPesewas != null ? {
     total: receiptData.totalPaidPesewas,
-    platformFeePesewas: receiptData.platformFeePesewas ?? 0,
-    baseFarePesewas: (receiptData.totalPaidPesewas ?? 0) - (receiptData.platformFeePesewas ?? 0),
+    // Receipt.platformFeePesewas is the driver's commission, never a rider line.
+    platformFeePesewas: 0,
+    baseFarePesewas: receiptData.totalPaidPesewas ?? 0,
     discount: receiptData.discountAppliedPesewas ?? 0,
     surcharges: 0,
     tip: 0,

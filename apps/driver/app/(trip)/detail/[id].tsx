@@ -115,6 +115,7 @@ export default function TripDetailScreen() {
       )
     : { gross: 0, commission: 0 };
   const earnedTotal = totals.gross - totals.commission;
+  const seatTotal = activeBookings.reduce((n: number, b: any) => n + seatsOf(b), 0);
 
   // D22: safe date construction
   const departureDate = trip?.departureTime ? new Date(trip.departureTime) : null;
@@ -208,7 +209,9 @@ export default function TripDetailScreen() {
             <StatBox
               icon="ticket-outline"
               label="Fare/Seat"
-              value={`${formatGhs(trip?.farePerSeatPesewas ?? null, { showDecimals: false })}`}
+              // What each seat actually paid; trip.farePerSeatPesewas is the route list price,
+              // which an on-demand ride never charges (run 45876255150 #25: showed GH₵28).
+              value={`${formatGhs(seatTotal > 0 ? Math.round(totals.gross / seatTotal) : trip?.farePerSeatPesewas ?? null, { showDecimals: false })}`}
               colors={colors}
             />
           </View>

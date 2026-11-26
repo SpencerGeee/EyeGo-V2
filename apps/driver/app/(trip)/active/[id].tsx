@@ -1261,6 +1261,12 @@ export default function ActiveTripScreen() {
         // One booking, N people (D7): the driver lets the whole party on.
         name: `${b.guestName ?? b.user?.name ?? 'Passenger'}${seatsOf(b) > 1 ? ` · ${seatsOf(b)} passengers` : ''}`,
       }));
+  // Boarding a cash rider IS the cash confirmation: the server marks the seat
+  // PAID and takes commission on this swipe, so the slider says so (run 45876255150 #21).
+  const cashToCollectPesewas = (activeBookings as any[])
+    .filter((b) => b.status !== 'BOARDED' && b.status !== 'COMPLETED' && !isHeld(b))
+    .filter((b) => b.paymentMethod === 'CASH' && b.paymentStatus !== 'PAID')
+    .reduce((n, b) => n + (Number(b.fareAmountPesewas) || 0), 0);
 
   /**
    * Walk the queue. Each step boards one passenger; a rider who asked for a
@@ -1831,7 +1837,7 @@ export default function ActiveTripScreen() {
           <SwipeToConfirm
             label={
               startsTheRide && pendingBoarders.length > 0
-                ? `Swipe to board ${pendingBoarders.length === 1 ? pendingBoarders[0].name.split(' ')[0] : `${pendingBoarders.length} passengers`} & go`
+                ? `${cashToCollectPesewas > 0 ? `Got ${formatGhs(cashToCollectPesewas)} cash? ` : ''}Swipe to board ${pendingBoarders.length === 1 ? pendingBoarders[0].name.split(' ')[0] : `${pendingBoarders.length} passengers`} & go`
                 : (advanceLabel(trip.status) ?? statusInfo.action)
             }
             loadingLabel={

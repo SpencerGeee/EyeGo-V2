@@ -617,6 +617,13 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
         );
 
         tripIdRef.current = tripId;
+        // The request signs a FRESH quote (pickup GPS may have moved since Configure).
+        // Never let the price change silently (run 45876255150 #3: 58.95 -> 58.82).
+        const shownPesewas = useRideStore.getState().quotedPesewas;
+        if (shownPesewas != null && shownPesewas !== quote.amountPesewas) {
+          notify('Fare updated', `Your pickup point moved since you checked, so the fare is now ${formatGhs(quote.amountPesewas)} (was ${formatGhs(shownPesewas)}). Cancel any time before a driver accepts.`, { tone: 'info', duration: 8000 });
+        }
+        useRideStore.getState().setRideOptions({ quotedPesewas: quote.amountPesewas });
         // The signed price IS the requested fare — the base every boost step is
         // a percentage of.
         setFare({ requestedPesewas: quote.amountPesewas, boostPesewas: 0 });
