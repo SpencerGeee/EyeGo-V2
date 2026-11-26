@@ -132,8 +132,14 @@ async function claimDue(workerId, limit) {
   return rows;
 }
 
-async function markDone(id) {
-  await prisma.scheduledTask.update({ where: { id }, data: { status: 'DONE' } });
+// Only while still OUR claim: a handler that re-arms its own key (resweep does)
+// resets the row to PENDING, and an unguarded DONE here killed that re-arm —
+// the search went silent after one resweep and the trip expired.
+async function markDone(id, workerId) {
+  await prisma.scheduledTask.updateMany({
+    where: { id, status: 'CLAIMED', claimedBy: workerId },
+    data: { status: 'DONE' },
+  });
 }
 
 async function markFailed(id, err, attempts) {
@@ -176,7 +182,7 @@ async function tick(workerId, limit = 25) {
     }
     try {
       await handler(task);
-      await markDone(task.id);
+      await markDone(task.id, workerId);
       ran += 1;
     } catch (err) {
       await markFailed(task.id, err, task.attempts);

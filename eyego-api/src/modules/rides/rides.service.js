@@ -80,8 +80,9 @@ const ARRIVAL_RADIUS_M = Number(env.ARRIVAL_RADIUS_M ?? 75);
 
 /** Trips a rider may still be charged a cancellation fee against. */
 const FREE_CANCEL_STATUSES = [S.REQUESTED, S.MATCHING, S.REASSIGNING];
-/** How long a REQUESTED/MATCHING trip may sit before the system gives up. */
-const REQUEST_EXPIRY_SECONDS = parseInt(process.env.RIDE_REQUEST_EXPIRY_SECONDS, 10) || 300;
+/** How long a REQUESTED/MATCHING trip may sit before the system gives up. Same knob as the
+ *  cascade search window: env-only 300 here killed every trip at 5 min whatever the setting said. */
+const requestExpirySeconds = () => cascade.searchTimeoutSeconds();
 /** Redispatch attempts after driver cancels before the rider is told no. */
 const MAX_REDISPATCH = parseInt(process.env.RIDE_MAX_REDISPATCH, 10) || 2;
 
@@ -557,7 +558,7 @@ async function requestRide(userId, body) {
         type: TASK_REQUEST_EXPIRY,
         dedupeKey: created.id,
         tripId: created.id,
-        runAt: new Date(Date.now() + REQUEST_EXPIRY_SECONDS * 1000),
+        runAt: new Date(Date.now() + requestExpirySeconds() * 1000),
         payload: { tripId: created.id },
       });
 
@@ -1799,9 +1800,9 @@ scheduledTasks.registerHandler(TASK_REQUEST_EXPIRY, async (task) => {
   await cascade.cancelCascade(tripId).catch(() => {});
   await tripState.applyTransition(tripId, S.EXPIRED, {
     actor: ACTOR.SYSTEM,
-    payload: { reason: 'NO_DRIVER_IN_TIME', afterSeconds: REQUEST_EXPIRY_SECONDS },
+    payload: { reason: 'NO_DRIVER_IN_TIME', afterSeconds: requestExpirySeconds() },
   });
-  logger.info(`Ride request ${tripId} expired — no driver in ${REQUEST_EXPIRY_SECONDS}s`);
+  logger.info(`Ride request ${tripId} expired — no driver in ${requestExpirySeconds()}s`);
 });
 
 module.exports = {
