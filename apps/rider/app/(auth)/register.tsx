@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import {
   View,
   StyleSheet,
@@ -20,11 +20,20 @@ import { Text, Button, Input } from '@eyego/ui';
 import { getInitials } from '@eyego/utils';
 import { Ionicons } from '@expo/vector-icons';
 import { leaveAuthScene } from '../../components/intro/authScene';
+import * as SecureStore from 'expo-secure-store';
+import type { Href } from 'expo-router';
+import { consumeReturnTo } from '../../utils/returnTo';
 
 export default function RegisterScreen() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
+  // The intro tour plays once. A rider who saw it before signing in goes
+  // straight on, instead of meeting the same six slides after creating the account.
+  const afterProfile = async () => {
+    const seen = await SecureStore.getItemAsync('eyego_onboarded').catch(() => null);
+    router.replace((seen === 'true' ? consumeReturnTo() ?? '/(tabs)/home' : '/(onboarding)') as Href);
+  };
   const { user, updateUser } = useAuthStore();
   const qc = useQueryClient();
   const [name, setName] = useState('');
@@ -32,6 +41,15 @@ export default function RegisterScreen() {
   const [dobError, setDobError] = useState('');
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
+  const scrollRef = useRef<ScrollView>(null);
+  // The iOS wheel opened under the fold on an SE, and the date it showed was not
+  // written to the field until the wheel moved. Commit what is shown, bring it
+  // into view (a Done control sits under it).
+  const openDatePicker = () => {
+    if (!dob) onDateChange(null, new Date(2000, 0, 1));
+    setShowDatePicker(true);
+    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 60);
+  };
   const [nameError, setNameError] = useState('');
 
   const handleDobChange = (text: string) => {
@@ -94,7 +112,7 @@ export default function RegisterScreen() {
       // the name we just saved and index.tsx bounces straight back here.
       qc.invalidateQueries({ queryKey: ['user', 'profile'] });
       // The scene plays its exit, then the intro tour.
-      leaveAuthScene(() => router.replace('/(onboarding)'));
+      leaveAuthScene(() => void afterProfile());
     },
     onError: (err: any) => {
       notify('Couldn\'t save profile', err?.response?.data?.message ?? err?.message ?? 'Please check your connection and try again.');
@@ -150,6 +168,7 @@ export default function RegisterScreen() {
     // plain scroll - not a keyboard-aware one that would lift a second time.
     <View style={styles.safe}>
       <ScrollView
+        ref={scrollRef}
         style={{ flex: 1 }}
         contentContainerStyle={styles.scroll}
         keyboardShouldPersistTaps="handled"
@@ -210,7 +229,7 @@ export default function RegisterScreen() {
               error={dobError}
               rightIcon={
                 <Pressable
-              onPress={() => setShowDatePicker(true)}
+              onPress={openDatePicker}
               hitSlop={10}
               accessibilityLabel="Open date picker"
             >
@@ -235,6 +254,16 @@ export default function RegisterScreen() {
                 onChange={onDateChange}
               />
             )}
+            {showDatePicker && Platform.OS === 'ios' && (
+              <Pressable
+                onPress={() => setShowDatePicker(false)}
+                style={{ alignSelf: 'flex-end', paddingVertical: spacing.sm, paddingHorizontal: spacing.md }}
+                accessibilityRole="button"
+                accessibilityLabel="Done choosing date of birth"
+              >
+                <Text style={{ color: colors.primary, fontFamily: fonts.semiBold }}>Done</Text>
+              </Pressable>
+            )}
           </Entrance>
 
           {/* CTA */}
@@ -255,7 +284,7 @@ export default function RegisterScreen() {
           {/* Skip */}
           <Entrance animation="fadeIn" delay={180} duration={400}>
             <Pressable
-              onPress={() => router.replace('/(onboarding)')}
+              onPress={() => void afterProfile()}
               style={styles.skipButton}
               accessibilityRole="button"
               accessibilityLabel="Skip profile setup"

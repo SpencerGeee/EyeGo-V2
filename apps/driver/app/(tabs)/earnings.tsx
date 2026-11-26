@@ -337,23 +337,29 @@ export default function EarningsScreen() {
               </View>
             ) : null}
             <View style={styles.balanceActions}>
-              <Button
-                label="Top up"
-                size="sm"
-                onPress={() => {
-                  // Enough to clear the debt AND meet the online floor, so the
-                  // common case is one tap.
-                  if (balance < 0) setTopUpAmount(String(Math.ceil((Math.abs(balance) + driverRequiredWalletPesewas) / 100)));
-                  setTopUpOpen(true);
-                }}
-              />
-              <Button
-                label="Cash out"
-                size="sm"
-                variant="secondary"
-                onPress={() => setSheetOpen(true)}
-                disabled={balance < MIN_WITHDRAWAL_PESEWAS}
-              />
+              {/* Each in its own flex:1 cell: a bare Button is full-width, so
+                  "Top up" took the row and pushed "Cash out" off the card edge. */}
+              <View style={{ flex: 1 }}>
+                <Button
+                  label="Top up"
+                  size="sm"
+                  onPress={() => {
+                    // Enough to clear the debt AND meet the online floor, so the
+                    // common case is one tap.
+                    if (balance < 0) setTopUpAmount(String(Math.ceil((Math.abs(balance) + driverRequiredWalletPesewas) / 100)));
+                    setTopUpOpen(true);
+                  }}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Button
+                  label="Cash out"
+                  size="sm"
+                  variant="secondary"
+                  onPress={() => setSheetOpen(true)}
+                  disabled={balance < MIN_WITHDRAWAL_PESEWAS}
+                />
+              </View>
             </View>
           </GradientGlowBorder>
         </View>

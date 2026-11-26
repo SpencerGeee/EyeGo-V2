@@ -885,7 +885,7 @@ export default function ActivityScreen() {
                   accessibilityRole="button"
                   accessibilityLabel="Schedule a ride"
                 >
-                  <Ionicons name="calendar-outline" size={16} color={colors.onSurface} />
+                  <Ionicons name="calendar-outline" size={16} color={colors.inverseOnSurface} />
                   <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={styles.emptyCtaText}>Schedule a ride</Text>
                 </Pressable>
               </View>
@@ -951,7 +951,7 @@ export default function ActivityScreen() {
                     accessibilityRole="button"
                     accessibilityLabel="Request a trip"
                   >
-                    <Ionicons name="search" size={16} color={colors.onSurface} />
+                    <Ionicons name="search" size={16} color={colors.inverseOnSurface} />
                     <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={styles.emptyCtaText}>Request a trip</Text>
                   </Pressable>
                   <Pressable
@@ -964,7 +964,7 @@ export default function ActivityScreen() {
                     accessibilityLabel="Schedule a ride"
                   >
                     <Ionicons name="calendar-outline" size={16} color={colors.onSurface} />
-                    <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={styles.emptyCtaText}>Schedule</Text>
+                    <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={[styles.emptyCtaText, { color: colors.onSurface }]}>Schedule</Text>
                   </Pressable>
                 </View>
               </View>

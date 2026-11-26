@@ -1,12 +1,16 @@
 import React from 'react';
+import { usePathname } from 'expo-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ReleaseGate, ConsentGate } from '@eyego/ui';
+import { ReleaseGate, ConsentGate, goDeeper } from '@eyego/ui';
 import { userApi, queryKeys } from '@eyego/api';
 
 import { useReleaseGate } from '../hooks/useReleaseGate';
 import { usePlatformConfig } from '../hooks/usePlatformConfig';
 import { useAuthStore } from '../stores/auth.store';
 import { useColors } from '../utils/useColors';
+
+const TERMS_ROUTE = '/profile/terms';
+const PRIVACY_ROUTE = '/profile/privacy-policy';
 
 /**
  * The two things that can stop the app, mounted next to `NoticeHost` inside the
@@ -22,6 +26,10 @@ export function ReleaseGateHost() {
   const colors = useColors();
   const queryClient = useQueryClient();
   const isAuthenticated = useAuthStore((s) => !!s.accessToken);
+  // The gate steps aside while the rider reads the app's own copy of a document,
+  // and comes back when they navigate back to it.
+  const pathname = usePathname();
+  const readingDoc = pathname === TERMS_ROUTE || pathname === PRIVACY_ROUTE;
 
   // Only asked of a signed-in user: there is nobody to record consent against
   // otherwise, and the signup flow shows the same links inline.
@@ -87,9 +95,12 @@ export function ReleaseGateHost() {
         backgroundColor={colors.background}
       />
       <ConsentGate
-        required={consentRequired && !gate.upgradeRequired && !gate.maintenance}
+        required={consentRequired && !readingDoc && !gate.upgradeRequired && !gate.maintenance}
         termsUrl={config.termsUrl}
         privacyUrl={config.privacyUrl}
+        onOpenTerms={() => goDeeper(TERMS_ROUTE as any)}
+        onOpenPrivacy={() => goDeeper(PRIVACY_ROUTE as any)}
+        firstTime={!user?.acceptedTermsVersion && !user?.acceptedPrivacyVersion}
         submitting={accept.isPending}
         onAccept={() => accept.mutate()}
         backgroundColor={colors.background}

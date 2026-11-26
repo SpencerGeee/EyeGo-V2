@@ -117,7 +117,7 @@ export default function PhoneScreen() {
           disabled={!isValid}
           color={colors.primary}
           onColor={colors.onPrimary}
-          accessibilityLabel="Send verification code"
+          accessibilityLabel="Continue"
         />
       </Animated.View>
 

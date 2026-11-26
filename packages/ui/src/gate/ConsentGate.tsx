@@ -54,6 +54,15 @@ export interface ConsentGateProps {
   required: boolean;
   termsUrl?: string | null;
   privacyUrl?: string | null;
+  /**
+   * Open the app's own copy of the document. Preferred over the URL: the public
+   * site did not resolve, so a rider was made to agree to terms that opened a
+   * Safari error page. The host hides the gate while that screen is up.
+   */
+  onOpenTerms?: () => void;
+  onOpenPrivacy?: () => void;
+  /** Never accepted any version — a new account, for whom nothing "changed". */
+  firstTime?: boolean;
   submitting?: boolean;
   onAccept: () => void;
   backgroundColor?: string;
@@ -78,6 +87,9 @@ export function ConsentGate({
   required,
   termsUrl,
   privacyUrl,
+  onOpenTerms,
+  onOpenPrivacy,
+  firstTime = false,
   submitting = false,
   onAccept,
   backgroundColor = '#0B0B0F',
@@ -196,7 +208,7 @@ export function ConsentGate({
       <View style={styles.card}>
         <Animated.View style={titleStyle}>
           <Text variant="display" style={[styles.title, { color: onSurfaceColor }]}>
-            Our terms have changed
+            {firstTime ? 'Before you continue' : 'Our terms have changed'}
           </Text>
         </Animated.View>
 
@@ -210,16 +222,16 @@ export function ConsentGate({
         <Animated.View style={[styles.links, linksStyle]}>
           <DocRow
             label="Terms of service"
-            onPress={() => open(termsUrl)}
-            enabled={!!termsUrl}
+            onPress={onOpenTerms ?? (() => open(termsUrl))}
+            enabled={!!onOpenTerms || !!termsUrl}
             accentColor={accentColor}
             onSurfaceColor={onSurfaceColor}
           />
           <View style={[styles.rule, { backgroundColor: withAlpha(onSurfaceColor, 0.1) }]} />
           <DocRow
             label="Privacy policy"
-            onPress={() => open(privacyUrl)}
-            enabled={!!privacyUrl}
+            onPress={onOpenPrivacy ?? (() => open(privacyUrl))}
+            enabled={!!onOpenPrivacy || !!privacyUrl}
             accentColor={accentColor}
             onSurfaceColor={onSurfaceColor}
           />

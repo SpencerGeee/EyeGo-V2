@@ -219,7 +219,7 @@ function Row({
             </View>
           ) : null}
         </View>
-        <Text style={styles.meta} numberOfLines={1}>
+        <Text style={styles.meta} numberOfLines={2}>
           {when}
           {option.dropoff ? ` · Arrive ${option.dropoff}` : ''}
         </Text>
@@ -275,8 +275,9 @@ const makeStyles = (colors: Colors) =>
     },
     bus: { width: BUS, height: BUS, alignItems: 'center', justifyContent: 'center' },
     middle: { flex: 1, minWidth: 0, gap: 2 },
-    nameRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-    name: { flexShrink: 1, fontFamily: fonts.semiBold, fontSize: fontSizes.bodyLarge ?? 16, color: colors.onSurface },
+    // Wraps rather than truncating: on a 375pt SE the badge squeezed the tier name to "Econ…".
+    nameRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: spacing.sm, rowGap: 2 },
+    name: { flexShrink: 0, fontFamily: fonts.semiBold, fontSize: fontSizes.bodyLarge ?? 16, color: colors.onSurface },
     badge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999 },
     badgeText: { fontFamily: fonts.semiBold, fontSize: 10.5, letterSpacing: 0.2 },
     meta: { fontFamily: fonts.medium, fontSize: 13, color: colors.onSurfaceVariant, fontVariant: ['tabular-nums'] },

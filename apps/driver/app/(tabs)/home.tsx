@@ -1094,15 +1094,6 @@ export default function HomeScreen() {
             </View>
           </Entrance>
 
-          {/* "I'm heading home" — only shown while online and free, because it
-              is a dispatch preference and there is nothing for it to affect
-              otherwise. */}
-          {isOnline && !activeTripData && (
-            <Entrance animation="slideDown" delay={175} style={styles.ctaWrapper}>
-              <DestinationModeCard />
-            </Entrance>
-          )}
-
           {/**
             * ── THE HERO SLOT ────────────────────────────────────────────────
             *
@@ -1168,6 +1159,17 @@ export default function HomeScreen() {
                   Go online to start accepting trips
                 </Text>
               )}
+            </Entrance>
+          )}
+
+          {/* "I'm heading home" — only shown while online and free, because it
+              is a dispatch preference and there is nothing for it to affect
+              otherwise. BELOW the hero, not above it: appearing on go-online it
+              pushed "+ Create Trip" down under the floating tab bar (run
+              45814292257). The optional card can sit lower; the primary cannot. */}
+          {isOnline && !activeTripData && (
+            <Entrance animation="slideDown" delay={225} style={styles.ctaWrapper}>
+              <DestinationModeCard />
             </Entrance>
           )}
         </View>

@@ -467,9 +467,14 @@ async function searchOnce({ query: trimmed, limit, proximity, country }) {
     // trail on another continent. EyeGo operates in Ghana; anything outside it is
     // never the place the rider meant.
     if (!withinGhana(r.latitude, r.longitude)) continue;
+    // Same text is the same row to a rider, even when the coordinates differ: OSM
+    // returns a long street as several segments ("Oxford Street, Ringway Estates"
+    // twice in one list). The first — best-ranked tier — wins.
+    const text = `${r.name}|${r.fullAddress}`.toLowerCase().replace(/\s+/g, ' ').trim();
     const key = dedupeKey(r);
-    if (seen.has(key)) continue;
+    if (seen.has(key) || seen.has(text)) continue;
     seen.add(key);
+    seen.add(text);
     merged.push(r);
   }
   return {

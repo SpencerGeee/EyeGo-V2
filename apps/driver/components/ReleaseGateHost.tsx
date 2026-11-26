@@ -1,6 +1,7 @@
 import React from 'react';
+import { usePathname } from 'expo-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ReleaseGate, ConsentGate } from '@eyego/ui';
+import { ReleaseGate, ConsentGate, goDeeper } from '@eyego/ui';
 import { driverApi } from '@eyego/api';
 
 import { useReleaseGate } from '../hooks/useReleaseGate';
@@ -29,6 +30,9 @@ export function ReleaseGateHost() {
   const colors = useColors();
   const queryClient = useQueryClient();
   const isAuthenticated = useDriverStore((s) => !!s.accessToken);
+  // Steps aside while the driver reads the in-app document (see the rider host).
+  const pathname = usePathname();
+  const readingDoc = pathname === '/terms' || pathname === '/privacy';
 
   /**
    * SAME KEY, SAME SHAPE AS EVERY OTHER READER.
@@ -111,9 +115,12 @@ export function ReleaseGateHost() {
         backgroundColor={colors.background}
       />
       <ConsentGate
-        required={consentRequired && !gate.upgradeRequired && !gate.maintenance}
+        required={consentRequired && !readingDoc && !gate.upgradeRequired && !gate.maintenance}
         termsUrl={config.termsUrl}
         privacyUrl={config.privacyUrl}
+        onOpenTerms={() => goDeeper('/(profile)/terms' as any)}
+        onOpenPrivacy={() => goDeeper('/(profile)/privacy' as any)}
+        firstTime={!acceptedTerms && !acceptedPrivacy}
         submitting={accept.isPending}
         onAccept={() => accept.mutate()}
         backgroundColor={colors.background}
