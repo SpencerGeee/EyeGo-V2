@@ -714,7 +714,6 @@ async function offerNext(tripId) {
       // own id, so an accept for a lapsed or re-offered card is told apart from
       // an accept for the live one, even on the same trip.
       state.offerId = require('crypto').randomUUID();
-      state.ackedAtMs = null;
       await writeState(state);
 
       // The timer is a ROW, not a setTimeout. It survives this process dying.
@@ -1883,19 +1882,23 @@ async function currentHolder(tripId) {
  * on the live offer and marks the app as ack-capable. A stale offerId (an
  * offer that already moved on) is a no-op, never an error — the card is gone.
  */
+/**
+ * The receipt lives in its OWN key, not on the cascade state, and takes no lock.
+ * It used to `withLock` + writeState — but the ack arrives ~1 s after the emit,
+ * while `offerNext` still holds the trip lock (push, socket count, progress
+ * emit), so `withLock` returned null and the ack was dropped silently with a
+ * 200. The ack check then pulled every acked offer as "undelivered" (agent run
+ * 45838978641: the offer vanished at ~60 s with ~100 s on the driver's clock).
+ */
+const ackKey = (offerId) => `dispatch:ack:${offerId}`;
+
 async function ackOffer(tripId, driverId, offerId) {
-  const res = await withLock(tripId, async () => {
-    const state = await readState(tripId);
-    if (!state || state.done || state.currentDriverId !== driverId) return { acked: false };
-    if (offerId && state.offerId && offerId !== state.offerId) return { acked: false };
-    if (!state.ackedAtMs) {
-      state.ackedAtMs = Date.now();
-      await writeState(state);
-    }
-    return { acked: true };
-  });
   await redis.set(ackCapableKey(driverId), '1', 'EX', 7 * 24 * 3600).catch(() => {});
-  return res ?? { acked: false };
+  const state = await readState(tripId);
+  if (!state || state.done || state.currentDriverId !== driverId || !state.offerId) return { acked: false };
+  if (offerId && offerId !== state.offerId) return { acked: false };
+  await redis.set(ackKey(state.offerId), '1', 'EX', offerTtlSeconds() + 60);
+  return { acked: true };
 }
 
 /** The id of the live offer on this trip, or null (Q7). */
@@ -1991,7 +1994,7 @@ scheduledTasks.registerHandler(TASK_OFFER_ACK_CHECK, async (task) => {
   if (!tripId) return;
   const state = await readState(tripId);
   if (!state || state.done || state.currentDriverId !== driverId || state.offerId !== offerId) return;
-  if (state.ackedAtMs) return;
+  if (await redis.get(ackKey(offerId)).catch(() => '1')) return; // Redis down → never revoke on a guess
   logger.info('Dispatch offer undelivered (no ack)', { tripId, driverId });
   noteDecline(state, driverId, { deliberate: false });
   releaseHold(state);

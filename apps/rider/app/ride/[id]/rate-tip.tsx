@@ -76,15 +76,30 @@ export default function RateTipScreen() {
     staleTime: 0,
   });
 
+  const { data: snapshot } = useQuery({
+    queryKey: ['ride', 'snapshot', id],
+    queryFn: () => ridesApi.events(id, 0),
+    select: (r: any) => r?.snapshot ?? r?.data?.snapshot ?? null,
+    enabled: !!id,
+    staleTime: 5 * 60_000,
+  });
+  /**
+   * The trip snapshot carries the rider's own booking. It is the only source
+   * that survives completion: `getActive()` returns nothing once the ride has
+   * ended and the store is cleared, which left the id '' and every rate/tip
+   * failing "Could not identify your booking" (agent run 45838978641 #25).
+   */
+  const snapshotBookingId: string | undefined = (snapshot as any)?.booking?.id;
+
   // R13: Stabilize resolvedBookingId — derive once on mount using a ref so it
   // doesn't change mid-render. Prefer URL param, fall back to store, then API.
   const resolvedBookingIdRef = useRef<string | null>(null);
   if (resolvedBookingIdRef.current === null) {
-    resolvedBookingIdRef.current = paramBookingId || activeBooking?.id || fetchedBooking?.id || '';
+    resolvedBookingIdRef.current = paramBookingId || activeBooking?.id || fetchedBooking?.id || snapshotBookingId || '';
   }
   // Update ref if we get a new value from API fetch and ref is still empty
-  if (!resolvedBookingIdRef.current && fetchedBooking?.id) {
-    resolvedBookingIdRef.current = fetchedBooking.id;
+  if (!resolvedBookingIdRef.current && (fetchedBooking?.id || snapshotBookingId)) {
+    resolvedBookingIdRef.current = fetchedBooking?.id || snapshotBookingId || '';
   }
   const resolvedBookingId = resolvedBookingIdRef.current;
 
@@ -250,13 +265,6 @@ export default function RateTipScreen() {
    * `CONTACTABLE_STATUSES` strips their PHONE number on a finished trip, which
    * is the intended privacy rule and does not touch the name.
    */
-  const { data: snapshot } = useQuery({
-    queryKey: ['ride', 'snapshot', id],
-    queryFn: () => ridesApi.events(id, 0),
-    select: (r: any) => r?.snapshot ?? r?.data?.snapshot ?? null,
-    enabled: !!id,
-    staleTime: 5 * 60_000,
-  });
   const snapDriver = (snapshot as any)?.driver ?? null;
 
   const driverName =

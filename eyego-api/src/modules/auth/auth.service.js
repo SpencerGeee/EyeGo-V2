@@ -27,7 +27,12 @@ function signTokens(userId, role) {
   return { accessToken, refreshToken, tokenId };
 }
 
-const REFRESH_GRACE_MS = 15000;
+// A rotated refresh token stays usable this long. It must outlive the client's
+// own retry loop (packages/api client.ts: 15 s timeout x3 + 1 s/2 s backoff ≈ 48 s):
+// at 15 s, a refresh whose RESPONSE was lost (the server already rotated) retried
+// at ~16 s with the old token, got 401, and logged the driver out mid-trip.
+// Logout deletes the row instead, so this window never revives a signed-out session.
+const REFRESH_GRACE_MS = 60000;
 
 async function storeRefreshToken(userId, driverId, role, tokenId) {
   const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
@@ -171,10 +176,8 @@ async function refreshPassengerToken(token) {
 }
 
 async function logout(tokenId) {
-  await prisma.refreshToken.updateMany({
-    where: { tokenId },
-    data: { revokedAt: new Date() },
-  });
+  // Delete, not revoke: a revoked row is still honoured for REFRESH_GRACE_MS.
+  await prisma.refreshToken.deleteMany({ where: { tokenId } });
 }
 
 // ─── Driver Auth ───────────────────────────────────

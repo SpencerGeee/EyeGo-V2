@@ -4,6 +4,7 @@ const { Router } = require('express');
 const { body, query, param } = require('express-validator');
 const rides = require('./rides.service');
 const authenticate = require('../../middleware/auth');
+const { authenticateAny } = require('../../middleware/auth');
 // Platform-wide maintenance switch — see middleware/killSwitch.js.
 const { requireBookingEnabled } = require('../../middleware/killSwitch');
 const { authenticateDriver } = require('../../middleware/driverAuth');
@@ -156,10 +157,17 @@ router.get(
   }),
 );
 
-/** Replay: everything that happened after the seq the client last applied. */
+/**
+ * Replay: everything that happened after the seq the client last applied.
+ *
+ * BOTH apps poll this (packages/api tripChannel). It used to take the rider-only
+ * `authenticate`, so every driver poll 401'd, each 401 forced a token refresh
+ * (~every 5 s on a live trip), and one lost refresh response logged the driver
+ * out mid-trip. getRideEvents already checks the viewer is on the trip.
+ */
 router.get(
   '/:id/events',
-  authenticate,
+  authenticateAny,
   [param('id').isString(), query('since').optional().isInt({ min: 0 })],
   validate,
   h(async (req, res) => {
