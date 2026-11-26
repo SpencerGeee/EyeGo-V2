@@ -527,6 +527,16 @@ async function withLock(tripId, fn) {
   }
 }
 
+/**
+ * Returned from inside a lock to say "offer the next driver once this lock is
+ * released". It used to be `setImmediate(offerNext)` from inside the lock, and
+ * on one Redis connection that is ordered GET (our release check) → SET NX
+ * (offerNext, refused: still ours) → DEL. `withLock` returns null on a refused
+ * lock, so every resweep that found a driver dropped the offer without a log
+ * line and armed nothing: the trip sat in MATCHING with the driver online.
+ */
+const RETAKE = Symbol('retake');
+
 // ── offering ─────────────────────────────────────────────────────────────────
 
 async function pushToDriver(driver, trip, expiresAtMs, offer = {}) {
@@ -623,7 +633,7 @@ function cashFloatPesewas(trip) {
  * easily accept something else while we are still walking earlier candidates.
  */
 async function offerNext(tripId) {
-  return withLock(tripId, async () => {
+  const again = await withLock(tripId, async () => {
     const state = await readState(tripId);
     if (!state || state.done) return;
 
@@ -926,8 +936,7 @@ async function offerNext(tripId) {
           totalCandidates: state.candidates.length,
         });
         // Released and re-taken rather than recursed under the held lock.
-        setImmediate(() => offerNext(tripId).catch((e) => logger.warn(e.message)));
-        return;
+        return RETAKE;
       }
       await writeState(state);
     }
@@ -962,6 +971,7 @@ async function offerNext(tripId) {
       })
       .catch((err) => logger.warn(`NO_DRIVERS_FOUND transition failed for ${tripId}: ${err.message}`));
   });
+  if (again === RETAKE) await offerNext(tripId);
 }
 
 /**
@@ -1001,7 +1011,7 @@ async function scheduleResweep(tripId, state) {
  * may never come online.
  */
 async function resweep(tripId) {
-  return withLock(tripId, async () => {
+  const again = await withLock(tripId, async () => {
     const state = await readState(tripId);
     if (!state || state.done) return;
 
@@ -1104,8 +1114,9 @@ async function resweep(tripId) {
     releaseHold(state);
     await writeState(state);
     // Released and re-taken rather than recursed under the held lock.
-    setImmediate(() => offerNext(tripId).catch((e) => logger.warn(e.message)));
+    return RETAKE;
   });
+  if (again === RETAKE) await offerNext(tripId);
 }
 
 /**
