@@ -156,11 +156,11 @@ export async function makeDriver(opts = {}) {
       ghanaCardNumber: 'GHA-' + Math.floor(Math.random() * 1e9),
       vehicle: {
         make: 'Toyota',
-        model: 'Corolla',
+        model: 'HiAce',
         year: 2019,
-        colour: 'Silver',
+        colour: 'White',
         plateNumber: 'GT-' + Math.floor(Math.random() * 9000 + 1000) + '-' + Math.floor(Math.random() * 90 + 10),
-        seaterCount: opts.seaterCount ?? 4,
+        seaterCount: opts.seaterCount ?? 14, // buses only: MIN_SEATER_COUNT = 6
         tier: opts.tier || 'ECO',
       },
     },
