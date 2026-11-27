@@ -29,6 +29,7 @@ import { shareSearchingTrip } from '../../../utils/safety';
 import { consumePickedPlace } from '../../../utils/placePickerResult';
 import { byDeparture, departureLabel, seatsLeft } from '../../../utils/tripGroups';
 import type { GeocodeResult } from '../../../utils/geocoding';
+import { takeQuote } from '../../../lib/previewQuotes';
 
 /** A place as the ride store holds it. */
 type Place = { latitude: number; longitude: number; address: string };
@@ -579,7 +580,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
         const chosenSeats =
           chosenSeatsRef.current ?? useRideStore.getState().requestSeatCount ?? requestSeatCount;
 
-        const quote = await ridesApi.quote({
+        const quoteInputs = {
           pickupLat: origin.latitude,
           pickupLng: origin.longitude,
           dropoffLat: storeDestination.latitude,
@@ -591,7 +592,10 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
           doorstepPickup: doorstepPickup ?? undefined,
           heavyLoad,
           seatCount: chosenSeats,
-        });
+        };
+        // The quote the rider was SHOWN, when nothing that prices it has moved —
+        // see lib/previewQuotes. Re-quoting off a jittered fix changed the fare.
+        const quote = takeQuote(quoteInputs) ?? (await ridesApi.quote(quoteInputs));
 
         const { tripId } = await ridesApi.request(
           {

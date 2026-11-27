@@ -123,7 +123,10 @@ const errorHandler = (err, req, res, next) => {
     messageIsOurs = true;
   }
 
-  // JWT errors
+  // JWT errors. An expired access token is the normal 15-minute cycle, not a
+  // fault: it was logged "Unhandled error" + sent to Sentry on every refresh.
+  const isJwt = err.name === 'JsonWebTokenError' || err.name === 'TokenExpiredError';
+  if (isJwt) messageIsOurs = true;
   if (err.name === 'JsonWebTokenError') {
     statusCode = 401;
     message = 'Invalid token';
@@ -135,7 +138,7 @@ const errorHandler = (err, req, res, next) => {
   }
 
   // Log non-operational errors as errors
-  if (!err.isOperational || statusCode >= 500) {
+  if ((!err.isOperational && !isJwt) || statusCode >= 500) {
     logger.error('Unhandled error:', {
       message: err.message,
       stack: err.stack,

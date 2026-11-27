@@ -173,7 +173,12 @@ async function forRider(userId, sinceMs, { days } = {}) {
 
   const rated = new Set(ratings.map((r) => r.tripId));
   const items = [];
+  // A request that found nobody is told once, by the request loop below. Its
+  // booking also reads EXPIRED, and was ALSO sent as "Your seat hold ran out —
+  // the seat wasn't paid for in time" for an on-demand cash ride (run 45902035048 #4).
+  const requestIds = new Set(requests.map((t) => t.id));
   for (const b of bookings) {
+    if (requestIds.has(b.tripId)) continue;
     const o = riderBookingOutcome(b, rated);
     if (o) items.push({ key: `${o.kind}:${b.id}`, ...o });
   }

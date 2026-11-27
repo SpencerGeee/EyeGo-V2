@@ -5,7 +5,7 @@ const redis = require('../config/redis');
 const env = require('../config/env');
 const logger = require('../utils/logger');
 const { getDirections } = require('./mapbox.service');
-const { haversineMeters, distanceToPolyline, realisticDurationMin } = require('../utils/geo');
+const { haversineMeters, distanceToPolyline, realisticDurationMin, projectOntoPolyline } = require('../utils/geo');
 const supply = require('./supply-index.service');
 const { seatOccupyingWhere } = require('../utils/booking-status');
 
@@ -471,6 +471,25 @@ async function registerDeviation(tripId, offRoute) {
 }
 
 /**
+ * A cached leg's numbers are for the WHOLE leg as it was when computed. Served
+ * as-is, "Arriving in 12 min" stood still for 9 minutes on both phones while the
+ * driver drove (run 45902035048 #2): the line is cached up to 180 s, and every
+ * fix in between re-sent the full-leg duration. What is left is the share of
+ * the line still ahead of the driver.
+ */
+function withProgress(route, driver) {
+  if (!driver || !usable(driver.lat) || !usable(driver.lng)) return route;
+  const at = projectOntoPolyline(driver.lat, driver.lng, route?.geometry?.coordinates);
+  if (!at || !(at.totalM > 0)) return route;
+  const left = Math.max(0, Math.min(1, 1 - at.alongM / at.totalM));
+  return {
+    ...route,
+    distanceKm: Math.round(route.distanceKm * left * 100) / 100,
+    durationMin: Math.round(route.durationMin * left * 10) / 10,
+  };
+}
+
+/**
  * The current route for a trip, computing it only when it actually needs to be.
  *
  * @param {object} trip   Trip row with status, pickup/dropoff and optional route
@@ -502,7 +521,7 @@ async function getRouteForTrip(trip, driver, opts = {}) {
     const ttlSec = cached.source === 'estimate' ? ESTIMATE_TTL_SEC : CACHE_TTL_SEC;
     const stale = Date.now() - (cached.computedAt || 0) > ttlSec * 1000;
 
-    if (strikes < OFF_ROUTE_STRIKES && !stale) return cached;
+    if (strikes < OFF_ROUTE_STRIKES && !stale) return withProgress(cached, driver);
     rerouted = strikes >= OFF_ROUTE_STRIKES;
     if (rerouted) await redis.del(strikeKey(trip.id)).catch(() => {});
   }
@@ -778,6 +797,7 @@ module.exports = {
   legEndpoints,
   deviationMeters,
   getRouteForTrip,
+  withProgress,
   peekRouteForTrip,
   // Peek, plus a one-off compute for the static pre-departure preview line.
   ensureRouteForTrip,

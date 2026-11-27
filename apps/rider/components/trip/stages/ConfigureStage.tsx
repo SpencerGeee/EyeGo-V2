@@ -26,6 +26,7 @@ import { MapGestureHint } from '../MapGestureHint';
 import { RidePicker, type RideOption } from '../RidePicker';
 import { useRideStore } from '../../../stores/ride.store';
 import { useTripFlow } from '../../../stores/tripFlow.store';
+import { rememberQuote } from '../../../lib/previewQuotes';
 
 /**
  * WHERE-TO, PAGED — steps 3 to 5 of 5.
@@ -350,6 +351,7 @@ const [doorstepInfo, setDoorstepInfo] = useState<{ offsetMeters: number; offRoad
         ridesApi
           .quote({ ...base, tier: id })
           .then((q) => {
+            if (q) rememberQuote({ ...base, tier: id }, q);
             /**
              * THE MAP BEHIND THIS SCREEN GETS ITS ROUTE FROM HERE.
              *
@@ -918,7 +920,7 @@ const [doorstepInfo, setDoorstepInfo] = useState<{ offsetMeters: number; offRoad
           {step === 3 ? (
             <View style={styles.payLine}>
               <Ionicons name="cash-outline" size={15} color={colors.primary} />
-              <Text style={styles.payLineText}>Cash · pay your driver at the end</Text>
+              <Text style={styles.payLineText}>Cash · pay your driver when you get in</Text>
             </View>
           ) : null}
           {/* Shiny + tier-tinted: this is the one hero CTA on the screen, and

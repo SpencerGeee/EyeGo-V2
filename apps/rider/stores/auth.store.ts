@@ -3,6 +3,7 @@ import * as SecureStore from 'expo-secure-store';
 import type { User, AuthTokens } from '@eyego/types';
 import { forceDisconnectSocket } from '@eyego/api';
 import { useRideStore } from './ride.store';
+import { useTripStore } from './trip.store';
 
 /**
  * Cleanup callbacks registered by the app root (e.g. clearing the React Query
@@ -49,6 +50,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // new user's data loads. Guards against a stale activeBooking/trip surviving
     // a crash-without-logout into the next sign-in.
     useRideStore.getState().clearRideState();
+    // Stop watching the live trip too: a signed-out rider kept polling
+    // /rides/:id/events + /rides/active every few seconds, all 401 (run 45902035048).
+    useTripStore.getState().unwatch();
     // Set in-memory state FIRST (synchronous) — mirrors the driver store's
     // login(), which documents the exact bug this used to have: awaiting the
     // SecureStore writes before calling set() left a ~50ms window where the

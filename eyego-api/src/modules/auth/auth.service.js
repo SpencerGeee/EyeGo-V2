@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const admin = require('firebase-admin');
@@ -9,8 +10,7 @@ const otpService = require('../../services/otp.service');
 const smsService = require('../../services/sms.service');
 const { AuthError, NotFoundError, AppError } = require('../../utils/errors');
 
-function signTokens(userId, role) {
-  const tokenId = uuidv4();
+function signTokens(userId, role, tokenId = uuidv4()) {
 
   const accessToken = jwt.sign(
     { userId, role, type: 'access', tokenId },
@@ -33,6 +33,49 @@ function signTokens(userId, role) {
 // at ~16 s with the old token, got 401, and logged the driver out mid-trip.
 // Logout deletes the row instead, so this window never revives a signed-out session.
 const REFRESH_GRACE_MS = 60000;
+
+/**
+ * A ROTATION MUST BE REPLAYABLE.
+ *
+ * The successor's tokenId is a pure function of the token it replaces. On a
+ * slow network the server rotates, the client's 15 s timeout fires first, and
+ * the client keeps the OLD token (agent run 45902035048: rotated at 23:32:30,
+ * old token presented at 23:45:35, 13 min past the grace window -> 401 -> the
+ * rider was signed out mid-search). A revoked token whose successor has never
+ * itself been rotated is exactly that lost response, so it re-issues the same
+ * successor. A stolen predecessor dies the moment the real client refreshes once.
+ */
+function successorId(tokenId) {
+  return crypto.createHmac('sha256', env.JWT_REFRESH_SECRET).update(tokenId).digest('hex').slice(0, 36);
+}
+
+async function rotateRefreshToken(stored, ownerId, role) {
+  const nextId = successorId(stored.tokenId);
+  if (stored.revokedAt) {
+    const next = await prisma.refreshToken.findUnique({ where: { tokenId: nextId } });
+    const lostResponse = next && !next.revokedAt && next.expiresAt > new Date();
+    // Grace window kept for tokens rotated before successors were deterministic.
+    if (!lostResponse && Date.now() - stored.revokedAt.getTime() > REFRESH_GRACE_MS) {
+      throw new AuthError('Refresh token revoked');
+    }
+  } else {
+    await prisma.refreshToken.updateMany({ where: { tokenId: stored.tokenId, revokedAt: null }, data: { revokedAt: new Date() } });
+  }
+  const { accessToken, refreshToken } = signTokens(ownerId, role, nextId);
+  // Upsert: two racing refreshes of one token both land on the same successor row.
+  await prisma.refreshToken.upsert({
+    where: { tokenId: nextId },
+    create: {
+      tokenId: nextId,
+      userId: role === 'PASSENGER' ? ownerId : null,
+      driverId: role === 'DRIVER' ? ownerId : null,
+      role,
+      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+    },
+    update: {},
+  });
+  return { accessToken, refreshToken };
+}
 
 async function storeRefreshToken(userId, driverId, role, tokenId) {
   const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
@@ -144,12 +187,6 @@ async function refreshPassengerToken(token) {
 
   const stored = await prisma.refreshToken.findUnique({ where: { tokenId: decoded.tokenId } });
   if (!stored) throw new AuthError('Refresh token revoked');
-  // Grace window: two requests racing to refresh the same expiring access token can both
-  // present this same (now-rotated) refresh token. Reject only if it was revoked outside the
-  // race window — otherwise mint a fresh pair instead of forcing the whole app to log out.
-  if (stored.revokedAt && Date.now() - stored.revokedAt.getTime() > REFRESH_GRACE_MS) {
-    throw new AuthError('Refresh token revoked');
-  }
   if (stored.expiresAt < new Date()) throw new AuthError('Refresh token expired');
 
   /**
@@ -166,13 +203,7 @@ async function refreshPassengerToken(token) {
   });
   if (!account || !account.isActive) throw new AuthError('Your account has been deactivated');
 
-  // Rotate: revoke old, issue new
-  await prisma.refreshToken.update({ where: { tokenId: decoded.tokenId }, data: { revokedAt: new Date() } });
-
-  const { accessToken, refreshToken, tokenId } = signTokens(decoded.userId, 'PASSENGER');
-  await storeRefreshToken(decoded.userId, null, 'PASSENGER', tokenId);
-
-  return { accessToken, refreshToken };
+  return rotateRefreshToken(stored, decoded.userId, 'PASSENGER');
 }
 
 async function logout(tokenId) {
@@ -221,12 +252,6 @@ async function refreshDriverToken(token) {
 
   const stored = await prisma.refreshToken.findUnique({ where: { tokenId: decoded.tokenId } });
   if (!stored) throw new AuthError('Refresh token revoked');
-  // Grace window: the driver app polls far more (location/earnings/nearby-trips) than the rider
-  // app, so two screens racing to refresh the same expiring access token is common. Reject only
-  // if revoked outside the race window — otherwise mint a fresh pair instead of a forced logout.
-  if (stored.revokedAt && Date.now() - stored.revokedAt.getTime() > REFRESH_GRACE_MS) {
-    throw new AuthError('Refresh token revoked');
-  }
   if (stored.expiresAt < new Date()) throw new AuthError('Refresh token expired');
 
   // Same rule as the passenger path above: a refresh is a fresh grant, so the
@@ -240,12 +265,7 @@ async function refreshDriverToken(token) {
     throw new AuthError('Your account has been deactivated');
   }
 
-  await prisma.refreshToken.update({ where: { tokenId: decoded.tokenId }, data: { revokedAt: new Date() } });
-
-  const { accessToken, refreshToken, tokenId } = signTokens(decoded.userId, 'DRIVER');
-  await storeRefreshToken(null, decoded.userId, 'DRIVER', tokenId);
-
-  return { accessToken, refreshToken };
+  return rotateRefreshToken(stored, decoded.userId, 'DRIVER');
 }
 
 module.exports = {

@@ -12,6 +12,9 @@ const mockUser = {
 
 const mockRefreshToken = {
   create: jest.fn(),
+  findUnique: jest.fn(),
+  updateMany: jest.fn(),
+  upsert: jest.fn(),
 };
 
 jest.mock('../src/config/database', () => ({
@@ -119,5 +122,38 @@ describe('auth.service passenger authentication', () => {
       expect(result.user).toEqual(existingUser);
       expect(result.isNewUser).toBe(false);
     });
+  });
+});
+
+describe('refresh rotation is replayable (run 45902035048)', () => {
+  const env = require('../src/config/env');
+  const authService = require('../src/modules/auth/auth.service');
+  let rows;
+  const issue = (tokenId) => jwt.sign({ userId: 'u1', role: 'PASSENGER', tokenId, type: 'refresh' }, env.JWT_REFRESH_SECRET);
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    rows = new Map();
+    mockRefreshToken.findUnique.mockImplementation(async ({ where }) => rows.get(where.tokenId) || null);
+    mockRefreshToken.updateMany.mockImplementation(async ({ where, data }) => {
+      const r = rows.get(where.tokenId); if (r && !r.revokedAt) Object.assign(r, data);
+    });
+    mockRefreshToken.upsert.mockImplementation(async ({ where, create }) => {
+      if (!rows.has(where.tokenId)) rows.set(where.tokenId, { ...create, revokedAt: null });
+    });
+    mockUser.findUnique.mockResolvedValue({ isActive: true });
+    rows.set('t0', { tokenId: 't0', revokedAt: null, expiresAt: new Date(Date.now() + 1e9) });
+  });
+
+  it('a lost refresh response does not sign the user out; a stolen predecessor dies after one real refresh', async () => {
+    const old = issue('t0');
+    const first = await authService.refreshPassengerToken(old);      // response "lost"
+    rows.get('t0').revokedAt = new Date(Date.now() - 13 * 60 * 1000); // 13 min later, past grace
+    const replay = await authService.refreshPassengerToken(old);     // client retries with the old token
+    const a = jwt.decode(first.refreshToken).tokenId;
+    expect(jwt.decode(replay.refreshToken).tokenId).toBe(a);
+
+    await authService.refreshPassengerToken(replay.refreshToken);    // real client moves on
+    await expect(authService.refreshPassengerToken(old)).rejects.toThrow('Refresh token revoked');
   });
 });
