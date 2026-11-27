@@ -273,8 +273,12 @@ const makeStyles = (colors: DriverColors) =>
       borderBottomColor: colors.outline,
       marginBottom: spacing.sm,
     },
+    // 44 pt target (run 45902035048 #18: 'All' was 17x25).
     categoryPill: {
       paddingVertical: spacing.xs,
+      minHeight: 44,
+      minWidth: 44,
+      justifyContent: 'center',
       alignItems: 'center',
       position: 'relative',
     },

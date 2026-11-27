@@ -115,7 +115,9 @@ export function describeDispatchBlock(reason: string | null | undefined): {
   if (code === 'REQUESTS_PAUSED') {
     return {
       headline: 'Requests are paused',
-      detail: 'You paused incoming offers. Nothing will reach you until you resume them.',
+      // Also set by the server after several lapsed offers in a row, so it must
+      // not claim the driver did it (run 45902035048 #9).
+      detail: 'Offers are paused — either you paused them, or we did after several missed offers in a row. Resume to start getting rides again.',
       action: 'RESUME',
       severity: 'warn',
     };

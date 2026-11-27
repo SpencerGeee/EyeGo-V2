@@ -83,9 +83,11 @@ const makeStyles = (colors: Colors) =>
     },
     plateText: {
       fontFamily: fonts.displayBold,
-      fontSize: fontSizes.titleLarge,
-      lineHeight: Math.round(fontSizes.titleLarge * 1.2),
-      letterSpacing: 1.2,
+      // titleLarge + 1.2 tracking cut "GT-4821-24" to "GT-4821…" on an
+      // iPhone SE (run 45902035048 #12) — the plate is what the rider checks.
+      fontSize: fontSizes.titleMedium,
+      lineHeight: Math.round(fontSizes.titleMedium * 1.25),
+      letterSpacing: 0.6,
       color: colors.onSurface,
     },
     name: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodyLarge, lineHeight: 22, color: colors.onSurface },
